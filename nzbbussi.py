@@ -6,7 +6,7 @@ from threading import Thread
 import sys
 import ssl
 import posix_ipc
-import signal
+import configparser
 
 # python 3 unrar
 # https://pypi.python.org/pypi/unrar/
@@ -15,17 +15,7 @@ import signal
 # NZB = "saltatio-mortis.nzb"
 # NZB = "Vorstadtweiber.nzb"
 # NZB = "Fuenf.Freunde.1.nzb"
-NZB = "Der.Gloeckner.von.Notre.nzb"
-#SERVER = "news.bulknews.eu"
-#USER = "heinzdererste"
-#PASSWORD = "mnhnz116F"
-#PORT = 563
-
-SERVER = "sslreader.eweka.nl"
-USER = "Matty69"
-PASSWORD = "Pascal.29..1"
-PORT = 563
-
+NZB = "nzb/Der.Gloeckner.von.Notre.nzb"
 
 SEMAPHORE = posix_ipc.Semaphore("news_sema", posix_ipc.O_CREAT)
 SEMAPHORE.release()
@@ -136,6 +126,13 @@ class Download(Thread):
 
 
 if __name__ == "__main__":
+
+    nzbbussicfg = configparser.ConfigParser()
+    nzbbussicfg.read("config/nzbbussi.config")
+    SERVER = nzbbussicfg["SERVERS"]["SERVER"]
+    USER = nzbbussicfg["SERVERS"]["USER"]
+    PASSWORD = nzbbussicfg["SERVERS"]["PASSWORD"]
+    PORT = int(nzbbussicfg["SERVERS"]["PORT"])
 
     tree = ET.parse(NZB)
     root = tree.getroot()
