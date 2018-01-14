@@ -7,6 +7,8 @@ import sys
 import ssl
 import posix_ipc
 import configparser
+import subprocess
+import os
 
 # python 3 unrar
 # https://pypi.python.org/pypi/unrar/
@@ -144,6 +146,7 @@ if __name__ == "__main__":
     filedic = {}
     threads = []
     SIZE = 0
+    PAR2FILE = None
     for r in root:
         headers = r.attrib
         try:
@@ -154,7 +157,8 @@ if __name__ == "__main__":
             hn_list = subject.split('"')
             hn = hn_list[1]
             an = hn_list[0]
-            # n0 = int(hn_list[2].split("(1/")[1].replace(")", ""))
+            if PAR2FILE is None and hn[-5:].lower() == ".par2":
+                PAR2FILE = hn
         except Exception as e:
             continue
         for s in r:
@@ -178,7 +182,8 @@ if __name__ == "__main__":
                 # print(filelist)
                 #print("-" * 80)
                 filedic[hn] = filelist
-    threadlist = []
+    
+    '''threadlist = []
     for co in range(connections):
         threadlist.append([])
     sn = 0
@@ -200,4 +205,23 @@ if __name__ == "__main__":
         th.start()
 
     for th in threads:
-        th.join()
+        th.join()'''
+
+    print("par repair:")
+
+    # PAR-REPAIR
+    os.chdir("download/")
+    ssh = subprocess.Popen(["/usr/bin/par2verify", PAR2FILE], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # ssh = subprocess.Popen(["ls", "-al"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    sshres = ssh.stdout.readlines()
+    answer = sshres[-1].decode("utf-8")
+    if answer[0:21] == "All files are correct":
+        print("No par repair required")
+    else:
+        print("par2 repair required")
+        ssh = subprocess.Popen(["/usr/bin/par2repair", PAR2FILE], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sshres = ssh.stdout.readlines()
+        for ssh0 in sshres:
+            print(ssh0)
+
+    # UNRAR
