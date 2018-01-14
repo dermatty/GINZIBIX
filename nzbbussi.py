@@ -221,7 +221,9 @@ if __name__ == "__main__":
         print("par2 repair required")
         ssh = subprocess.Popen(["/usr/bin/par2repair", PAR2FILE], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         sshres = ssh.stdout.readlines()
-        for ssh0 in sshres:
-            print(ssh0)
-
+        answer = sshres[-1].decode("utf-8")
+        if answer[0:15] == "Repair complete":
+            print("Repair complete!")
+        else:
+            print("Cannot repair!")
     # UNRAR
