@@ -60,9 +60,81 @@ class Download(Thread):
         self.SERVER = nntplib.NNTP_SSL(SERVER, user=USER, password=PASSWORD, ssl_context=self.context, port=PORT, readermode=True)
 
     def run(self):
-        global BYTES_WRITTEN
-        global COMPLETE_DIR
-        for header, filelist in self.ITEMS:
+        global BYTES_WRITTEN, COMPLETE_DIR
+        failedarticles = []
+        # loop over whole (.rar) file
+        for header, articlelist_ext in self.ITEMS:
+            nr_articles = int(articlelist_ext[0])
+            articlelist = articlelist_ext[1:]
+            byt = bytearray()
+            for artnr in range(nr_articles):
+                articles_for_download = [f for f in articlelist if f[1] == artnr + 1]
+                # if article no. not found in articlelist -> failedarticles
+                if articles_for_download == []:
+                    print("Article #" + str(artnr+1) + " is missing in NZB file")
+                    failedarticles.append((header, artnr + 1, nr_articles))
+                    continue
+                infolist = []
+                for a0 in articles_for_download:
+                    print(str(self.THREADNO) + " > File:" + header + " --> downloading article #" + str(a0[1]) + " of " + str(nr_articles) + ": " + a0[0])
+                    try:
+                        resp_h, info_h = self.SERVER.head(a0[0])  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
+                        resp, info = self.SERVER.body(a0[0])      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
+                        if resp_h[:3] != "221" or resp[:3] != "222":
+                            continue
+                    except Exception as e:
+                        print("Article download error: " + str(e))
+                        continue
+                    infolist.append(info)
+                    break
+                # if cannot download article -> failedarticles
+                if infolist == []:
+                    print("Download of Article failed")
+                    failedarticles.append((header, artnr + 1, nr_articles))
+                    continue
+                # all ok until now, decode it!
+                headerfound = 0
+                endfound = 0
+                partfound = 0
+                byt0 = byt
+                info = infolist[0]            # TODO: if duplicates found, iterate over them
+                for inf in info.lines:
+                    try:
+                        inf0 = inf.decode()
+                        if inf0 == "":
+                            continue
+                        if inf0[:7] == "=ybegin":
+                            headerfound += 1
+                            continue
+                        if inf0[:5] == "=yend":
+                            pcrc32 = inf0.split("pcrc32=")[1]
+                            endfound += 1
+                            continue
+                        if inf0[:6] == "=ypart":
+                            partfound += 1
+                            continue
+                    except Exception as e:
+                        pass
+                    byt.extend(inf)
+                if headerfound != 1 or endfound != 1 or partfound > 1:
+                    print("Wrong yenc structure detected")
+                    byt = byt0
+                    continue
+                # print("Article passed successfully")
+            # print("------------------------------------")
+            length, crc32, decoded = yenc.decode(byt)
+            print(crc32, pcrc32)
+            if crc32 == pcrc32:
+                # print("CRC check success!")
+                f0 = open(COMPLETE_DIR + header, "wb")
+                f0.write(decoded)
+                f0.flush()
+                f0.close()
+            else:
+                print("CRC32 failed")
+        self.SERVER.quit()
+
+        '''for header, filelist in self.ITEMS:
             nr_articles = int(filelist[0])
             articlesprocessed = []
             byt = bytearray()
@@ -71,10 +143,16 @@ class Download(Thread):
                     continue
                 if f[1] not in articlesprocessed:
                     print(str(self.THREADNO) + " > File:" + header + " --> downloading article #" + str(f[1]) + " of " + str(nr_articles) + ": " + f[0])
-                    resp, info = self.SERVER.body(f[0])
-                    resp_h, info_h = self.SERVER.body(f[0])
-
-                    # todo: if 2 articles with same number --> check if both identical, else: error
+                    resp_h, info_h = self.SERVER.head(f[0])  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
+                    resp, info = self.SERVER.body(f[0])      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
+                    print(resp_h[:3])
+                    sys.exit()
+                    # todo: if 2 articles with same number --> check:
+                    #    a. both size & crc32 are ok
+                    #    b. if both are ok and identical crc -> take first one
+                    #    c. if only 1 is ok -> take this
+                    #    d. if both are ok but not identical crc/size --> error
+                    #    e. if article is missing try other server, oder so
 
                     # Ednuerf Fneuf-1-Pittis AVCHD1080p fuer DVD5.Ger.part025.rar&quot; (27/99) yEnc (1/136)
                     # <segment bytes="398458" number="27">1Ph1PL9Er40A8WQkste2_27o99@JBinUp.local</segment>
@@ -82,21 +160,21 @@ class Download(Thread):
                     # '<1Ph1PL9Er40A8WQkste2_27o99@JBinUp.local>'
                     # '<QrivyXCU7lV26U7sqtW9_27o99@JBinUp.local>'
 
-                    '''cat '<1Ph1PL9Er40A8WQkste2_27o99@JBinUp.local>'
+                    cat '<1Ph1PL9Er40A8WQkste2_27o99@JBinUp.local>'
                     =ybegin part=27 total=134 line=128 size=51200000 name=Ednuerf Fneuf-1-Pittis AVCHD1080p fuer DVD5.Ger.part025.rar
                     =ypart begin=9984001 end=10368000
                     =yend size=384000 part=27 pcrc32=7d2799b9
                     check crc32: 7d2799b9
-                    check length: 384000'''
+                    check length: 384000
 
-                    '''cat '<QrivyXCU7lV26U7sqtW9_27o99@JBinUp.local>'
+                    cat '<QrivyXCU7lV26U7sqtW9_27o99@JBinUp.local>'
                     =ybegin part=27 total=134 line=128 size=51200000 name=Ednuerf Fneuf-1-Pittis AVCHD1080p fuer DVD5.Ger.part025.rar
                     =ypart begin=9984001 end=10368000
                     =yend size=384000 part=27 pcrc32=7d2799b9
                     check crc32: 7d2799b9
-                    check length: 384000'''
+                    check length: 384000
 
-                    '''byt1 = bytearray()
+                    byt1 = bytearray()
                     with open(COMPLETE_DIR + "articles/" + f[0], "w") as ff1:
                         for inf in info_h.lines:
                             try:
@@ -107,7 +185,7 @@ class Download(Thread):
                         length, crc32, decoded = yenc.decode(byt1)
                         ff1.write("check crc32: " + str(crc32) + "\n")
                         ff1.write("check length: " + str(length) + "\n")
-                        ff1.close()'''
+                        ff1.close()
 
                     headerfound = 0
                     endfound = 0
@@ -142,8 +220,7 @@ class Download(Thread):
             f0.write(decoded)
             print(header + " saved!!")
             f0.flush()
-            f0.close()
-        self.SERVER.quit()
+            f0.close()'''
 
 
 if __name__ == "__main__":
@@ -175,7 +252,7 @@ if __name__ == "__main__":
     root = tree.getroot()
     os.chdir(MAIN_DIR)
 
-    connections = CONNECTIONS
+    connections = 1  # CONNECTIONS
 
     server = nntplib.NNTP_SSL(SERVER, user=USER, password=PASSWORD, port=PORT, readermode=True)
 
