@@ -9,6 +9,7 @@ import posix_ipc
 import configparser
 import subprocess
 import os
+import signal
 from os.path import expanduser
 import sys
 
@@ -37,6 +38,18 @@ BYTES_WRITTEN = 0
 DTIME = 0
 AVGBYTES = 0
 
+
+def siginthandler(signum, frame):
+    global servers
+    servers.quit()
+    sys.exit()
+
+
+def shutdown():
+    global servers
+    servers.quit()
+    print("ByeBye!")
+    sys.exit()
 
 def writer(nobyt):
     global SEMAPHORE
@@ -205,15 +218,16 @@ def modify_articlelist(idx, item):
 
 class ArticleDownload(Thread):
 
-    def __init__(self, art_nr, art_name, server, sidx, servers):
+    def __init__(self, art_nr, art_name, server_ref, servers):
         Thread.__init__(self)
         global ARTICLELIST
         self.daemon = True
         self.art_nr = art_nr
         self.art_name = art_name
-        self.server = server
-        self.serverindex = sidx
+        # server_res: m_idx, m_name, m_level, m_nntpobj, m_threadidx
+        self.serverindex, self.servername, self.level, self.server_nntpobj, self.server_threadix = server_ref
         self.servers = servers
+            
         # ARTICLELIST = [(art_nr, art_name, age, status (-1 default), unused_servers, content)]
         self.article = [(idx, art_nr0, art_name0, age0, status0, unused_servers0, content)
                         for idx, (art_nr0, art_name0, age0, status0, unused_servers0, content) in enumerate(ARTICLELIST)
@@ -221,11 +235,12 @@ class ArticleDownload(Thread):
         self.articleindex, _, _, self.age, self.status, self.unused_servers, _ = self.article
 
     def get_article(self):
+
         print("Downloading article #" + str(self.art_nr) + ": " + self.art_name)
         try:
             print(">>>", self.servers.server_threadlist)
-            resp_h, info_h = self.server.head(self.art_name)  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
-            resp, info = self.server.body(self.art_name)      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
+            resp_h, info_h = self.server_nntpobj.head(self.art_name)  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
+            resp, info = self.server_nntpobj.body(self.art_name)      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
             if resp_h[:3] != "221" or resp[:3] != "222":
                 raise("No Succes answer from server!")
         except Exception as e:
@@ -234,10 +249,20 @@ class ArticleDownload(Thread):
         return True, info
 
     def run(self):
-        server, nr_active, maxconn, retention, level = self.servers.server_threadlist[self.serverindex]
-        self.servers.modify_serverthreadlist(self.serverindex, (server, nr_active + 1, maxconn, retention, level))
+        global SEMAPHORE
+        if not self.server_nntpobj:
+            self.server_nntpobj = self.servers.make_connection(self.serverindex, self.server_threadix)
+            if not self.server_nntpobj:
+                return False, None
+        # set server connection as busy
+        # serverthreads.append((server_name, connlist, retention, level))
+        SEMAPHORE.acquire()
+        s0_name, s0_conn, s0_ret, s0_level = self.servers.server_threadlist[self.serverindex]
+        s0_conn[self.server_threadix] = (self.server_nntpobj, True)
+        self.servers.server_threadlist[self.serverindex] = (s0_name, s0_conn, s0_ret, s0_level)
         unused_new = self.unused_servers[:]
-        unused_new.remove(self.server)
+        unused_new.remove(self.servername)
+        SEMAPHORE.release()
         modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, 1, unused_new, None))
 
         success, info = self.get_article()
@@ -253,7 +278,12 @@ class ArticleDownload(Thread):
             modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, -2, unused_new, info))
         elif not success and unused_new:
             modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, -1, unused_new, info))
-        self.servers.modify_serverthreadlist(self.serverindex, (self.server, nr_active, maxconn, retention, level))
+        SEMAPHORE.acquire()
+        server_name, connection_list, retention, level = self.servers.server_threadlist[self.serverindex]
+        c_nntpobj, c_isbusy = connection_list[self.server_threadix]
+        connection_list[self.server_threadix] = (c_nntpobj, False)
+        self.servers.server_threadlist[self.serverindex] = (server_name, connection_list, retention, level)
+        SEMAPHORE.release()
         return
 
 
@@ -281,28 +311,29 @@ class Downloader():
 
     def get_free_server_from_server_threadlist(self, age, unused_servers):
         t0 = time.time()
-        min_server = None
         # (server_name, connection_list[(nntplib_obj, is_busy)], retention, level)
         # print("-----", unused_servers)
-        while not min_server and time.time() - t0 < 1:            # max 1 sekunde suchen
-            suited_servers = [(s0, connlist, level) for s0, no_active, connlist, retention, level in self.servers.server_threadlist
-                              if s0 in unused_servers and retention > age * 0.9]
-            for s_name, s_connlist, s_level in suited_servers:
-                for nntpob, is_busy in s_connlist:
+        while time.time() - t0 < 1:            # max 1 sekunde suchen
+            suited_servers0 = [(sidx, s0, connlist, level) for sidx, (s0, connlist, retention, level) in enumerate(self.servers.server_threadlist)
+                               if s0 in unused_servers and retention > age * 0.9]
+            suited_servers1 = []
+            for s_idx, s_name, s_connlist, s_level in suited_servers0:
+                for threadidx, (nntpobj, is_busy) in enumerate(s_connlist):
                     if not is_busy:
-                        
-            if not suited_servers:
+                        suited_servers1.append((s_idx, s_name, s_level, nntpobj, threadidx))
+            if not suited_servers1:
                 continue
-            min_server = None
-            min_level = 10000
-            for s, level in suited_servers:
-                if level < min_level:
-                    min_level = level
-                    min_server = s
-            if min_server:
-                idx = [idx0 for idx0, (s0, no_active, maxconn, retention, level) in enumerate(self.servers.server_threadlist) if min_server == s0][0]
-                return min_server, idx
-        return min_server, -1
+            min_server = (None, None, 10000, None, None)
+            for s_idx, s_name, s_level, s_nntpobj, s_threadix in suited_servers1:
+                m_idx, m_name, m_level, m_nntpobj, n_threadidx = min_server
+                if s_level < m_level:
+                    min_server = (s_idx, s_name, s_level, s_nntpobj, s_threadix)
+            m_idx, m_name, m_level, m_nntpobj, n_threadidx = min_server
+            if m_name:
+                return min_server
+            else:
+                return None
+        return None
 
     def decode_articles(self, infolist):
         headerfound = 0
@@ -355,16 +386,15 @@ class Downloader():
                 break            # fertisch!!!!
             if not res0 and stillrunning:
                 continue
-            artnr, art_name, age, unused_servers, _ = stillrunning
-            print("ART", artnr)
-            s0, sidx = self.get_free_server_from_server_threadlist(age, unused_servers)
-            print(s0, sidx)
-            if s0:
-                ad = ArticleDownload(artnr, art_name, s0, sidx, self.servers)
+            art_nr, art_name, age, unused_servers, _ = stillrunning
+            print("ART", art_nr)
+            # server_res: m_idx, m_name, m_level, m_nntpobj, m_threadidx
+            server_res = self.get_free_server_from_server_threadlist(age, unused_servers)
+            if server_res:
+                ad = ArticleDownload(art_nr, art_name, server_res, self.servers)
                 ad.start()
             else:
-                print("Somehting bad happened!")
-                sys.exit()
+                print("Cannot queue articel, delaying ...")
             time.sleep(0.1)
 
         print("All articles downloaded where possible")
@@ -423,20 +453,44 @@ class Servers():
         self.server_threadlist[idx] = item
         SEMAPHORE.release()
 
+    def quit(self):
+        for s in self.server_threadlist:
+            server_name, connlist, _, _ = s
+            for i, (server0, _) in enumerate(connlist):
+                if not server0:
+                    continue
+                try:
+                    server0.quit()
+                    print("Connection to server " + server_name + " / connection #" + str(i+1) + " closed!")
+                except Exception as e:
+                    print("Server quit error: " + str(e))
+
+    def make_connection(self, server_idx, connection_idx):
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        server_name, server, user, password, port, usessl, level, max_connections, retention, threads_active = self.server_config[server_idx]
+        (server_name_t, connlist_t, retention_t, level_t) = self.server_threadlist[server_idx]
+        try:
+            if usessl:
+                server0 = nntplib.NNTP_SSL(server, user=user, password=password, ssl_context=context, port=port, readermode=True)
+            else:
+                server0 = nntplib.NNTP(server, user=user, password=password, ssl_context=context, port=port, readermode=True)
+            print("Established connection #" + str(connection_idx + 1) + "on server " + server_name)
+            connlist_t[connection_idx] = (server0, False)
+            self.server_threadlist[server_idx] = (server_name_t, connlist_t, retention_t, level_t)
+            return server0
+        except Exception as e:
+            print("Cannot connect to server " + server_name)
+        return False
+
     def connect(self):
         serverthreads = []
         unused = []
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
         for s in self.server_config:
             server_name, server, user, password, port, usessl, level, max_connections, retention, threads_active = s
             connlist = []
-            for mc in max_connections:
+            for mc in range(max_connections):
                 try:
-                    if usessl:
-                        server0 = nntplib.NNTP_SSL(server, user=user, password=password, ssl_context=context, port=port, readermode=True)
-                    else:
-                        server0 = nntplib.NNTP(server, user=user, password=password, ssl_context=context, port=port, readermode=True)
-                    connlist.append((server0, False))
+                    connlist.append((False, False))
                 except Exception as e:
                     pass
             if connlist:
@@ -525,6 +579,9 @@ if __name__ == "__main__":
         print("At least one server has to be provided, exiting!")
         sys.exit()
 
+    signal.signal(signal.SIGINT, siginthandler)
+    signal.signal(signal.SIGTERM, siginthandler)
+
     # get nzbs -> atm only pls only 1 nzb in nzb dir!
     os.chdir(NZB_DIR)
     print("Getting NZB files from " + NZB_DIR)
@@ -541,7 +598,6 @@ if __name__ == "__main__":
 
     filedic = ParseNZB(nzb_root)
 
-    servers.connect()
     j = 0
     for key, filelist in filedic.items():
         ARTICLELIST = []
@@ -566,10 +622,10 @@ if __name__ == "__main__":
                 f0.close()
         else:
             print("File damaged, with articles missing!!")
-            sys.exit()
+            shutdown()
         j += 1
-        if j == 5:
-            sys.exit()
+        if j > 0:
+            shutdown()
 
     # downloader = Downloader(filedic, SERVERLIST)
     # success = downloader.download()
