@@ -238,11 +238,13 @@ class ArticleDownload(Thread):
 
         print("Downloading article #" + str(self.art_nr) + ": " + self.art_name)
         try:
-            print(">>>", self.servers.server_threadlist)
+            # print(">>>", self.servers.server_threadlist)
             resp_h, info_h = self.server_nntpobj.head(self.art_name)  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
             resp, info = self.server_nntpobj.body(self.art_name)      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
             if resp_h[:3] != "221" or resp[:3] != "222":
                 raise("No Succes answer from server!")
+            else:
+                print("head + body downloaded!")
         except Exception as e:
             print("Article download error: " + str(e))
             return False, None
@@ -624,7 +626,7 @@ if __name__ == "__main__":
             print("File damaged, with articles missing!!")
             shutdown()
         j += 1
-        if j > 0:
+        if j > 2:
             shutdown()
 
     # downloader = Downloader(filedic, SERVERLIST)
