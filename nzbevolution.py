@@ -38,10 +38,9 @@ def siginthandler(signum, frame):
     global mp_work_queue
     mp_work_queue.put(None)
     time.sleep(1)
+
     global SERVERS, threads, articlequeue
-
     articlequeue.join()
-
     for t in threads:
         articlequeue.put(None)
 
@@ -51,7 +50,7 @@ def siginthandler(signum, frame):
     sys.exit()
 
 
-def decode_articles(mp_work_queue):
+def decode_articles(mp_work_queue, mp_result_queue):
     while True:
         res0 = mp_work_queue.get()
         if not res0:
@@ -100,6 +99,7 @@ def decode_articles(mp_work_queue):
             f0.write(bytesfinal)
             f0.flush()
             f0.close()
+        mp_result_queue.put((filename, status))
 
 
 def ParseNZB(nzbdir):
@@ -277,6 +277,7 @@ class Servers():
 class ConnectionWorker(Thread):
     def __init__(self, lock, connection, articlequeue, servers):
         Thread.__init__(self)
+        self.daemon = True
         self.connection = connection
         self.articlequeue = articlequeue
         self.lock = lock
@@ -391,14 +392,20 @@ class Downloader():
                         allfilelist[idx].append((nr, fn))
         return allfilelist
 
-    def download_and_process(self, filedic, articlequeue, resultarticlequeue, mp_work_queue):
-        global resultarticles_dic
-        global COMPLETE_DIR
-        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, ))
+    def download_and_process(self, filedic, articlequeue, mp_work_queue, mp_result_queue, threads):
+        global COMPLETE_DIR, resultarticles_dic
+        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
         mpp.start()
+
+        threads = []
+        for sn, scon, _, _ in self.all_connections:
+            t = ConnectionWorker(self.lock, (sn, scon), articlequeue, self.servers)
+            threads.append(t)
+            t.start()
 
         allfileslist = self.make_allfilelist(filedic)
         # iterate over all files in NZB
+        status = True
         for file_articles in allfileslist:
             resultarticles_dic = {}
             # iterate over all articles in file
@@ -408,10 +415,11 @@ class Downloader():
                     continue
                 nr, fn = art0
                 resultarticles_dic[str(nr)] = (fn, age, None)
-            dl.download_file(articlequeue, resultarticlequeue)     # result in resultarticles_dic
+            threads = []
+            dl.download_file(articlequeue, threads)     # result in resultarticles_dic
+
             lenresultarticles = len(resultarticles_dic)
             len_ok_resultarticles = len([key for key, (_, _, info) in resultarticles_dic.items() if info])
-            # resultarticles_dic[str(articlenr)] = (artname, age, info)
             if len_ok_resultarticles < lenresultarticles:
                 print("*" * 80)
                 print("Articles missing!!!!")
@@ -425,13 +433,25 @@ class Downloader():
                         infolist.append(info)
                         break
             mp_work_queue.put((infolist, COMPLETE_DIR, filename))
+            while True:
+                try:
+                    fn, fs = mp_result_queue.get_nowait()
+                    if fs != 0:
+                        status = False
+                except Exception as e:
+                    break
         mp_work_queue.put(None)
         mpp.join()
+        for t in threads:
+            articlequeue.put(None)
+        articlequeue.join()
+        return status
 
-    def download_file(self, articlequeue, resultarticlequeue):
-        global resultarticles_dic, threads
+    def download_file(self, articlequeue, threads):
+        global resultarticles_dic
         for level, serverlist in self.level_servers.items():
             level_servers = serverlist
+            # articles = [(artnr, fn, age, level_servers) for artnr, (fn, age, info) in resultarticles_dic.items() if not info]
             le_dic = {}
             for le in level_servers:
                 _, _, _, _, _, _, _, _, retention = self.servers.get_single_server_config(le)
@@ -459,19 +479,6 @@ class Downloader():
                 continue
             # Produce
             self.article_producer(articles, articlequeue)
-            # consumer
-            threads = []
-            nr = min(len(level_connections), len(articles))
-            for nr0 in range(nr):
-                c = level_connections[nr0]
-                t = ConnectionWorker(self.lock, c, articlequeue, self.servers)
-                threads.append(t)
-                t.start()
-
-            articlequeue.join()
-
-            for t in threads:
-                articlequeue.put(None)
 
             articlequeue.join()
 
@@ -504,10 +511,10 @@ if __name__ == '__main__':
     level_servers0 = SERVERS.level_servers
     all_connections = SERVERS.all_connections
     articlequeue = queue.Queue()
-    resultaticlequeue = queue.Queue()
     mp_work_queue = mp.Queue()
+    mp_result_queue = mp.Queue()
 
     dl = Downloader(SERVERS, LOCK, level_servers0, all_connections)
-    dl.download_and_process(filedic, articlequeue, resultaticlequeue, mp_work_queue)
+    status = dl.download_and_process(filedic, articlequeue, mp_work_queue, mp_result_queue, threads)
 
     SERVERS.close_all_connections()
