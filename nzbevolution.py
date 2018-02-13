@@ -315,48 +315,53 @@ class ConnectionWorker(Thread):
             self.nntpobj = self.servers.open_connection(name, conn_nr)
         if not self.nntpobj:
             print("Could not connect to server " + idn + ", exiting thread")
-            self.stop()
+            self.stop()   # todo: ordentlicher stop!!!
             return
         else:
             print(idn + " starting !")
         while True:    # self.running:
+            self.lock.acquire()
+            artlist = list(self.articlequeue.queue)
             try:
-                # article = self.articlequeue.get_nowait()
-                article = self.articlequeue.get()
-                if not article:
-                    print(idn + ": got poison pill!")
-                    self.articlequeue.task_done()
-                    break
-                # (artnr, fn, age, level_servers)
-                articlenr, artname, age, remaining_servers = article
-            except queue.Empty:
+                test_article = artlist[0]
+            except IndexError:
+                self.lock.release()
+                time.sleep(0.1)
                 continue
-            except Exception as e:
-                print("Error in article queue get: " + str(e))
-            if name not in remaining_servers:
+            if not test_article:
+                article = self.articlequeue.get()
                 self.articlequeue.task_done()
-                self.articlequeue.put(article)
+                self.lock.release()
+                print(idn + ": got poison pill!")
+                break
+            _, _, _, remaining_servers = test_article
+            if name not in remaining_servers:
+                self.lock.release()
+                time.sleep(0.1)
+                continue
+            article = self.articlequeue.get()
+            self.lock.release()
+            articlenr, artname, age, remaining_servers = article
+            print("Downloading on server " + idn + ": + for article #" + str(articlenr), remaining_servers)
+            res, info = self.download_article(article)
+            # res, info = download(article, self.nntpobj)
+            if res:
+                print("Download success on server " + idn + ": for article #" + str(articlenr), remaining_servers)
+                with self.lock:
+                    resultarticles_dic[str(articlenr)] = (artname, age, info)
+                self.articlequeue.task_done()
             else:
-                print("Downloading on server " + idn + ": + for article #" + str(articlenr), remaining_servers)
-                res, info = self.download_article(article)
-                # res, info = download(article, self.nntpobj)
-                if res:
-                    print("Download success on server " + idn + ": for article #" + str(articlenr), remaining_servers)
+                article = (articlenr, artname, age, [x for x in remaining_servers if x != name])
+                if not article[3]:
+                    print(">>>> Download finally failed on server " + idn + ": for article #" + str(articlenr))
                     with self.lock:
-                        resultarticles_dic[str(articlenr)] = (artname, age, info)
+                        resultarticles_dic[str(articlenr)] = (artname, age, None)
                     self.articlequeue.task_done()
                 else:
-                    article = (articlenr, artname, age, [x for x in remaining_servers if x != name])
-                    if not article[3]:
-                        print(">>>> Download finally failed on server " + idn + ": for article #" + str(articlenr))
-                        with self.lock:
-                            resultarticles_dic[str(articlenr)] = (artname, age, None)
-                        self.articlequeue.task_done()
-                    else:
-                        self.articlequeue.task_done()
-                        self.articlequeue.put(article)
-                        print(">>>> Download failed on server " + idn + ": for article #" + str(articlenr), ", requeuing on servers:",
-                              article[3])
+                    self.articlequeue.task_done()
+                    self.articlequeue.put(article)
+                    print(">>>> Download failed on server " + idn + ": for article #" + str(articlenr), ", requeuing on servers:",
+                          article[3])
         print(idn + " exited!")
 
 
