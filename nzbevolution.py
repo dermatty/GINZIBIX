@@ -494,6 +494,139 @@ class Downloader():
             print("-" * 80)
 
 
+class DownloaderV2():
+    def __init__(self, servers, lock, level_servers, all_connections):
+        self.servers = servers
+        self.lock = lock
+        self.level_servers = level_servers
+        self.all_connections = all_connections
+
+    def article_producer(self, articles, articlequeue):
+        for article in articles:
+            articlequeue.put(article)
+
+    def make_allfilelist(self, filedic):
+        allfilelist = []
+        for idx, (filename, filelist) in enumerate(filedic.items()):
+            for i, f in enumerate(filelist):
+                if i == 0:
+                    age, filetype, nr_articles = f
+                    allfilelist.append([(filename, age, filetype, nr_articles)])
+                else:
+                    fn, nr = f
+                    allok = True    # check for duplicate art. #
+                    if len(allfilelist[idx]) > 2:
+                        for i1, art in enumerate(allfilelist[idx]):
+                            if i1 > 1:
+                                nr1, fn1 = art
+                                if nr1 == nr:
+                                    allok = False
+                                    break
+                    if allok:
+                        allfilelist[idx].append((nr, fn))
+        return allfilelist
+
+    def download_and_process(self, filedic, articlequeue, mp_work_queue, mp_result_queue, threads):
+        global COMPLETE_DIR, files
+
+        allfileslist = self.make_allfilelist(filedic)
+
+        # start decoder thread
+        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
+        mpp.start()
+
+        # start all connection worker threads
+        threads = []
+        for sn, scon, _, _ in self.all_connections:
+            t = ConnectionWorker(self.lock, (sn, scon), articlequeue, resultqueue, self.servers)
+            threads.append(t)
+            t.start()
+
+        # generate all articles and files
+        files = {}
+        for j, file_articles in enumerate(allfileslist):
+            # iterate over all articles in file
+            articles = []
+            for i, art0 in enumerate(file_articles):
+                if i == 0:
+                    filename, age, filetype, nr_articles = art0
+                    # files = filename, nr_articles, age, filetype, [infolist], done=boolean, [(art_nr, art_name, info)])
+                    files.append(filename, nr_articles, age, filetype, [None] * nr_articles, False, [])
+                    continue
+                art_nr, art_name = art0
+                articles.append((filename, age, filetype, nr_articles, art_nr, art_name, []))
+            files[j]
+
+        # start downloader
+        self.download_files(articles, articlequeue)
+
+        # postprocess until all are done
+        while True:
+            self.lock.acquire()
+            alldone = True
+            for i, (filename, nr_articles, age, filetype, infolist, done) in enumerate(files):
+                if done:
+                    continue
+                alldone = False
+                len_downloaded = len([inf for inf in infolist if inf and inf != "failed"])
+                if len_downloaded == nr_articles:
+                    mp_work_queue.put((infolist, COMPLETE_DIR, filename))
+                    files[i] = filename, nr_articles, age, filetype, infolist, True
+                    break
+                len_failed = len([inf for inf in infolist if inf == "failed"])
+                if len_failed + len_downloaded == nr_articles:
+                    print("--> Articles failed!!")
+                    files[i] = filename, nr_articles, age, filetype, infolist, True
+                    break
+            self.lock.release()
+            if alldone:
+                break
+            time.sleep(1)
+
+    def download_files(self, articles, articlequeue):
+        for level, serverlist in self.level_servers.items():
+            if not articles:
+                print("All articles downloaded")
+                break
+            level_servers = serverlist
+            # articles = [filename, age, filetype, nr_articles, art_nr, art_name, level_servers = []]
+            le_dic = {}
+            for le in level_servers:
+                _, _, _, _, _, _, _, _, retention = self.servers.get_single_server_config(le)
+                le_dic[le] = retention
+            le_serv1 = []
+            for i, (filename, age, filetype, nr_articles, art_nr, art_name, _) in enumerate(articles):
+                le_serv0 = []
+                for le in level_servers:
+                    if le_dic[le] > age * 0.9:
+                        le_serv0.append(le)
+                        if le not in le_serv1:
+                            le_serv1.append(le)
+                if not le_serv0:
+                    for j0, (f_filename, f_nr_articles, f_age, f_filetype, f_infolist, f_done) in enumerate(files):
+                        if f_filename0 == filename:
+                            
+                else:
+                    articles[i] = filename, age, filetype, nr_articles, art_nr, art_name, le_serv0
+                    
+            if not le_serv1 and articles:
+                print("Download incomplete, no servers with sufficient retention available!")
+                break
+            level_connections = [(name, connection) for name, connection, _, _ in self.all_connections if name in le_serv1]
+            if not level_connections:
+                continue
+            # Produce
+            self.article_producer(articles, articlequeue)
+
+            articlequeue.join()
+
+            print("Download failed:", [(key, fn) for key, (fn, age, info) in resultarticles_dic.items() if not info])
+            l0 = len([info for key, (fn, age, info) in resultarticles_dic.items()])
+            l1 = len([info for key, (fn, age, info) in resultarticles_dic.items() if info])
+            print("Complete  Articles after level", level, ": " + str(l1) + " out of " + str(l0))
+            print("-" * 80)
+
+
 # main
 if __name__ == '__main__':
 
