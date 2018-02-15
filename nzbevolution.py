@@ -587,7 +587,10 @@ class ConnectionWorkerV2(Thread):
                     if addserver:
                         next_servers.append(addserver)
                 self.articlequeue.task_done()
-                self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
+                if not next_servers:
+                    resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
+                else:
+                    self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         print(idn + " exited!")
 
 
@@ -634,7 +637,7 @@ class DownloaderV2():
             # iterate over all articles in file
             filename, age, filetype, nr_articles = file_articles[0]
             level_servers = self.get_level_servers(age)
-            files[filename] = (nr_articles, age, filetype, [None] * nr_articles, False)
+            files[filename] = (nr_articles, age, filetype, [None] * nr_articles, False, True)
             for i, art0 in enumerate(file_articles):
                 if i == 0:
                     continue
@@ -643,8 +646,8 @@ class DownloaderV2():
                 articlequeue.put(q)
 
         # start decoder thread
-        # mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
-        # mpp.start()
+        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
+        mpp.start()
 
         # start all connection worker threads
         threads = []
@@ -653,28 +656,44 @@ class DownloaderV2():
             threads.append(t)
             t.start()
 
-        # postprocess until all are done
         while True:
-            self.lock.acquire()
+            # read resultqueue
+            results = []
+            while True:
+                try:
+                    resultarticle = resultqueue.get_nowait()
+                    results.append(resultarticle)
+                except queue.Empty:
+                    break
+            # distribute results to files
+            if results:
+                for r in results:
+                    filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info = r
+                    (f_nr_articles, f_age, f_filetype, infolist, done, failed) = files[filename]
+                    infolist0 = infolist[:]
+                    infolist0[art_nr-1] = info
+                    files[filename] = (f_nr_articles, f_age, f_filetype, infolist0, done, failed)
+            # set completed files to "done"
+            for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
+                if not done and len([inf for inf in infolist0 if inf]) == nr_articles:        # check for failed!! todo!!
+                    if "failed" not in infolist:
+                        failed0 = False
+                    else:
+                        failed0 = True
+                    files[filename] = (f_nr_articles, f_age, f_filetype, infolist0, True, failed0)
+            # start decoding/saving for done files
             alldone = True
-            for i, (filename, nr_articles, age, filetype, infolist, done) in enumerate(files):
+            for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
                 if done:
-                    continue
-                alldone = False
-                len_downloaded = len([inf for inf in infolist if inf and inf != "failed"])
-                if len_downloaded == nr_articles:
-                    mp_work_queue.put((infolist, COMPLETE_DIR, filename))
-                    files[i] = filename, nr_articles, age, filetype, infolist, True
-                    break
-                len_failed = len([inf for inf in infolist if inf == "failed"])
-                if len_failed + len_downloaded == nr_articles:
-                    print("--> Articles failed!!")
-                    files[i] = filename, nr_articles, age, filetype, infolist, True
-                    break
-            self.lock.release()
+                    mp_work_queue.put((infolist0, COMPLETE_DIR, filename))
+                else:
+                    alldone = False
+            # if all are done: exit loop
             if alldone:
                 break
-            time.sleep(1)
+            time.sleep(0.5)
+
+        # check for empty articlequeue and resultqueue
 
     def get_level_servers(self, retention):
         le_serv0 = []
