@@ -60,7 +60,8 @@ def decode_articles(mp_work_queue, mp_result_queue):
         bytes0 = bytearray()
         bytesfinal = bytearray()
         pcrc32 = ""
-        status = 0
+        status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
+        statusmsg = "ok"
         for info in infolist:
             headerfound = 0
             endfound = 0
@@ -81,17 +82,21 @@ def decode_articles(mp_work_queue, mp_result_queue):
                         partfound += 1
                         continue
                 except Exception as e:
-                    pass
+                    status = -3
+                    statusmsg = "no_decode"
                 bytes0.extend(inf)
             if headerfound != 1 or endfound != 1 or partfound > 1:
                 print("Wrong yenc structure detected")
-                status = -1
+                statusmsg = "yenc"
+                status = 0
             if pcrc32 == "":
+                statusmsg = "no_pcrc32"
                 status = -1
             _, crc32, decoded = yenc.decode(bytes0)
             if crc32.strip("0") != pcrc32.strip("0"):
                 print("CRC32 checksum error: " + crc32 + " / " + pcrc32)
-                status = -1
+                statusmsg = "crc32checksum_error: " + crc32 + " / " + pcrc32
+                status = -2
             bytesfinal.extend(decoded)
             bytes0 = bytearray()
         # return bytesfinal, status  # status = 0 -> ok, = -1 -> repair (par2) needed
@@ -99,7 +104,7 @@ def decode_articles(mp_work_queue, mp_result_queue):
             f0.write(bytesfinal)
             f0.flush()
             f0.close()
-        mp_result_queue.put((filename, status))
+        mp_result_queue.put((filename, status, statusmsg))
 
 
 def ParseNZB(nzbdir):
@@ -512,15 +517,14 @@ class ConnectionWorkerV2(Thread):
     def stop(self):
         self.running = False
 
-    def download_article(self, article):
-        articlenr, artname, age, remaining_servers = article
+    def download_article(self, article_name, article_age):
         sn, _ = self.connection
         server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
-        if retention < age * 0.95:
+        if retention < article_age * 0.95:
             return False, None
         try:
-            resp_h, info_h = self.nntpobj.head(artname)
-            resp, info = self.nntpobj.body(artname)
+            resp_h, info_h = self.nntpobj.head(article_name)
+            resp, info = self.nntpobj.body(article_name)
             if resp_h[:3] != "221" or resp[:3] != "222":
                 raise("No Succes answer from server!")
             else:
@@ -536,10 +540,10 @@ class ConnectionWorkerV2(Thread):
         idn = name + " #" + str(conn_nr)
         if not self.nntpobj:
             self.nntpobj = self.servers.open_connection(name, conn_nr)
-        if not self.nntpobj:
-            print("Could not connect to server " + idn + ", exiting thread")
-            self.stop()   # todo: ordentlicher stop!!!
-            return
+            if not self.nntpobj:
+                print("Could not connect to server " + idn + ", exiting thread")
+                # self.stop()   # todo: ordentlicher stop!!!
+                return
         else:
             print(idn + " starting !")
         while True:    # self.running:
@@ -557,13 +561,16 @@ class ConnectionWorkerV2(Thread):
                 self.lock.release()
                 print(idn + ": got poison pill!")
                 break
-            _, _, _, remaining_servers = test_article
+            _, _, _, _, _, _, remaining_servers = test_article
             # no servers left
             # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
             if not remaining_servers:
-                a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l = self.articlequeue.get()
+                article = self.articlequeue.get()
                 self.lock.release()
-                resultqueue.put((a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l, None))
+                resultqueue.put(article + (None,))
+                '''a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l = self.articlequeue.get()
+                self.lock.release()
+                resultqueue.put((a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l, None))'''
                 continue
             if name not in remaining_servers[0]:
                 self.lock.release()
@@ -573,7 +580,7 @@ class ConnectionWorkerV2(Thread):
             self.lock.release()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers = article
             print("Downloading on server " + idn + ": + for article #" + str(art_nr), remaining_servers)
-            res, info = self.download_article(art_name)
+            res, info = self.download_article(art_name, age)
             # res, info = download(article, self.nntpobj)
             if res:
                 print("Download success on server " + idn + ": for article #" + str(art_nr), remaining_servers)
@@ -646,8 +653,8 @@ class DownloaderV2():
                 articlequeue.put(q)
 
         # start decoder thread
-        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
-        mpp.start()
+        # mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
+        # mpp.start()
 
         # start all connection worker threads
         threads = []
@@ -685,7 +692,8 @@ class DownloaderV2():
             alldone = True
             for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
                 if done:
-                    mp_work_queue.put((infolist0, COMPLETE_DIR, filename))
+                    print("All articles downloaded, calling mp.decode ...")
+                    # mp_work_queue.put((infolist0, COMPLETE_DIR, filename))
                 else:
                     alldone = False
             # if all are done: exit loop
