@@ -27,7 +27,6 @@ COMPLETE_DIR = MAIN_DIR + "complete/"
 INCOMPLETE_DIR = MAIN_DIR + "incomplete/"
 LOGS_DIR = MAIN_DIR + "logs/"
 
-LOCK = threading.Lock()
 SEMAPHORE = posix_ipc.Semaphore("news_sema", posix_ipc.O_CREAT)
 SEMAPHORE.release()
 
@@ -35,26 +34,12 @@ SEMAPHORE.release()
 # ---- Procedures ----
 
 
-def siginthandler(signum, frame):
-    global mp_work_queue
-    mp_work_queue.put(None)
-    time.sleep(1)
-
-    global SERVERS, threads, articlequeue
-
-    print("Got Ctrl-C")
-
-    for t in threads:
-        t.stop()
-        t.join()
-
-    SERVERS.close_all_connections()
-    sys.exit()
-
-
 def decode_articles(mp_work_queue, mp_result_queue):
     while True:
-        res0 = mp_work_queue.get()
+        try:
+            res0 = mp_work_queue.get()
+        except KeyboardInterrupt:
+            return
         if not res0:
             print("Exiting decoder process!")
             break
@@ -183,6 +168,28 @@ def download(article, nntpob):
 # ---- Classes ----
 
 
+class SigHandler():
+    def __init__(self, servers, threads, mp_work_queue):
+        self.servers = servers
+        self.threads = threads
+        self.mp_work_queue = mp_work_queue
+        self.signal = False
+
+    def handler2(self, signal, frame):
+        return
+
+    def signalhandler(self, signal, frame):
+        self.signal = True
+        print("Got Ctrl-C")
+        self.mp_work_queue.put(None)
+        time.sleep(1)
+        for t in self.threads:
+            t.stop()
+            t.join()
+        self.servers.close_all_connections()
+        sys.exit()
+
+
 class Servers():
 
     def __init__(self, cfg):
@@ -293,229 +300,6 @@ class Servers():
 
 
 class ConnectionWorker(Thread):
-    def __init__(self, lock, connection, articlequeue, servers):
-        Thread.__init__(self)
-        self.daemon = True
-        self.connection = connection
-        self.articlequeue = articlequeue
-        self.lock = lock
-        self.servers = servers
-        self.nntpobj = None
-        self.running = True
-
-    def stop(self):
-        self.running = False
-
-    def download_article(self, article):
-        articlenr, artname, age, remaining_servers = article
-        sn, _ = self.connection
-        server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
-        if retention < age * 0.95:
-            return False, None
-        try:
-            resp_h, info_h = self.nntpobj.head(artname)
-            resp, info = self.nntpobj.body(artname)
-            if resp_h[:3] != "221" or resp[:3] != "222":
-                raise("No Succes answer from server!")
-            else:
-                resp = True
-        except Exception as e:
-            resp = False
-            info = None
-            print("Article download error: " + str(e))
-        return resp, info
-
-    def run(self):
-        global resultarticles_dic
-        name, conn_nr = self.connection
-        idn = name + " #" + str(conn_nr)
-        if not self.nntpobj:
-            self.nntpobj = self.servers.open_connection(name, conn_nr)
-        if not self.nntpobj:
-            print("Could not connect to server " + idn + ", exiting thread")
-            self.stop()   # todo: ordentlicher stop!!!
-            return
-        else:
-            print(idn + " starting !")
-        while True:    # self.running:
-            self.lock.acquire()
-            artlist = list(self.articlequeue.queue)
-            try:
-                test_article = artlist[0]
-            except IndexError:
-                self.lock.release()
-                time.sleep(0.1)
-                continue
-            if not test_article:
-                article = self.articlequeue.get()
-                self.articlequeue.task_done()
-                self.lock.release()
-                print(idn + ": got poison pill!")
-                break
-            _, _, _, remaining_servers = test_article
-            if name not in remaining_servers:
-                self.lock.release()
-                time.sleep(0.1)
-                continue
-            article = self.articlequeue.get()
-            self.lock.release()
-            articlenr, artname, age, remaining_servers = article
-            print("Downloading on server " + idn + ": + for article #" + str(articlenr), remaining_servers)
-            res, info = self.download_article(article)
-            # res, info = download(article, self.nntpobj)
-            if res:
-                print("Download success on server " + idn + ": for article #" + str(articlenr), remaining_servers)
-                with self.lock:
-                    resultarticles_dic[str(articlenr)] = (artname, age, info)
-                self.articlequeue.task_done()
-            else:
-                article = (articlenr, artname, age, [x for x in remaining_servers if x != name])
-                if not article[3]:
-                    print(">>>> Download finally failed on server " + idn + ": for article #" + str(articlenr))
-                    with self.lock:
-                        resultarticles_dic[str(articlenr)] = (artname, age, None)
-                    self.articlequeue.task_done()
-                else:
-                    self.articlequeue.task_done()
-                    self.articlequeue.put(article)
-                    print(">>>> Download failed on server " + idn + ": for article #" + str(articlenr), ", requeuing on servers:",
-                          article[3])
-        print(idn + " exited!")
-
-
-class Downloader():
-    def __init__(self, servers, lock, level_servers, all_connections):
-        self.servers = servers
-        self.lock = lock
-        self.level_servers = level_servers
-        self.all_connections = all_connections
-
-    def article_producer(self, articles, articlequeue):
-        for article in articles:
-            articlequeue.put(article)
-
-    def make_allfilelist(self, filedic):
-        allfilelist = []
-        for idx, (filename, filelist) in enumerate(filedic.items()):
-            for i, f in enumerate(filelist):
-                if i == 0:
-                    age, filetype, nr_articles = f
-                    allfilelist.append([(filename, age, filetype, nr_articles)])
-                else:
-                    fn, nr = f
-                    allok = True    # check for duplicate art. #
-                    if len(allfilelist[idx]) > 2:
-                        for i1, art in enumerate(allfilelist[idx]):
-                            if i1 > 1:
-                                nr1, fn1 = art
-                                if nr1 == nr:
-                                    allok = False
-                                    break
-                    if allok:
-                        allfilelist[idx].append((nr, fn))
-        return allfilelist
-
-    def download_and_process(self, filedic, articlequeue, mp_work_queue, mp_result_queue, threads):
-        global COMPLETE_DIR, resultarticles_dic
-        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
-        mpp.start()
-
-        threads = []
-        for sn, scon, _, _ in self.all_connections:
-            t = ConnectionWorker(self.lock, (sn, scon), articlequeue, self.servers)
-            threads.append(t)
-            t.start()
-
-        allfileslist = self.make_allfilelist(filedic)
-        # iterate over all files in NZB
-        status = True
-        for file_articles in allfileslist:
-            resultarticles_dic = {}
-            # iterate over all articles in file
-            for i, art0 in enumerate(file_articles):
-                if i == 0:
-                    filename, age, filetype, nr_articles = art0
-                    continue
-                nr, fn = art0
-                resultarticles_dic[str(nr)] = (fn, age, None)
-            threads = []
-            dl.download_file(articlequeue, threads)     # result in resultarticles_dic
-
-            lenresultarticles = len(resultarticles_dic)
-            len_ok_resultarticles = len([key for key, (_, _, info) in resultarticles_dic.items() if info])
-            if len_ok_resultarticles < lenresultarticles:
-                print("*" * 80)
-                print("Articles missing!!!!")
-                print("*" * 80)
-                input("Press Enter to continue")
-                continue    # break !???
-            infolist = []
-            for i in range(lenresultarticles):
-                for key, (_, _, info) in resultarticles_dic.items():
-                    if str(key) == str(i + 1):
-                        infolist.append(info)
-                        break
-            mp_work_queue.put((infolist, COMPLETE_DIR, filename))
-            while True:
-                try:
-                    fn, fs = mp_result_queue.get_nowait()
-                    if fs != 0:
-                        status = False
-                except Exception as e:
-                    break
-        mp_work_queue.put(None)
-        mpp.join()
-        for t in threads:
-            articlequeue.put(None)
-        articlequeue.join()
-        return status
-
-    def download_file(self, articlequeue, threads):
-        global resultarticles_dic
-        for level, serverlist in self.level_servers.items():
-            level_servers = serverlist
-            # articles = [(artnr, fn, age, level_servers) for artnr, (fn, age, info) in resultarticles_dic.items() if not info]
-            le_dic = {}
-            for le in level_servers:
-                _, _, _, _, _, _, _, _, retention = self.servers.get_single_server_config(le)
-                le_dic[le] = retention
-            articles = []
-            le_serv1 = []
-            for artnr, (fn, age, info) in resultarticles_dic.items():
-                if not info:
-                    le_serv0 = []
-                    for le in level_servers:
-                        if le_dic[le] > age * 0.9:
-                            le_serv0.append(le)
-                            if le not in le_serv1:
-                                le_serv1.append(le)
-                    if le_serv0:
-                        articles.append((artnr, fn, age, le_serv0))
-            if not le_serv1 and articles:
-                print("Download incomplete, no servers with sufficient retention available!")
-                break
-            if not articles:
-                print("All articles downloaded")
-                break
-            level_connections = [(name, connection) for name, connection, _, _ in self.all_connections if name in le_serv1]
-            if not level_connections:
-                continue
-            # Produce
-            self.article_producer(articles, articlequeue)
-
-            articlequeue.join()
-
-            print("Download failed:", [(key, fn) for key, (fn, age, info) in resultarticles_dic.items() if not info])
-            l0 = len([info for key, (fn, age, info) in resultarticles_dic.items()])
-            l1 = len([info for key, (fn, age, info) in resultarticles_dic.items() if info])
-            print("Complete  Articles after level", level, ": " + str(l1) + " out of " + str(l0))
-            print("-" * 80)
-
-# -------------------------------------------------------------------------------------------------------------------------------------
-# -------------------------------------------------------------------------------------------------------------------------------------
-
-
-class ConnectionWorkerV2(Thread):
     def __init__(self, lock, connection, articlequeue, resultqueue, servers):
         Thread.__init__(self)
         # self.daemon = True
@@ -581,7 +365,7 @@ class ConnectionWorkerV2(Thread):
             if not remaining_servers:
                 article = self.articlequeue.get()
                 self.lock.release()
-                resultqueue.put(article + (None,))
+                self.resultqueue.put(article + (None,))
                 '''a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l = self.articlequeue.get()
                 self.lock.release()
                 resultqueue.put((a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l, None))'''
@@ -598,7 +382,7 @@ class ConnectionWorkerV2(Thread):
             # res, info = download(article, self.nntpobj)
             if res:
                 print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
-                resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info))
+                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info))
                 self.articlequeue.task_done()
             else:
                 # print("###", name, remaining_servers, remaining_servers1)
@@ -615,19 +399,24 @@ class ConnectionWorkerV2(Thread):
                 self.articlequeue.task_done()
                 if not next_servers:
                     print("Download finally failed on server " + idn + ": for article #" + str(art_nr), next_servers)
-                    resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
+                    self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
                 else:
                     print("Download failed on server " + idn + ": for article #" + str(art_nr) + ", queueing: ", next_servers)
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         print(idn + " exited!")
 
 
-class DownloaderV2():
-    def __init__(self, servers, lock, level_servers, all_connections):
+class Downloader():
+    def __init__(self, servers):
         self.servers = servers
-        self.lock = lock
-        self.level_servers = level_servers
-        self.all_connections = all_connections
+        self.lock = threading.Lock()
+        self.level_servers = self.servers.level_servers
+        self.all_connections = self.servers.all_connections
+        self.articlequeue = queue.LifoQueue()
+        self.resultqueue = queue.Queue()
+        self.mp_work_queue = mp.Queue()
+        self.mp_result_queue = mp.Queue()
+        self.threads = []
 
     def article_producer(self, articles, articlequeue):
         for article in articles:
@@ -654,7 +443,7 @@ class DownloaderV2():
                         allfilelist[idx].append((nr, fn))
         return allfilelist
 
-    def download_and_process(self, filedic, articlequeue, resultqueue, mp_work_queue, mp_result_queue, threads):
+    def download_and_process(self, filedic):
         global COMPLETE_DIR
 
         allfileslist = self.make_allfilelist(filedic)
@@ -671,10 +460,10 @@ class DownloaderV2():
                     continue
                 art_nr, art_name = art0
                 q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
-                articlequeue.put(q)
+                self.articlequeue.put(q)
 
         # start decoder thread
-        mpp = mp.Process(target=decode_articles, args=(mp_work_queue, mp_result_queue, ))
+        mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, ))
         mpp.start()
 
         t0 = time.time()
@@ -682,18 +471,23 @@ class DownloaderV2():
 
         # start all connection worker threads
         for sn, scon, _, _ in self.all_connections:
-            t = ConnectionWorkerV2(self.lock, (sn, scon), articlequeue, resultqueue, self.servers)
-            threads.append(t)
+            t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
+            self.threads.append(t)
             t.start()
 
-        while True:
+        # register sigint/sigterm handlers
+        self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue)
+        signal.signal(signal.SIGINT, self.sighandler.signalhandler)
+        signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
+
+        while True and not self.sighandler.signal:
             # read resultqueue
             results = []
             while True:
                 try:
-                    resultarticle = resultqueue.get_nowait()
+                    resultarticle = self.resultqueue.get_nowait()
                     results.append(resultarticle)
-                    resultqueue.task_done()
+                    self.resultqueue.task_done()
                 except queue.Empty:
                     break
             # distribute results to files
@@ -718,7 +512,7 @@ class DownloaderV2():
                         failed0 = True
                     files[filename] = (f_nr_articles, f_age, f_filetype, infolist0, True, failed0)
                     print("All articles for " + filename + " downloaded, calling mp.decode ...")
-                    mp_work_queue.put((infolist0, COMPLETE_DIR, filename))
+                    self.mp_work_queue.put((infolist0, COMPLETE_DIR, filename))
             # start decoding/saving for done files
             alldone = True
             for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
@@ -729,13 +523,16 @@ class DownloaderV2():
                 break
             print("MBit/sec.: ", (bytesdownloaded / (time.time() - t0)) / (1024 * 1024) * 8)
             time.sleep(0.1)
+        
+        if self.sighandler.signal:
+            time.sleep(1000)
 
         # clean up
         print("cleaning up ...")
-        mp_work_queue.put(None)
-        resultqueue.join()
-        articlequeue.join()
-        for t in threads:
+        self.mp_work_queue.put(None)
+        self.resultqueue.join()
+        self.articlequeue.join()
+        for t in self.threads:
             t.stop()
             t.join()
         self.servers.close_all_connections()
@@ -756,31 +553,16 @@ class DownloaderV2():
 # main
 if __name__ == '__main__':
 
-    BYTES_DOWNLOADED = 0
-
-    resultarticles_dic = {}
-    threads = []
-
-    CFG = configparser.ConfigParser()
-    CFG.read(CONFIG_DIR + "/nzbbussi.config")
+    cfg = configparser.ConfigParser()
+    cfg.read(CONFIG_DIR + "/nzbbussi.config")
 
     # get servers
-    SERVERS = Servers(CFG)
-    if not SERVERS:
+    servers = Servers(cfg)
+    if not servers:
         print("At least one server has to be provided, exiting!")
         sys.exit()
 
-    signal.signal(signal.SIGINT, siginthandler)
-    signal.signal(signal.SIGTERM, siginthandler)
-
     filedic = ParseNZB(NZB_DIR)
-    level_servers0 = SERVERS.level_servers
-    all_connections = SERVERS.all_connections
-    articlequeue = queue.LifoQueue()
-    resultqueue = queue.Queue()
-    mp_work_queue = mp.Queue()
-    mp_result_queue = mp.Queue()
 
-    dl = DownloaderV2(SERVERS, LOCK, level_servers0, all_connections)
-    status = dl.download_and_process(filedic, articlequeue, resultqueue, mp_work_queue, mp_result_queue, threads)
-
+    dl = Downloader(servers)
+    status = dl.download_and_process(filedic)
