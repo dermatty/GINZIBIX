@@ -156,15 +156,6 @@ def ParseNZB(nzbdir):
     return filedic
 
 
-def download(article, nntpob):
-    r = randint(0, 99)
-    # return True, "info!"
-    if r <= 95:
-        return True, "info!"
-    else:
-        return False, False
-
-
 # ---- Classes ----
 
 
@@ -244,9 +235,9 @@ class Servers():
                         server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
                         try:
                             if usessl:
-                                nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True)
+                                nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             else:
-                                nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True)
+                                nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             print("Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)
@@ -314,37 +305,58 @@ class ConnectionWorker(Thread):
     def stop(self):
         self.running = False
 
+    # return status, info
+    #        status = 1:  ok
+    #                 0:  article not found
+    #                -1:  retention not sufficient
+    #                -2:  server connection error
     def download_article(self, article_name, article_age):
         sn, _ = self.connection
         server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
         if retention < article_age * 0.95:
-            return False, None
+            print("Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
+            return -1, None
         try:
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
-            # if resp_h[:3] != "221" or resp[:3] != "222":
-                raise("No Succes answer from server!")
+                # if resp_h[:3] != "221" or resp[:3] != "222":
+                print("Could not find " + article_name + "on " + server_name + ", return status = 0")
+                status = 0
+                info = None
             else:
-                resp = True
+                status = 1
         except Exception as e:
-            resp = False
+            print("Connection error on  " + server_name + " for article " + article_name + ", return status = -2")
+            status = -2
             info = None
-            print("Article download error: " + str(e))
-        return resp, info
+        return status, info
+
+    def retry_connect(self):
+        if self.nntpobj:
+            return
+        idx = 0
+        name, conn_nr = self.connection
+        idn = name + " #" + str(conn_nr)
+        print("Server " + idn + " connecting ...")
+        while idx < 5:
+            self.nntpobj = self.servers.open_connection(name, conn_nr)
+            if self.nntpobj:
+                print("Server " + idn + " connected!")
+                break
+            print("Could not connect to server " + idn + ", will retry in 5 sec.")
+            time.sleep(5)
+            idx += 1
 
     def run(self):
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
-        if not self.nntpobj:
-            self.nntpobj = self.servers.open_connection(name, conn_nr)
+        print(idn + " thread starting !")
+        while True and self.running:
+            self.retry_connect()
             if not self.nntpobj:
-                print("Could not connect to server " + idn + ", exiting thread")
-                # self.stop()   # todo: ordentlicher stop!!!
-                return
-        else:
-            print(idn + " starting !")
-        while True and self.running:    # self.running:
+                time.sleep(5)
+                continue
             self.lock.acquire()
             artlist = list(self.articlequeue.queue)
             try:
@@ -378,13 +390,24 @@ class ConnectionWorker(Thread):
             self.lock.release()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
             print("Downloading on server " + idn + ": + for article #" + str(art_nr), filename)
-            res, info = self.download_article(art_name, age)
-            # res, info = download(article, self.nntpobj)
-            if res:
+            status, info = self.download_article(art_name, age)
+            # if server connection error - disconnect
+            if status == -2:
+                # disconnect
+                try:
+                    self.nntpobj.quit()
+                except Exception as e:
+                    pass
+                self.nntpobj = None
+                time.sleep(5)
+                continue
+            # if download successfull - put to resultqueue
+            if status == 1:
                 print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
                 self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info))
                 self.articlequeue.task_done()
-            else:
+            # if article could not be found on server / retention not good enough - requeue to other server
+            if status in [0, -1]:
                 # print("###", name, remaining_servers, remaining_servers1)
                 next_servers = []
                 for s in remaining_servers:
@@ -480,6 +503,8 @@ class Downloader():
         signal.signal(signal.SIGINT, self.sighandler.signalhandler)
         signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
 
+        avgmiblist = []
+
         while True and not self.sighandler.signal:
             # read resultqueue
             results = []
@@ -495,15 +520,14 @@ class Downloader():
                 for r in results:
                     filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info = r
                     # print(">>>", asizeof.asizeof(info))
-                    bytesdownloaded += sum(len(i) for i in info.lines)
+                    bytesdownloaded = sum(len(i) for i in info.lines)
+                    avgmiblist.append((time.time(), bytesdownloaded))
                     (f_nr_articles, f_age, f_filetype, infolist, done, failed) = files[filename]
                     infolist0 = infolist[:]
                     infolist0[art_nr-1] = info
                     files[filename] = (f_nr_articles, f_age, f_filetype, infolist0, done, failed)
             # set completed files to "done" & decode
             for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
-                # print(80 * "-")
-                # print(filename, done, len([inf for inf in infolist0 if not inf]))
                 if not done and len([inf for inf in infolist0 if inf]) == f_nr_articles:        # check for failed!! todo!!
                     if "failed" not in infolist:
                         failed0 = False
@@ -521,8 +545,18 @@ class Downloader():
             # if all are done: exit loop
             if alldone:
                 break
-            print("MBit/sec.: ", (bytesdownloaded / (time.time() - t0)) / (1024 * 1024) * 8)
-            time.sleep(0.1)
+            # get Mib downloaded
+            if len(avgmiblist) > 5:
+                del avgmiblist[0]
+            if avgmiblist:
+                t0, _ = avgmiblist[0]
+                t1, _ = avgmiblist[-1]
+                avgmib_dt = t1 - t0
+                if avgmib_dt > 0:
+                    avgmib_db = sum([bytescount for (_, bytescount) in avgmiblist])
+                    avgmib = (avgmib_db / avgmib_dt) / (1024 * 1024) * 8
+                    print("MBit/sec.: ", avgmib)
+                    time.sleep(0.1)
 
         if self.sighandler.signal:
             time.sleep(1000)
