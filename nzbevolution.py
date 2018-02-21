@@ -1,7 +1,6 @@
 import threading
 from threading import Thread
 import time
-# import queue
 from random import randint
 import sys
 import os
@@ -13,22 +12,23 @@ import glob
 import xml.etree.ElementTree as ET
 import nntplib
 import ssl
-import posix_ipc
 import yenc
 import multiprocessing as mp
-from pympler import asizeof
+# from pympler import asizeof
 
 
-USERHOME = expanduser("~")
-MAIN_DIR = USERHOME + "/.nzbbussi/"
-CONFIG_DIR = MAIN_DIR + "config/"
-NZB_DIR = MAIN_DIR + "nzb/"
-COMPLETE_DIR = MAIN_DIR + "complete/"
-INCOMPLETE_DIR = MAIN_DIR + "incomplete/"
-LOGS_DIR = MAIN_DIR + "logs/"
+userhome = expanduser("~")
+maindir = userhome + "/.nzbbussi/"
 
-SEMAPHORE = posix_ipc.Semaphore("news_sema", posix_ipc.O_CREAT)
-SEMAPHORE.release()
+dirs = {
+    "userhome": userhome,
+    "main": maindir,
+    "config": maindir + "config/",
+    "nzb": maindir + "nzb/",
+    "complete": maindir + "complete/",
+    "incomplete": maindir + "incomplete/",
+    "logs": maindir + "logs/"
+}
 
 
 # ---- Procedures ----
@@ -407,7 +407,7 @@ class ConnectionWorker(Thread):
 
 
 class Downloader():
-    def __init__(self, servers):
+    def __init__(self, servers, dirs):
         self.servers = servers
         self.lock = threading.Lock()
         self.level_servers = self.servers.level_servers
@@ -417,6 +417,7 @@ class Downloader():
         self.mp_work_queue = mp.Queue()
         self.mp_result_queue = mp.Queue()
         self.threads = []
+        self.dirs = dirs
 
     def article_producer(self, articles, articlequeue):
         for article in articles:
@@ -444,7 +445,6 @@ class Downloader():
         return allfilelist
 
     def download_and_process(self, filedic):
-        global COMPLETE_DIR
 
         allfileslist = self.make_allfilelist(filedic)
 
@@ -512,7 +512,7 @@ class Downloader():
                         failed0 = True
                     files[filename] = (f_nr_articles, f_age, f_filetype, infolist0, True, failed0)
                     print("All articles for " + filename + " downloaded, calling mp.decode ...")
-                    self.mp_work_queue.put((infolist0, COMPLETE_DIR, filename))
+                    self.mp_work_queue.put((infolist0, dirs["complete"], filename))
             # start decoding/saving for done files
             alldone = True
             for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
@@ -523,7 +523,7 @@ class Downloader():
                 break
             print("MBit/sec.: ", (bytesdownloaded / (time.time() - t0)) / (1024 * 1024) * 8)
             time.sleep(0.1)
-        
+
         if self.sighandler.signal:
             time.sleep(1000)
 
@@ -554,7 +554,7 @@ class Downloader():
 if __name__ == '__main__':
 
     cfg = configparser.ConfigParser()
-    cfg.read(CONFIG_DIR + "/nzbbussi.config")
+    cfg.read(dirs["config"] + "/nzbbussi.config")
 
     # get servers
     servers = Servers(cfg)
@@ -562,7 +562,7 @@ if __name__ == '__main__':
         print("At least one server has to be provided, exiting!")
         sys.exit()
 
-    filedic = ParseNZB(NZB_DIR)
+    filedic = ParseNZB(dirs["nzb"])
 
-    dl = Downloader(servers)
+    dl = Downloader(servers, dirs)
     status = dl.download_and_process(filedic)
