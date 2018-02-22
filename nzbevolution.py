@@ -1,7 +1,6 @@
 import threading
 from threading import Thread
 import time
-from random import randint
 import sys
 import os
 import queue
@@ -14,12 +13,12 @@ import nntplib
 import ssl
 import yenc
 import multiprocessing as mp
-# from pympler import asizeof
+import logging
+import logging.handlers
 
-
+# globals
 userhome = expanduser("~")
 maindir = userhome + "/.nzbbussi/"
-
 dirs = {
     "userhome": userhome,
     "main": maindir,
@@ -30,18 +29,25 @@ dirs = {
     "logs": maindir + "logs/"
 }
 
+# init logger
+logger = logging.getLogger("ginzibix")
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler(dirs["logs"] + "ginzibix.log", mode="w")
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
 
 # ---- Procedures ----
 
 
-def decode_articles(mp_work_queue, mp_result_queue):
+def decode_articles(mp_work_queue, mp_result_queue, logger):
     while True:
         try:
             res0 = mp_work_queue.get()
         except KeyboardInterrupt:
             return
         if not res0:
-            print("Exiting decoder process!")
+            logger.info("Exiting decoder process!")
             break
         infolist, complete_dir, filename = res0
         bytes0 = bytearray()
@@ -58,7 +64,7 @@ def decode_articles(mp_work_queue, mp_result_queue):
             except Exception as e:
                 status = -5
                 statusmsg = "no_info.list"
-                print("--> " + filename + " / " + str(e))
+                logger.error(str(e) + ": no info.list found for " + filename)
                 continue
             for inf in info.lines:
                 try:
@@ -80,15 +86,16 @@ def decode_articles(mp_work_queue, mp_result_queue):
                     statusmsg = "no_decode_error"
                 bytes0.extend(inf)
             if headerfound != 1 or endfound != 1 or partfound > 1:
-                print("Wrong yenc structure detected")
+                logger.warning(filename + ": wrong yenc structure detected")
                 statusmsg = "yenc_structure_error"
                 status = 0
             if pcrc32 == "":
                 statusmsg = "no_pcrc32_error"
+                logger.warning(filename + ": no pcrc32 detected")
                 status = -1
             _, crc32, decoded = yenc.decode(bytes0)
             if crc32.strip("0") != pcrc32.strip("0"):
-                print("CRC32 checksum error: " + crc32 + " / " + pcrc32)
+                logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + pcrc32)
                 statusmsg = "crc32checksum_error: " + crc32 + " / " + pcrc32
                 status = -2
             bytesfinal.extend(decoded)
@@ -99,8 +106,10 @@ def decode_articles(mp_work_queue, mp_result_queue):
                 f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
+            logger.info(filename + " decoded and saved!")
         except Exception as e:
             statusmsg = "file_error"
+            logger.error(str(e) + ": filename")
             status = -4
         mp_result_queue.put((filename, status, statusmsg))
 
@@ -108,15 +117,15 @@ def decode_articles(mp_work_queue, mp_result_queue):
 def ParseNZB(nzbdir):
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
-    print("Getting NZB files from " + nzbdir)
+    logger.info("Getting NZB files from " + nzbdir)
     for nzb in glob.glob("*.nzb"):
         pass
     try:
         tree = ET.parse(nzb)
-        print("Downloading " + nzb)
+        logger.info("Downloading NZB file: " + nzb)
     except Exception as e:
-        print(str(e) + ": please provide at least 1 NZB file!")
-        return None
+        logger.error(str(e) + ": please provide at least 1 NZB file!")
+        return nzb, None
     nzbroot = tree.getroot()
     os.chdir(cwd0)
     filedic = {}
@@ -153,15 +162,16 @@ def ParseNZB(nzbdir):
             if segfound:
                 filelist.insert(0, (age, filetype, int(nr0)))
                 filedic[hn] = filelist
-    return filedic
+    return nzb, filedic
 
 
 # ---- Classes ----
 
 
 class SigHandler():
-    def __init__(self, servers, threads, mp_work_queue):
+    def __init__(self, servers, threads, mp_work_queue, logger):
         self.servers = servers
+        self.logger = logger
         self.threads = threads
         self.mp_work_queue = mp_work_queue
         self.signal = False
@@ -170,14 +180,18 @@ class SigHandler():
         return
 
     def signalhandler(self, signal, frame):
+        self.logger.warning("signalhandler: got SIGINT/SIGTERM!")
         self.signal = True
-        print("Got Ctrl-C")
+        self.logger.warning("signalhandler: stopping decoder processes")
         self.mp_work_queue.put(None)
         time.sleep(1)
-        for t in self.threads:
+        self.logger.warning("signalhandler: stopping download threads")
+        for t, _ in self.threads:
             t.stop()
             t.join()
+        self.logger.warning("signalhandler: closing all server connections")
         self.servers.close_all_connections()
+        self.logger.warning("signalhandler: exiting")
         sys.exit()
 
 
@@ -234,20 +248,21 @@ class Servers():
                     if sc:
                         server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
                         try:
+                            logger.info("Opening connection # " + str(conn_nr) + "to server " + server_name)
                             if usessl:
                                 nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             else:
                                 nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
-                            print("Opened Connection #" + str(conn_nr) + " on server " + server_name0)
+                            logger.info("Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)
                             break
                         except Exception as e:
-                            print("Server " + server_name0 + " connect error: " + str(e))
+                            logger.error("Server " + server_name0 + " connect error: " + str(e))
                             self.all_connections[idx] = (sn, cn, rt, None)
                             break
                     else:
-                        print("Cannot get server config for server: " + server_name0)
+                        logger.error("Cannot get server config for server: " + server_name0)
                         self.all_connections[idx] = (sn, cn, rt, None)
                         break
         return result
@@ -257,9 +272,9 @@ class Servers():
             if nobj:
                 try:
                     nobj.quit()
-                    print("Closed connection #" + str(cn) + " on " + sn)
+                    logger.warning("Closed connection #" + str(cn) + " on " + sn)
                 except Exception as e:
-                    print("Cannot quit server " + sn + ": " + str(e))
+                    logger.warning("Cannot quit server " + sn + ": " + str(e))
 
     def get_server_config(self, cfg):
         # get servers from config
@@ -314,20 +329,20 @@ class ConnectionWorker(Thread):
         sn, _ = self.connection
         server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
         if retention < article_age * 0.95:
-            print("Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
+            logger.warning("Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
             return -1, None
         try:
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
                 # if resp_h[:3] != "221" or resp[:3] != "222":
-                print("Could not find " + article_name + "on " + server_name + ", return status = 0")
+                logger.warning("Could not find " + article_name + "on " + server_name + ", return status = 0")
                 status = 0
                 info = None
             else:
                 status = 1
         except Exception as e:
-            print("Connection error on  " + server_name + " for article " + article_name + ", return status = -2")
+            logger.error(str(e) + ": " + server_name + " for article " + article_name + ", return status = -2")
             status = -2
             info = None
         return status, info
@@ -338,20 +353,33 @@ class ConnectionWorker(Thread):
         idx = 0
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
-        print("Server " + idn + " connecting ...")
+        logger.info("Server " + idn + " connecting ...")
         while idx < 5:
             self.nntpobj = self.servers.open_connection(name, conn_nr)
             if self.nntpobj:
-                print("Server " + idn + " connected!")
-                break
-            print("Could not connect to server " + idn + ", will retry in 5 sec.")
+                logger.info("Server " + idn + " connected!")
+                return
+            logger.warning("Could not connect to server " + idn + ", will retry in 5 sec.")
             time.sleep(5)
             idx += 1
+        logger.error("Connect retries to " + idn + " failed!")
+
+    def remove_from_remaining_servers(self, name, remaining_servers):
+        next_servers = []
+        for s in remaining_servers:
+            addserver = s[:]
+            try:
+                addserver.remove(name)
+            except Exception as e:
+                pass
+            if addserver:
+                next_servers.append(addserver)
+        return next_servers
 
     def run(self):
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
-        print(idn + " thread starting !")
+        logger.info(idn + " thread starting !")
         while True and self.running:
             self.retry_connect()
             if not self.nntpobj:
@@ -369,7 +397,7 @@ class ConnectionWorker(Thread):
                 article = self.articlequeue.get()
                 self.articlequeue.task_done()
                 self.lock.release()
-                print(idn + ": got poison pill!")
+                logger.warning(idn + ": got poison pill!")
                 break
             _, _, _, _, _, _, remaining_servers = test_article
             # no servers left
@@ -378,9 +406,6 @@ class ConnectionWorker(Thread):
                 article = self.articlequeue.get()
                 self.lock.release()
                 self.resultqueue.put(article + (None,))
-                '''a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l = self.articlequeue.get()
-                self.lock.release()
-                resultqueue.put((a_fn, a_a, a_ft, a_no, a_nr, a_n, a_l, None))'''
                 continue
             if name not in remaining_servers[0]:
                 self.lock.release()
@@ -389,48 +414,47 @@ class ConnectionWorker(Thread):
             article = self.articlequeue.get()
             self.lock.release()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
-            print("Downloading on server " + idn + ": + for article #" + str(art_nr), filename)
+            # print("Downloading on server " + idn + ": + for article #" + str(art_nr), filename)
             status, info = self.download_article(art_name, age)
             # if server connection error - disconnect
             if status == -2:
                 # disconnect
+                logger.warning("Stopping server " + idn)
                 try:
                     self.nntpobj.quit()
                 except Exception as e:
                     pass
                 self.nntpobj = None
-                time.sleep(5)
+                # take next server
+                next_servers = self.remove_from_remaining_servers(name, remaining_servers)
+                next_servers.append([name])    # add current server to end of list
+                logger.warning("Requeuing " + art_name + " on server " + idn)
+                # requeue
+                self.articlequeue.task_done()
+                self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
+                time.sleep(1)
                 continue
             # if download successfull - put to resultqueue
             if status == 1:
-                print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
+                # print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
                 self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info))
                 self.articlequeue.task_done()
             # if article could not be found on server / retention not good enough - requeue to other server
             if status in [0, -1]:
-                # print("###", name, remaining_servers, remaining_servers1)
-                next_servers = []
-                for s in remaining_servers:
-                    addserver = s[:]
-                    try:
-                        addserver.remove(name)
-                    except Exception as e:
-                        pass
-                        # print(addserver, " / ", name)
-                    if addserver:
-                        next_servers.append(addserver)
+                next_servers = self.remove_from_remaining_servers(name, remaining_servers)
                 self.articlequeue.task_done()
                 if not next_servers:
-                    print("Download finally failed on server " + idn + ": for article #" + str(art_nr), next_servers)
+                    logger.error("Download finally failed on server " + idn + ": for article #" + str(art_nr), next_servers)
                     self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
                 else:
-                    print("Download failed on server " + idn + ": for article #" + str(art_nr) + ", queueing: ", next_servers)
+                    logger.warning("Download failed on server " + idn + ": for article #" + str(art_nr) + ", queueing: ", next_servers)
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-        print(idn + " exited!")
+        logger.info(idn + " exited!")
 
 
 class Downloader():
-    def __init__(self, servers, dirs):
+    def __init__(self, servers, dirs, nzb, logger):
+        self.nzb = nzb
         self.servers = servers
         self.lock = threading.Lock()
         self.level_servers = self.servers.level_servers
@@ -441,6 +465,7 @@ class Downloader():
         self.mp_result_queue = mp.Queue()
         self.threads = []
         self.dirs = dirs
+        self.logger = logger
 
     def article_producer(self, articles, articlequeue):
         for article in articles:
@@ -470,6 +495,7 @@ class Downloader():
     def download_and_process(self, filedic):
 
         allfileslist = self.make_allfilelist(filedic)
+        logger.info("Downloading articles for: " + self.nzb)
 
         # generate all articles and files
         files = {}
@@ -486,7 +512,7 @@ class Downloader():
                 self.articlequeue.put(q)
 
         # start decoder thread
-        mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, ))
+        mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
         mpp.start()
 
         t0 = time.time()
@@ -495,16 +521,17 @@ class Downloader():
         # start all connection worker threads
         for sn, scon, _, _ in self.all_connections:
             t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
-            self.threads.append(t)
+            self.threads.append((t, time.time()))
             t.start()
 
         # register sigint/sigterm handlers
-        self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue)
+        self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue, self.logger)
         signal.signal(signal.SIGINT, self.sighandler.signalhandler)
         signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
 
         avgmiblist = []
 
+        status = 0        # 0 = running, 1 = exited successfull, -1 = exited connection error
         while True and not self.sighandler.signal:
             # read resultqueue
             results = []
@@ -519,7 +546,6 @@ class Downloader():
             if results:
                 for r in results:
                     filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers, info = r
-                    # print(">>>", asizeof.asizeof(info))
                     bytesdownloaded = sum(len(i) for i in info.lines)
                     avgmiblist.append((time.time(), bytesdownloaded))
                     (f_nr_articles, f_age, f_filetype, infolist, done, failed) = files[filename]
@@ -532,21 +558,23 @@ class Downloader():
                     if "failed" not in infolist:
                         failed0 = False
                     else:
-                        print(filename + "failed!!")
+                        logger.error(filename + "failed!!")
                         failed0 = True
                     files[filename] = (f_nr_articles, f_age, f_filetype, infolist0, True, failed0)
-                    print("All articles for " + filename + " downloaded, calling mp.decode ...")
+                    logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
                     self.mp_work_queue.put((infolist0, dirs["complete"], filename))
             # start decoding/saving for done files
             alldone = True
             for filename, (f_nr_articles, f_age, f_filetype, infolist0, done, failed) in files.items():
                 if not done:
                     alldone = False
+                    status = 1
+                    break
             # if all are done: exit loop
             if alldone:
                 break
             # get Mib downloaded
-            if len(avgmiblist) > 5:
+            if len(avgmiblist) > 20:
                 del avgmiblist[0]
             if avgmiblist:
                 t0, _ = avgmiblist[0]
@@ -555,21 +583,42 @@ class Downloader():
                 if avgmib_dt > 0:
                     avgmib_db = sum([bytescount for (_, bytescount) in avgmiblist])
                     avgmib = (avgmib_db / avgmib_dt) / (1024 * 1024) * 8
-                    print("MBit/sec.: ", avgmib)
+                    print(" " * 40 + "\r", end='')
+                    print("MBit/sec.: " + str(int(avgmib)) + "\r", end='')
                     time.sleep(0.1)
+            # set in all threads servers alive timestamps
+            # check if server is longer off > 120 sec, if yes, kill thread & stop server
+            for k, (t, last_timestamp) in enumerate(self.threads):
+                if t.isAlive() and t.nntpobj:
+                    last_timestamp = time.time()
+                    self.threads[k] = (t, last_timestamp)
+                if t.isAlive() and time.time() - last_timestamp > 120:
+                    t.stop()
+                    t.join()
+                    try:
+                        t.nntopj.quit()
+                        t.nntpobj = None
+                    except Exception as e:
+                        logger.error(str(e))
+            # if all servers down (= no WAN)
+            if len([t for t, _ in self.threads if t.isAlive()]) == 0:
+                status = -1
+                break
 
         if self.sighandler.signal:
             time.sleep(1000)
 
         # clean up
-        print("cleaning up ...")
+        logger.info("cleaning up ...")
         self.mp_work_queue.put(None)
         self.resultqueue.join()
         self.articlequeue.join()
-        for t in self.threads:
+        for t, _ in self.threads:
             t.stop()
             t.join()
         self.servers.close_all_connections()
+
+        return status
 
     def get_level_servers(self, retention):
         le_serv0 = []
@@ -593,10 +642,12 @@ if __name__ == '__main__':
     # get servers
     servers = Servers(cfg)
     if not servers:
-        print("At least one server has to be provided, exiting!")
+        logger.error("At least one server has to be provided, exiting!")
         sys.exit()
 
-    filedic = ParseNZB(dirs["nzb"])
-
-    dl = Downloader(servers, dirs)
-    status = dl.download_and_process(filedic)
+    nzb, filedic = ParseNZB(dirs["nzb"])
+    if filedic:
+        t0 = time.time()
+        dl = Downloader(servers, dirs, nzb, logger)
+        status = dl.download_and_process(filedic)
+        print(nzb + " downloaded in " + str(int(time.time() - t0)) + " sec. with status " + str(status))
