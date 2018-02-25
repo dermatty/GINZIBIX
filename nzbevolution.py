@@ -16,10 +16,10 @@ import multiprocessing as mp
 import logging
 import logging.handlers
 import psutil
-from pympler import asizeof
-import gc
 
-# globals
+
+# -------------------- globals --------------------
+
 userhome = expanduser("~")
 maindir = userhome + "/.nzbbussi/"
 dirs = {
@@ -40,8 +40,8 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 fh.setFormatter(formatter)
 logger.addHandler(fh)
 
-# ---- Procedures ----
 
+# -------------------- Procedures --------------------
 
 def decode_articles(mp_work_queue0, mp_result_queue0, logger):
     bytes0 = bytearray()
@@ -170,10 +170,11 @@ def ParseNZB(nzbdir):
     return nzb, filedic
 
 
-# ---- Classes ----
+# -------------------- Classes --------------------
 
-
+# captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
+
     def __init__(self, servers, threads, mp_work_queue, logger):
         self.servers = servers
         self.logger = logger
@@ -201,6 +202,8 @@ class SigHandler():
         sys.exit()
 
 
+# Does all the server stuff (open, close connctions) and contains all relevant
+# data
 class Servers():
 
     def __init__(self, cfg):
@@ -310,7 +313,7 @@ class Servers():
             return None
         return sconf
 
-
+# This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
     def __init__(self, lock, connection, articlequeue, resultqueue, servers):
         Thread.__init__(self)
@@ -464,7 +467,7 @@ class ConnectionWorker(Thread):
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         logger.info(self.idn + " exited!")
 
-
+# Handles download of a NZB file
 class Downloader():
     def __init__(self, servers, dirs, nzb, logger):
         self.nzb = nzb
@@ -679,7 +682,8 @@ class Downloader():
         return le_serv0
 
 
-# main
+# -------------------- main --------------------
+
 if __name__ == '__main__':
 
     cfg = configparser.ConfigParser()
