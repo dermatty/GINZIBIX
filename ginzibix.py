@@ -1,3 +1,5 @@
+#!/home/stephan/.virtualenvs/nntp/bin/python
+
 import threading
 from threading import Thread
 import time
@@ -21,7 +23,7 @@ import psutil
 # -------------------- globals --------------------
 
 userhome = expanduser("~")
-maindir = userhome + "/.nzbbussi/"
+maindir = userhome + "/.ginzibix/"
 dirs = {
     "userhome": userhome,
     "main": maindir,
@@ -627,12 +629,15 @@ class Downloader():
             except UnboundLocalError:
                 print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
             gbdown0 = 0
+            mbitsec0 = 0
             for k, (t, last_timestamp) in enumerate(self.threads):
                 gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
                 gbdown0 += gbdown
                 gbdown_str = "{0:.3f}".format(gbdown)
-                mbitsec = "{0:.1f}".format((t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8)
-                print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec + "                        ")
+                mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
+                mbitsec0 += mbitsec
+                mbitsec_str = "{0:.1f}".format(mbitsec)
+                print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
                 if t.isAlive() and t.nntpobj:
                     last_timestamp = time.time()
                     self.threads[k] = (t, last_timestamp)
@@ -647,7 +652,7 @@ class Downloader():
             print("-" * 60)
             gbdown0_str = "{0:.3f}".format(gbdown0)
             print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
-                  + "{0:.2f}".format(bytescount0) + "GB                         ")
+                  + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
             for _ in range(len(self.threads) + 3):
                 sys.stdout.write("\033[F")
             # if all servers down (= no WAN)
@@ -688,8 +693,11 @@ class Downloader():
 
 if __name__ == '__main__':
 
+    print("Welcome to ginzibix 0.1-alpha, binary usenet downloader")
+    print("-" * 60)
+
     cfg = configparser.ConfigParser()
-    cfg.read(dirs["config"] + "/nzbbussi.config")
+    cfg.read(dirs["config"] + "/ginzibix.config")
 
     # get servers
     servers = Servers(cfg)
