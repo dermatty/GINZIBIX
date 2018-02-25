@@ -528,7 +528,6 @@ class Downloader():
                 bytescount0 += art_bytescount
                 q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
                 self.articlequeue.put(q)
-        bytescount0 = bytescount0 / (1024 * 1024 * 1024)
 
         # start decoder thread
         mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
@@ -614,6 +613,9 @@ class Downloader():
                     mem_needed = ((psutil.virtual_memory()[0] - psutil.virtual_memory()[1]) - availmem0) / (1024 * 1024 * 1024)
                     if mem_needed > max_mem_needed:
                         max_mem_needed = mem_needed
+                    # print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
+                    #       + str(max_mem_needed))
+                    # sys.stdout.write("\033[F")
             # set in all threads servers alive timestamps
             # check if server is longer off > 120 sec, if yes, kill thread & stop server
             try:
@@ -642,7 +644,9 @@ class Downloader():
             print("-" * 60)
             gbdown0_str = "{0:.3f}".format(gbdown0)
             print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
-                  + "{0:.2f}".format(bytescount0) + "GB                         ")
+                          print(bytescount0 / (1024 * 1024 * 1024))
+        sys.exit()
++ "{0:.2f}".format(bytescount0) + "GB                         ")
             for _ in range(len(self.threads) + 3):
                 sys.stdout.write("\033[F")
             # if all servers down (= no WAN)
