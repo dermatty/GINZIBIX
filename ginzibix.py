@@ -313,6 +313,7 @@ class Servers():
             return None
         return sconf
 
+
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
     def __init__(self, lock, connection, articlequeue, resultqueue, servers):
@@ -496,7 +497,8 @@ class Downloader():
                     allfilelist.append([(filename, age, filetype, nr_articles)])
                 else:
                     fn, nr, bytescount = f
-                    allok = True    # check for duplicate art. #
+                    allok = True
+                    # check for duplicate art.
                     if len(allfilelist[idx]) > 2:
                         for i1, art in enumerate(allfilelist[idx]):
                             if i1 > 1:
