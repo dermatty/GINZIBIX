@@ -18,7 +18,7 @@ import multiprocessing as mp
 import logging
 import logging.handlers
 import psutil
-
+import re
 
 # -------------------- globals --------------------
 
@@ -104,6 +104,98 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
                 logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + pcrc32)
                 statusmsg = "crc32checksum_error: " + crc32 + " / " + pcrc32
                 status = -2
+            bytesfinal.extend(decoded)
+        try:
+            with open(complete_dir + filename, "wb") as f0:
+                f0.write(bytesfinal)
+                f0.flush()
+                f0.close()
+            logger.info(filename + " decoded and saved!")
+        except Exception as e:
+            statusmsg = "file_error"
+            logger.error(str(e) + ": filename")
+            status = -4
+        mp_result_queue0.put((filename, status, statusmsg))
+
+
+def decode_articles2(mp_work_queue0, mp_result_queue0, logger):
+    NAME_RE = re.compile(r"^.*? name=(.+?)\r\n$")
+    LINE_RE = re.compile(r"^.*? line=(\d{3}) .*$")
+    SIZE_RE = re.compile(r"^.*? size=(\d+) .*$")
+    CRC32_RE = re.compile(r"^.*? crc32=(\w+)")
+    bytes0 = bytearray()
+    bytesfinal = bytearray()
+    while True:
+        try:
+            res0 = mp_work_queue0.get()
+        except KeyboardInterrupt:
+            return
+        if not res0:
+            logger.info("Exiting decoder process!")
+            break
+        infolist, complete_dir, filename = res0
+        del bytes0
+        bytesfinal = bytearray()
+        status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
+        statusmsg = "ok"
+        for info in infolist:
+            headerok = False
+            trailerok = False
+            partfound = False
+            trail_crc = None
+            head_crc = None
+            bytes0 = bytearray()
+            partnr = 0
+            for inf in info:
+                try:
+                    inf0 = inf.decode()
+                    if inf0 == "":
+                        continue
+                    if inf0.startswith("=ybegin"):
+                        try:
+                            artname, artsize = NAME_RE.match(inf0).group(1), int(SIZE_RE.match(inf0).group(1))
+                            m_obj = CRC32_RE.match(inf0)
+                            if m_obj:
+                                head_crc = m_obj.group(1)
+                            headerok = True
+                        except Exception as e:
+                            logger.warning(str(e) + ": malformed =ybegin header in file " + filename)
+                    if inf0.startswith("=ypart"):
+                        partfound = True
+                        partnr += 1
+                    if inf0.startswith("=yend"):
+                        try:
+                            artsize = int( SIZE_RE.match(inf0).group(1) )
+                            m_obj = CRC32_RE.match(inf0)
+                            if m_obj:
+                                trail_crc = m_obj.group(1)
+                            trailerok = True
+                        except Exception as e:
+                            logger.warning(str(e) + ": malformed =yend trailer in file " + filename)
+                except Exception as e:
+                    status = -3
+                    statusmsg = "no_decode_error"
+                try:
+                    bytes0.extend(inf)
+                    pass
+                except KeyboardInterrupt:
+                    return
+            if not headerok or not trailerok or not partfound or partnr > 1:
+                logger.warning(filename + ": wrong yenc structure detected")
+                statusmsg = "yenc_structure_error"
+                status = 0
+            _, decodedcrc32, decoded = yenc.decode(bytes0)
+            if not head_crc and not trail_crc:
+                statusmsg = "no_pcrc32_error"
+                logger.warning(filename + ": no pcrc32 detected")
+                status = -1
+            else:
+                crc32list = [head_crc.lower(), trail_crc.lower()]
+                crc32 = decodedcrc32.lower()
+                if crc32 not in crc32list:
+                    logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
+                    statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
+                    status = -2
             bytesfinal.extend(decoded)
         try:
             with open(complete_dir + filename, "wb") as f0:
@@ -469,6 +561,7 @@ class ConnectionWorker(Thread):
                     logger.warning("Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: ", next_servers)
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         logger.info(self.idn + " exited!")
+
 
 # Handles download of a NZB file
 class Downloader():
