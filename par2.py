@@ -166,4 +166,9 @@ class Par2File(object):
 
 
 p2 = Par2File("/home/stephan/.ginzibix/incomplete/VORSTDTWEBRS03E02OE1.720p.PAR2")
+print("Related Pars:")
 print(p2.related_pars())
+print(60 * "-")
+print("Par2 filenames:")
+for p in p2.filenames():
+    print("  " + p)
