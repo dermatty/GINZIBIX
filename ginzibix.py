@@ -56,84 +56,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
         if not res0:
             logger.info("Exiting decoder process!")
             break
-        infolist, complete_dir, filename = res0
-        del bytes0
-        bytesfinal = bytearray()
-
-        pcrc32 = ""
-        status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
-        statusmsg = "ok"
-        for info in infolist:
-            headerfound = 0
-            endfound = 0
-            partfound = 0
-            bytes0 = bytearray()
-            for inf in info:
-                try:
-                    inf0 = inf.decode()
-                    if inf0 == "":
-                        continue
-                    if inf0[:7] == "=ybegin":
-                        headerfound += 1
-                        continue
-                    if inf0[:5] == "=yend":
-                        pcrc32 = inf0.split("pcrc32=")[1]
-                        endfound += 1
-                        continue
-                    if inf0[:6] == "=ypart":
-                        partfound += 1
-                        continue
-                except Exception as e:
-                    status = -3
-                    statusmsg = "no_decode_error"
-                try:
-                    bytes0.extend(inf)
-                    pass
-                except KeyboardInterrupt:
-                    return
-            if headerfound != 1 or endfound != 1 or partfound > 1:
-                logger.warning(filename + ": wrong yenc structure detected")
-                statusmsg = "yenc_structure_error"
-                status = 0
-            if pcrc32 == "":
-                statusmsg = "no_pcrc32_error"
-                logger.warning(filename + ": no pcrc32 detected")
-                status = -1
-            _, crc32, decoded = yenc.decode(bytes0)
-            if crc32.strip("0") != pcrc32.strip("0"):
-                logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + pcrc32)
-                statusmsg = "crc32checksum_error: " + crc32 + " / " + pcrc32
-                status = -2
-            bytesfinal.extend(decoded)
-        try:
-            with open(complete_dir + filename, "wb") as f0:
-                f0.write(bytesfinal)
-                f0.flush()
-                f0.close()
-            logger.info(filename + " decoded and saved!")
-        except Exception as e:
-            statusmsg = "file_error"
-            logger.error(str(e) + ": filename")
-            status = -4
-        mp_result_queue0.put((filename, status, statusmsg))
-
-
-def decode_articles2(mp_work_queue0, mp_result_queue0, logger):
-    NAME_RE = re.compile(r"^.*? name=(.+?)\r\n$")
-    LINE_RE = re.compile(r"^.*? line=(\d{3}) .*$")
-    SIZE_RE = re.compile(r"^.*? size=(\d+) .*$")
-    CRC32_RE = re.compile(r"^.*? crc32=(\w+)")
-    bytes0 = bytearray()
-    bytesfinal = bytearray()
-    while True:
-        try:
-            res0 = mp_work_queue0.get()
-        except KeyboardInterrupt:
-            return
-        if not res0:
-            logger.info("Exiting decoder process!")
-            break
-        infolist, complete_dir, filename = res0
+        infolist, save_dir, filename = res0
         del bytes0
         bytesfinal = bytearray()
         status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
@@ -146,6 +69,7 @@ def decode_articles2(mp_work_queue0, mp_result_queue0, logger):
             head_crc = None
             bytes0 = bytearray()
             partnr = 0
+            artsize0 = 0
             for inf in info:
                 try:
                     inf0 = inf.decode()
@@ -153,34 +77,39 @@ def decode_articles2(mp_work_queue0, mp_result_queue0, logger):
                         continue
                     if inf0.startswith("=ybegin"):
                         try:
-                            artname, artsize = NAME_RE.match(inf0).group(1), int(SIZE_RE.match(inf0).group(1))
-                            m_obj = CRC32_RE.match(inf0)
+                            artname = re.search(r"name=(\S+)", inf0).group(1)
+                            artsize = int(re.search(r"size=(\S+)", inf0).group(1))
+                            artsize0 += artsize
+                            m_obj = re.search(r"crc32=(\S+)", inf0)
                             if m_obj:
                                 head_crc = m_obj.group(1)
                             headerok = True
                         except Exception as e:
-                            logger.warning(str(e) + ": malformed =ybegin header in file " + filename)
+                            logger.warning(str(e) + ": malformed =ybegin header in article " + artname)
+                        continue
                     if inf0.startswith("=ypart"):
                         partfound = True
                         partnr += 1
+                        continue
                     if inf0.startswith("=yend"):
                         try:
-                            artsize = int( SIZE_RE.match(inf0).group(1) )
-                            m_obj = CRC32_RE.match(inf0)
+                            artsize = int(re.search(r"size=(\S+)", inf0).group(1))
+                            m_obj = re.search(r"crc32=(\S+)", inf0)
                             if m_obj:
                                 trail_crc = m_obj.group(1)
                             trailerok = True
                         except Exception as e:
-                            logger.warning(str(e) + ": malformed =yend trailer in file " + filename)
+                            logger.warning(str(e) + ": malformed =yend trailer in article " + artname)
+                        continue
                 except Exception as e:
-                    status = -3
-                    statusmsg = "no_decode_error"
+                    pass
                 try:
                     bytes0.extend(inf)
                     pass
                 except KeyboardInterrupt:
                     return
-            if not headerok or not trailerok or not partfound or partnr > 1:
+            
+            if not headerok or not trailerok:  # or not partfound or partnr > 1:
                 logger.warning(filename + ": wrong yenc structure detected")
                 statusmsg = "yenc_structure_error"
                 status = 0
@@ -190,15 +119,23 @@ def decode_articles2(mp_work_queue0, mp_result_queue0, logger):
                 logger.warning(filename + ": no pcrc32 detected")
                 status = -1
             else:
-                crc32list = [head_crc.lower(), trail_crc.lower()]
+                head_crc0 = None if not head_crc else head_crc.lower()
+                trail_crc0 = None if not trail_crc else trail_crc.lower()
+                crc32list = [head_crc0, trail_crc0]
                 crc32 = decodedcrc32.lower()
                 if crc32 not in crc32list:
                     logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
                     statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
                     status = -2
             bytesfinal.extend(decoded)
+        if artsize0 != len(bytesfinal):
+            statusmsg = "article file length wrong"
+            status = -3
+            logger.info("Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
         try:
-            with open(complete_dir + filename, "wb") as f0:
+            if not os.path.isdir(save_dir):
+                os.makedirs(save_dir)
+            with open(save_dir + filename, "wb") as f0:
                 f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
@@ -225,6 +162,8 @@ def ParseNZB(nzbdir):
     nzbroot = tree.getroot()
     os.chdir(cwd0)
     filedic = {}
+    par2file = ""
+    par2filedic = {}
     for r in nzbroot:
         headers = r.attrib
         try:
@@ -244,8 +183,8 @@ def ParseNZB(nzbdir):
             #     PAR2FILE = hn
         except Exception as e:
             continue
-        if filetype == "PAR2":
-            continue
+        # if filetype == "PAR2":
+        #    continue
         for s in r:
             filelist = []
             segfound = True
@@ -459,13 +398,13 @@ class ConnectionWorker(Thread):
         return status, bytesdownloaded, info0
 
     def retry_connect(self):
-        if self.nntpobj:
+        if self.nntpobj or not self.running:
             return
         idx = 0
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
         logger.info("Server " + idn + " connecting ...")
-        while idx < 5:
+        while idx < 5 and self.running:
             self.nntpobj = self.servers.open_connection(name, conn_nr)
             if self.nntpobj:
                 logger.info("Server " + idn + " connected!")
@@ -474,7 +413,10 @@ class ConnectionWorker(Thread):
             logger.warning("Could not connect to server " + idn + ", will retry in 5 sec.")
             time.sleep(5)
             idx += 1
-        logger.error("Connect retries to " + idn + " failed!")
+        if not self.running:
+            logger.warning("No connection retries anymore due to exiting")
+        else:
+            logger.error("Connect retries to " + idn + " failed!")
 
     def remove_from_remaining_servers(self, name, remaining_servers):
         next_servers = []
@@ -567,6 +509,7 @@ class ConnectionWorker(Thread):
 class Downloader():
     def __init__(self, servers, dirs, nzb, logger):
         self.nzb = nzb
+        self.nzbdir = nzb.replace(".nzb", "").replace(".NZB", "") + "/"
         self.servers = servers
         self.lock = threading.Lock()
         self.level_servers = self.servers.level_servers
@@ -673,7 +616,7 @@ class Downloader():
                             logger.error(filename + "failed!!")
                             failed0 = True
                         inflist0 = infolist[filename][:]
-                        self.mp_work_queue.put((inflist0, dirs["complete"], filename))
+                        self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename))
                         files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
                         infolist[filename] = None
                         logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
