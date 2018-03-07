@@ -192,7 +192,9 @@ class Par2File(object):
 import subprocess
 p2 = "/home/stephan/.ginzibix/incomplete/VORSTDTWEBRS03E02OE1.720p.PAR2"
 pp2 = subprocess.call(['par2verify', p2], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-
+sshres = ssh.stdout.readlines()
+for ss in sshres:
+    
 
 
 p2 = Par2File("/home/stephan/.ginzibix/incomplete/VORSTDTWEBRS03E02OE1.720p.PAR2")

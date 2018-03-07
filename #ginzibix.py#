@@ -640,7 +640,14 @@ class Downloader():
                         if "failed" in infolist[filename]:
                             logger.error(filename + "failed!!")
                             if not par2vols_loaded:
-                                files0, infolist0, bytescount00 = self.inject_articles(["par2vols"], allfileslist)
+                                if filetypecounter["par2vols"] > 0:
+                                    files0, infolist0, bytescount00 = self.inject_articles(["par2vols"], allfileslist)
+                                    files.update(files0)
+                                    infolist.update(infolist0)
+                                    bytescount0 += bytescount00
+                                    par2vols_loaded = True
+                                else:
+                                    logger
                             failed0 = True
                         inflist0 = infolist[filename][:]
                         self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename))
