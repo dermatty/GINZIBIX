@@ -19,6 +19,8 @@ import logging
 import logging.handlers
 import psutil
 import re
+# import par2lib
+import hashlib
 
 # -------------------- globals --------------------
 
@@ -132,6 +134,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
             statusmsg = "article file length wrong"
             status = -3
             logger.info("Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
+        md5 = None
         try:
             if not os.path.isdir(save_dir):
                 os.makedirs(save_dir)
@@ -141,12 +144,19 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
                 f0.flush()
                 f0.close()
             logger.info(filename + " decoded and saved!")
+            # calc hash
+            hash_md5 = hashlib.md5()
+            with open(save_dir + filename, "rb") as f0:
+                for chunk in iter(lambda: f0.read(4096), b""):
+                    hash_md5.update(chunk)
+            md5 = hash_md5.digest()
+            logger.info(filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
             logger.error(str(e) + ": filename")
             status = -4
         logger.info(filename + " decoded with status " + str(status) + " / " + statusmsg)
-        mp_result_queue0.put((filename, status, statusmsg))
+        mp_result_queue0.put((filename, status, statusmsg, md5))
 
 
 def ParseNZB(nzbdir):
@@ -566,6 +576,19 @@ class Downloader():
                         allfilelist[idx].append((nr, fn, bytescount))
         return allfilelist, filetypecounter
 
+    def getbytescount(self, filelist):
+        # generate all articles and files
+        bytescount0 = 0
+        for file_articles in filelist:
+            # iterate over all articles in file
+            for i, art0 in enumerate(file_articles):
+                if i == 0:
+                    continue
+                _, _, art_bytescount = art0
+                bytescount0 += art_bytescount
+        bytescount0 = bytescount0 / (1024 * 1024 * 1024)
+        return bytescount0
+
     def inject_articles(self, ftypes, filelist):
         # generate all articles and files
         files = {}
@@ -588,20 +611,120 @@ class Downloader():
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0
 
-    def download_and_process(self, filedic):
+    def process_mp_resultqueue_for_rars(self, p2obj):
+        loadpar2vols = False
+        while True:
+            try:
+                full_filename, status, statusmsg, md5 = self.mp_resultqueue.get_nowait()
+                if re.search(r"[.]rar$", full_filename, flags=re.IGNORECASE):
+                    filename = full_filename.split("/")[-1]
+                    for pname, pmd5 in p2obj.filenames():
+                        if filename == pname and pmd5 != md5:
+                            loadpar2vols = True
+                            break
+                pass
+            except queue.Empty:
+                break
+        return  loadpar2vols
 
+    def process_resultqueue(self, avgmiblist00, infolist00, files00):
+        # read resultqueue + distribute to files
+        newresult = False
+        avgmiblist = avgmiblist00
+        infolist = infolist00
+        files = files00
+        while True:
+            try:
+                resultarticle = self.resultqueue.get_nowait()
+                self.resultqueue.task_done()
+                filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0 = resultarticle
+                bytesdownloaded = sum(len(i) for i in inf0)
+                avgmiblist.append((time.time(), bytesdownloaded, download_server))
+                try:
+                    infolist[filename][art_nr - 1] = inf0
+                    newresult = True
+                except TypeError:
+                    continue
+                # check if file is completed and put to mp_queue/decode in case
+                (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
+                if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:        # check for failed!! todo!!
+                    failed0 = False
+                    if "failed" in infolist[filename]:
+                        logger.error(filename + "failed!!")
+                        failed0 = True
+                    inflist0 = infolist[filename][:]
+                    self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename))
+                    files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
+                    infolist[filename] = None
+                    logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
+            except KeyError:
+                pass
+            except queue.Empty:
+                break
+        return newresult, avgmiblist, infolist, files
+
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00):
+        avgmiblist = avgmiblist00
+        max_mem_needed = 0
+        bytescount0 = bytescount00
+        availmem0 = availmem00
+        # get Mib downloaded
+        if len(avgmiblist) > 50:
+            del avgmiblist[0]
+        if len(avgmiblist) > 10:
+            avgmib_dic = {}
+            for (server_name, _, _, _, _, _, _, _, _) in self.servers.server_config:
+                bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
+                if len(bytescountlist) > 2:
+                    avgmib_db = sum(bytescountlist)
+                    avgmib_mint = min([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
+                    avgmib_maxt = max([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
+                    # print(avgmib_maxt, avgmib_mint)
+                    avgmib_dic[server_name] = (avgmib_db / (avgmib_maxt - avgmib_mint)) / (1024 * 1024) * 8
+                else:
+                    avgmib_dic[server_name] = 0
+            for server_name, avgmib in avgmib_dic.items():
+                mem_needed = ((psutil.virtual_memory()[0] - psutil.virtual_memory()[1]) - availmem0) / (1024 * 1024 * 1024)
+                if mem_needed > max_mem_needed:
+                    max_mem_needed = mem_needed
+        # set in all threads servers alive timestamps
+        # check if server is longer off > 120 sec, if yes, kill thread & stop server
+        try:
+            print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
+                  + "{0:.3f}".format(max_mem_needed) + " GB                 ")
+        except UnboundLocalError:
+            print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
+        gbdown0 = 0
+        mbitsec0 = 0
+        for k, (t, last_timestamp) in enumerate(self.threads):
+            gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
+            gbdown0 += gbdown
+            gbdown_str = "{0:.3f}".format(gbdown)
+            mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
+            mbitsec0 += mbitsec
+            mbitsec_str = "{0:.1f}".format(mbitsec)
+            print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
+        print("-" * 60)
+        gbdown0_str = "{0:.3f}".format(gbdown0)
+        print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
+              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
+        for _ in range(len(self.threads) + 3):
+            sys.stdout.write("\033[F")
+
+    def download_and_process(self, filedic):
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
         allfileslist, filetypecounter = self.make_allfilelist(filedic)
         logger.info("Downloading articles for: " + self.nzb)
 
-        # inject etc, rar, sfv and par2 to articlequeue
-        files, infolist, bytescount0 = self.inject_articles(["etc", "rar", "sfv", "par2"], allfileslist)
+        # overall GB
+        bytescount0 = self.getbytescount(allfileslist)
 
         # start decoder thread
         mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
         mpp.start()
 
-        bytesdownloaded = 0
+        # start parallel par2 checker thread
+        # mp2 = mp.Process(target=par2checker, arg=(self.mp_result_queue, self.mp2_resultqueue, self.logger, ))
 
         # start all connection worker threads
         for sn, scon, _, _ in self.all_connections:
@@ -616,101 +739,47 @@ class Downloader():
 
         avgmiblist = []
         status = 0        # 0 = running, 1 = exited successfull, -1 = exited connection error
-        max_mem_needed = 0
-        par2vols_loaded = False
+        inject_set0 = ["par2"]
+        files, infolist, bytescount0_0 = self.inject_articles(inject_set0, allfileslist)
+
+        # main download & processing loop
         while True and not self.sighandler.signal:
+
             # read resultqueue + distribute to files
-            newresult = False
-            while True:
-                try:
-                    resultarticle = self.resultqueue.get_nowait()
-                    self.resultqueue.task_done()
-                    filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0 = resultarticle
-                    bytesdownloaded = sum(len(i) for i in inf0)
-                    avgmiblist.append((time.time(), bytesdownloaded, download_server))
-                    try:
-                        infolist[filename][art_nr - 1] = inf0
-                        newresult = True
-                    except TypeError:
-                        continue
-                    # check if file is completed and put to mp_queue/decode in case
-                    (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
-                    if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:        # check for failed!! todo!!
-                        failed0 = False
-                        if "failed" in infolist[filename]:
-                            logger.error(filename + "failed!!")
-                            if not par2vols_loaded:
-                                if filetypecounter["par2vols"] > 0:
-                                    files0, infolist0, bytescount00 = self.inject_articles(["par2vols"], allfileslist)
-                                    files.update(files0)
-                                    infolist.update(infolist0)
-                                    bytescount0 += bytescount00
-                                    par2vols_loaded = True
-                                else:
-                                    logger
-                            failed0 = True
-                        inflist0 = infolist[filename][:]
-                        self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename))
-                        files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
-                        infolist[filename] = None
-                        logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
-                except KeyError:
-                    pass
-                except queue.Empty:
-                    break
+            newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
+
             # if no new result -> no further processing in this run
             if not newresult:
                 time.sleep(0.1)
                 continue
-            # start decoding/saving for done files
+
+            # get from mp_resulqueue and check for rars
+            
+
+            # if all files are done, inject next set / or quit
             alldone = True
             for filename, (f_nr_articles, f_age, f_filetype, done, failed) in files.items():
                 if not done:
                     alldone = False
                     status = 1
                     break
-            # if all are done: exit loop
-            if alldone:
+            if alldone and inject_set0 == "par2":   # after par2 -> rars
+                inject_set0 = ["rar", "sfv", "etc"]
+                files, infolist, bytescount0_0 = self.inject_articles([inject_set0], allfileslist)
+                # get par2 file from mp_resulqueue
+                # ...
+            if alldone and inject_set0 == ["rar", "sfv", "etc"]:   # after rars -> check rars md5 vs md5 in par2, etc
                 break
-            # get Mib downloaded
-            if len(avgmiblist) > 50:
-                del avgmiblist[0]
-            if len(avgmiblist) > 10:
-                avgmib_dic = {}
-                for (server_name, _, _, _, _, _, _, _, _) in self.servers.server_config:
-                    bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
-                    if len(bytescountlist) > 2:
-                        avgmib_db = sum(bytescountlist)
-                        avgmib_mint = min([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
-                        avgmib_maxt = max([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
-                        # print(avgmib_maxt, avgmib_mint)
-                        avgmib_dic[server_name] = (avgmib_db / (avgmib_maxt - avgmib_mint)) / (1024 * 1024) * 8
-                    else:
-                        avgmib_dic[server_name] = 0
-                for server_name, avgmib in avgmib_dic.items():
-                    mem_needed = ((psutil.virtual_memory()[0] - psutil.virtual_memory()[1]) - availmem0) / (1024 * 1024 * 1024)
-                    if mem_needed > max_mem_needed:
-                        max_mem_needed = mem_needed
-            # set in all threads servers alive timestamps
-            # check if server is longer off > 120 sec, if yes, kill thread & stop server
-            try:
-                print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
-                      + "{0:.3f}".format(max_mem_needed) + " GB                 ")
-            except UnboundLocalError:
-                print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
-            gbdown0 = 0
-            mbitsec0 = 0
+
+            # disply connection speeds in console
+            self.display_console_connection_data(bytescount0, availmem0, avgmiblist)
+
+            # update threads timestamps (if alive)
+            # if thread is dead longer than 120 sec - kill it
             for k, (t, last_timestamp) in enumerate(self.threads):
-                gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
-                gbdown0 += gbdown
-                gbdown_str = "{0:.3f}".format(gbdown)
-                mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
-                mbitsec0 += mbitsec
-                mbitsec_str = "{0:.1f}".format(mbitsec)
-                print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
                 if t.isAlive() and t.nntpobj:
-                    last_timestamp = time.time()
-                    self.threads[k] = (t, last_timestamp)
+                        last_timestamp = time.time()
+                        self.threads[k] = (t, last_timestamp)
                 if t.isAlive() and time.time() - last_timestamp > 120:
                     t.stop()
                     t.join()
@@ -719,12 +788,7 @@ class Downloader():
                         t.nntpobj = None
                     except Exception as e:
                         logger.error(str(e))
-            print("-" * 60)
-            gbdown0_str = "{0:.3f}".format(gbdown0)
-            print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
-                  + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
-            for _ in range(len(self.threads) + 3):
-                sys.stdout.write("\033[F")
+
             # if all servers down (= no WAN)
             if len([t for t, _ in self.threads if t.isAlive()]) == 0:
                 status = -1
@@ -743,7 +807,6 @@ class Downloader():
             t.stop()
             t.join()
         self.servers.close_all_connections()
-
         return status
 
     def get_level_servers(self, retention):
