@@ -19,7 +19,7 @@ import logging
 import logging.handlers
 import psutil
 import re
-# import par2lib
+import par2lib
 import hashlib
 
 # -------------------- globals --------------------
@@ -59,7 +59,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
         if not res0:
             logger.info("Exiting decoder process!")
             break
-        infolist, save_dir, filename = res0
+        infolist, save_dir, filename, filetype = res0
         del bytes0
         bytesfinal = bytearray()
         status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
@@ -135,28 +135,29 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
             status = -3
             logger.info("Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
         md5 = None
+        full_filename = save_dir + filename
         try:
             if not os.path.isdir(save_dir):
                 os.makedirs(save_dir)
-            logger.info(save_dir + filename)
-            with open(save_dir + filename, "wb") as f0:
+            with open(full_filename, "wb") as f0:
                 f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
             logger.info(filename + " decoded and saved!")
-            # calc hash
-            hash_md5 = hashlib.md5()
-            with open(save_dir + filename, "rb") as f0:
-                for chunk in iter(lambda: f0.read(4096), b""):
-                    hash_md5.update(chunk)
-            md5 = hash_md5.digest()
-            logger.info(filename + " md5: " + str(md5))
+            # calc hash for rars
+            if filetype == "rar":
+                hash_md5 = hashlib.md5()
+                with open(save_dir + filename, "rb") as f0:
+                    for chunk in iter(lambda: f0.read(4096), b""):
+                        hash_md5.update(chunk)
+                md5 = hash_md5.digest()
+                logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
             logger.error(str(e) + ": filename")
             status = -4
         logger.info(filename + " decoded with status " + str(status) + " / " + statusmsg)
-        mp_result_queue0.put((filename, status, statusmsg, md5))
+        mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
 
 
 def ParseNZB(nzbdir):
@@ -534,34 +535,43 @@ class Downloader():
 
     def make_allfilelist(self, filedic):
         allfilelist = []
-        filetypecounter = {"rar": 0, "nfo": 0, "par2": 0, "par2vol": 0, "sfv": 0, "etc": 0}
+        filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "par2": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
         for idx, (filename, filelist) in enumerate(filedic.items()):
-            for i, f in enumerate(filelist):
-                if i == 0:
-                    age, filetype, nr_articles = f
-                    # .rar
-                    filetype0 = filetype
-                    if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
-                        filetype0 = "rar"
-                        filetypecounter["rar"] += 1
-                    elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
-                        filetype0 = "nfo"
-                        filetypecounter["nfo"] += 1
-                    elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
-                        filetype0 = "sfv"
-                        filetypecounter["sfv"] += 1
-                    elif re.search(r"[.]par2$", filename, flags=re.IGNORECASE):
-                        if re.search(r"vol[0-9][0-9]*[+]", filename, flags=re.IGNORECASE):
-                            filetype0 = "par2vol"
-                            filetypecounter["par2vol"] += 1
-                        else:
-                            filetype0 = "par2"
-                            filetypecounter["par2"] += 1
-                    else:
-                        filetype0 = "etc"
-                        filetypecounter["etc"] += 1
-                    allfilelist.append([(filename, age, filetype0, nr_articles)])
+            age, filetype, nr_articles = filelist[0]
+            filetype0 = filetype
+            if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
+                filetype0 = "rar"
+                filetypecounter["rar"]["max"] += 1
+                filetypecounter["rar"]["filelist"].append(filename)
+            elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
+                filetype0 = "nfo"
+                filetypecounter["nfo"]["max"] += 1
+                filetypecounter["nfo"]["filelist"].append(filename)
+            elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
+                filetype0 = "sfv"
+                filetypecounter["sfv"]["max"] += 1
+                filetypecounter["sfv"]["filelist"].append(filename)
+            elif re.search(r"[.]par2$", filename, flags=re.IGNORECASE):
+                if re.search(r"vol[0-9][0-9]*[+]", filename, flags=re.IGNORECASE):
+                    filetype0 = "par2vol"
+                    filetypecounter["par2vol"]["max"] += 1
+                    filetypecounter["par2vol"]["filelist"].append(filename)
                 else:
+                    filetype0 = "par2"
+                    filetypecounter["par2"]["max"] += 1
+                    filetypecounter["par2"]["filelist"].append(filename)
+            else:
+                filetype0 = "etc"
+                filetypecounter["etc"]["max"] += 1
+                filetypecounter["etc"]["filelist"].append(filename)
+            allfilelist.append([(filename, age, filetype0, nr_articles)])
+            for i, f in enumerate(filelist):
+                if i > 0:
                     fn, nr, bytescount = f
                     allok = True
                     # check for duplicate art.
@@ -589,11 +599,11 @@ class Downloader():
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return bytescount0
 
-    def inject_articles(self, ftypes, filelist):
+    def inject_articles(self, ftypes, filelist, files0, infolist0, bytescount0_0):
         # generate all articles and files
-        files = {}
-        infolist = {}
-        bytescount0 = 0
+        files = files0
+        infolist = infolist0
+        bytescount0 = bytescount0_0
         for j, file_articles in enumerate(reversed(filelist)):
             # iterate over all articles in file
             filename, age, filetype, nr_articles = file_articles[0]
@@ -610,22 +620,6 @@ class Downloader():
                     self.articlequeue.put(q)
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0
-
-    def process_mp_resultqueue_for_rars(self, p2obj):
-        loadpar2vols = False
-        while True:
-            try:
-                full_filename, status, statusmsg, md5 = self.mp_resultqueue.get_nowait()
-                if re.search(r"[.]rar$", full_filename, flags=re.IGNORECASE):
-                    filename = full_filename.split("/")[-1]
-                    for pname, pmd5 in p2obj.filenames():
-                        if filename == pname and pmd5 != md5:
-                            loadpar2vols = True
-                            break
-                pass
-            except queue.Empty:
-                break
-        return  loadpar2vols
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):
         # read resultqueue + distribute to files
@@ -653,7 +647,7 @@ class Downloader():
                         logger.error(filename + "failed!!")
                         failed0 = True
                     inflist0 = infolist[filename][:]
-                    self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename))
+                    self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename, filetype))
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
                     infolist[filename] = None
                     logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
@@ -663,7 +657,7 @@ class Downloader():
                 break
         return newresult, avgmiblist, infolist, files
 
-    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00):
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00):
         avgmiblist = avgmiblist00
         max_mem_needed = 0
         bytescount0 = bytescount00
@@ -708,7 +702,10 @@ class Downloader():
         gbdown0_str = "{0:.3f}".format(gbdown0)
         print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
               + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
-        for _ in range(len(self.threads) + 3):
+        for key, item in filetypecounter00.items():
+            print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
+        print()
+        for _ in range(len(self.threads) + 4):
             sys.stdout.write("\033[F")
 
     def download_and_process(self, filedic):
@@ -739,40 +736,69 @@ class Downloader():
 
         avgmiblist = []
         status = 0        # 0 = running, 1 = exited successfull, -1 = exited connection error
-        inject_set0 = ["par2"]
-        files, infolist, bytescount0_0 = self.inject_articles(inject_set0, allfileslist)
-
+        inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
+        files = {}
+        infolist = {}
+        files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+        p2 = None
+        loadpar2vols = False
         # main download & processing loop
         while True and not self.sighandler.signal:
+            while True:
+                try:
+                    corrupt_rar_found = False
+                    filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
+                    filetypecounter[filetype]["counter"] += 1
+                    filetypecounter[filetype]["loadedfiles"].append((filename, md5))
+                    if filetype == "par2":
+                        p2 = par2lib.Par2File(full_filename)
+                        if filetypecounter["rar"]["counter"] > 0:
+                            for (f0, md5) in filetypecounter["rar"]["loadedfiles"]:
+                                md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
+                                if False in md5match:
+                                    logger.error("md5 mismatch " + filename)
+                                    corrupt_rar_found = True
+                                else:
+                                    logger.info("md5 check ok: " + filename + str(md5match))
+                    if filetype == "rar" and status != 0:
+                        corrupt_rar_found = True
+                    elif filetype == "rar" and p2:
+                        # check rar_md5 vs md5 aus resultqueue
+                        # todo: par2 als erstes runterladen
+                        md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
+                        if False in md5match:
+                            logger.error("md5 mismatch " + filename)
+                            corrupt_rar_found = True
+                        else:
+                            logger.info("md5 check ok: " + filename + str(md5match))
+                    if corrupt_rar_found and not loadpar2vols:
+                        inject_set0 = ["par2vols"]
+                        files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                        loadpar2vols = True
+                except queue.Empty:
+                    break
 
-            # read resultqueue + distribute to files
+            # if all downloaded quit
+            dobreak = True
+            for filetype, item in filetypecounter.items():
+                if filetype == "par2vol" and not loadpar2vols:
+                    continue
+                if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
+                    dobreak = False
+                    break
+            if dobreak:
+                break
+
+            # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
 
             # if no new result -> no further processing in this run
-            if not newresult:
+            '''if not newresult:
                 time.sleep(0.1)
-                continue
-
-            # get from mp_resulqueue and check for rars
-            
-
-            # if all files are done, inject next set / or quit
-            alldone = True
-            for filename, (f_nr_articles, f_age, f_filetype, done, failed) in files.items():
-                if not done:
-                    alldone = False
-                    status = 1
-                    break
-            if alldone and inject_set0 == "par2":   # after par2 -> rars
-                inject_set0 = ["rar", "sfv", "etc"]
-                files, infolist, bytescount0_0 = self.inject_articles([inject_set0], allfileslist)
-                # get par2 file from mp_resulqueue
-                # ...
-            if alldone and inject_set0 == ["rar", "sfv", "etc"]:   # after rars -> check rars md5 vs md5 in par2, etc
-                break
+                continue'''
 
             # disply connection speeds in console
-            self.display_console_connection_data(bytescount0, availmem0, avgmiblist)
+            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter)
 
             # update threads timestamps (if alive)
             # if thread is dead longer than 120 sec - kill it

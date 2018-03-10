@@ -194,7 +194,4 @@ class Par2File(object):
 print(60 * "-")
 print("Par2 filenames:")
 for p, md5 in p2.filenames():
-    print("  " + p + " / " + str(md5))
-'''
-
-
+    print("  " + p + " / " + str(md5))'''
