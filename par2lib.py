@@ -39,6 +39,7 @@ import glob
 import os
 import re
 import struct
+import rarfile
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -194,4 +195,8 @@ class Par2File(object):
 print(60 * "-")
 print("Par2 filenames:")
 for p, md5 in p2.filenames():
-    print("  " + p + " / " + str(md5))'''
+    print("  " + p + " / " + str(md5))
+os.chdir("/home/stephan/.ginzibix/incomplete")
+rf = rarfile.RarFile("VORSTDTWEBRS03E02OE1.720p.part01.rar")
+a = rf.testrar()
+print(a)'''

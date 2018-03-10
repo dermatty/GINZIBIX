@@ -21,6 +21,17 @@ import psutil
 import re
 import par2lib
 import hashlib
+import rarfile
+import subprocess
+import pymongo
+
+# ------------------- pymongo ---------------------
+
+DB_URL = "mongodb://ubuntuvm1.iv.at:27017"
+DB_NAME = "ginzibix_db"
+MONGODB = pymongo.MongoClient(DB_URL)[DB_NAME]
+testinsert = {"testdata": ["1", "2"]}
+res00 = MONGODB["TEST"].insert_one(testinsert)
 
 # -------------------- globals --------------------
 
@@ -735,12 +746,13 @@ class Downloader():
         signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
 
         avgmiblist = []
-        status = 0        # 0 = running, 1 = exited successfull, -1 = exited connection error
+        status = 0        # 0 = running, 1 = exited successfull, -1 = exited cannot unrar
         inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
         files = {}
         infolist = {}
         files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
         p2 = None
+        rf = None
         loadpar2vols = False
         # main download & processing loop
         while True and not self.sighandler.signal:
@@ -749,11 +761,11 @@ class Downloader():
                     corrupt_rar_found = False
                     filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
                     filetypecounter[filetype]["counter"] += 1
-                    filetypecounter[filetype]["loadedfiles"].append((filename, md5))
+                    filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
                     if filetype == "par2":
                         p2 = par2lib.Par2File(full_filename)
                         if filetypecounter["rar"]["counter"] > 0:
-                            for (f0, md5) in filetypecounter["rar"]["loadedfiles"]:
+                            for (f0, f0_full, md5) in filetypecounter["rar"]["loadedfiles"]:
                                 md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
                                 if False in md5match:
                                     logger.error("md5 mismatch " + filename)
@@ -778,7 +790,7 @@ class Downloader():
                 except queue.Empty:
                     break
 
-            # if all downloaded quit
+            # if all downloaded postprocess
             dobreak = True
             for filetype, item in filetypecounter.items():
                 if filetype == "par2vol" and not loadpar2vols:
@@ -786,8 +798,34 @@ class Downloader():
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     dobreak = False
                     break
+            # if ready to quit: unrar -t if rars not loaded
             if dobreak:
-                break
+                if not loadpar2vols and filetypecounter["rar"]["counter"] > 0:
+                    cwd0 = os.getcwd()
+                    rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
+                    os.chdir(dirs["incomplete"])
+                    rf = rarfile.RarFile(rarname)
+                    try:
+                        logger.info("Testing rars")
+                        rf.testrar()
+                        logger.info("rarfile.testrar successfull")
+                        os.cwd(cwd0)
+                        status = 1
+                        break
+                    except Exception as e:
+                        os.cwd(cwd0)
+                        if filetypecounter["par2vol"]["max"] > 0:
+                            logger.warning("rarfile.testrar error: " + str(e) + ", loading par2vol files")
+                            inject_set0 = ["par2vols"]
+                            files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                            loadpar2vols = True
+                        else:
+                            logger.error("rarfile.testrar error: " + str(e) + ", no par2vols exist, exiting")
+                            status = -1
+                            break
+                else:
+                    status = 1
+                    break
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
@@ -821,6 +859,48 @@ class Downloader():
                 break
             time.sleep(0.1)
 
+        # if rars and status = 1 -> unrar test was already successfull: unrar!
+        if status == 1 and not loadpar2vols and filetypecounter["rar"]["counter"] > 0:
+            if not rf:
+                cwd0 = os.getcwd()
+                rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
+                os.chdir(dirs["incomplete"])
+                rf = rarfile.RarFile(rarname)
+            try:
+                rf.extractall(path=None, members=None, pwd=None)
+                logger.info("All rars extracted!")
+            except Exception as e:
+                status = -1
+                logger.error("Rar File extraction error: " + str(e))
+            os.chdir(cwd0)
+        # else parrepair
+        elif status == 1 and loadpar2vols and filetypecounter["rar"]["counter"] > 0:
+            p2_name, _, _ = filetypecounter["par2"]["loadedfiles"][0]
+            cwd0 = os.getcwd()
+            os.chdir(dirs["incomplete"])
+            ssh = subprocess.call(['par2verify', p2_name], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+            sshres = ssh.stdout.readlines()
+
+            repair_is_required = False
+            repair_is_possible = True
+            for ss in sshres:
+                ss0 = ss.decode("utf-8")
+                if ss0 == "Repair is required":
+                    repair_is_required = True
+                if ss0 == "Repair is not possible":
+                    repair_is_possible = False
+            if repair_is_possible and repair_is_required:
+                logger.info("Repair is required and possible, performing par2repair ...")
+                # repair
+                ssh = subprocess.call(['par2repair', p2_name], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+            elif repair_is_required and not repair_is_possible:
+                logger.error("Repair is required but not possible!")
+                status = -1
+            elif not repair_is_required and not repair_is_possible:
+                logger.error("Repair is not required and not possible - this check should not have been performed!?")
+            elif not repair_is_required and repair_is_possible:
+                logger.error("Repair is not required but possible - this check should not have been performed!?")
+            os.chdir(cwd0)
         if self.sighandler.signal:
             time.sleep(1000)
 
