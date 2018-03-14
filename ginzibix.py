@@ -851,6 +851,7 @@ class Downloader():
             # if corrupt_rar_found, load par2 vols
             if corrupt_rar_found and not loadpar2vols:
                 inject_set0 = ["par2vol"]
+                
                 files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                 loadpar2vols = True
 
@@ -869,25 +870,23 @@ class Downloader():
                 if not loadpar2vols and filetypecounter["rar"]["counter"] > 0:
                     cwd0 = os.getcwd()
                     rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
-                    os.chdir(dirs["incomplete"] + self.nzbdir)
                     rf = rarfile.RarFile(rarname)
-                    try:
-                        logger.info("Testing rars")
-                        rf.testrar()
+                    logger.info("Testing rars")
+                    # rf.testrar()
+                    ret0 = par2lib.multipartrar_test(dirs["incomplete"] + self.nzbdir, rarname)
+                    if ret0 == 1:
                         logger.info("rarfile.testrar successfull")
-                        os.chdir(cwd0)
                         status = 1
                         break
-                    except Exception as e:
-                        os.chdir(cwd0)
+                    else:
                         if filetypecounter["par2vol"]["max"] > 0:
-                            logger.warning("rarfile.testrar error: " + str(e) + ", loading par2vol files")
+                            logger.warning("rarfile.testrar error: loading par2vol files")
                             inject_set0 = ["par2vols"]
                             files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                             loadpar2vols = True
                             dobreak = False
                         else:
-                            logger.error("rarfile.testrar error: " + str(e) + ", no par2vols exist, exiting")
+                            logger.error("rarfile.testrar error: no par2vols exist, exiting")
                             status = -1
                             break
                 else:

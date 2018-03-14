@@ -40,6 +40,7 @@ import os
 import re
 import struct
 import rarfile
+import subprocess
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -191,12 +192,41 @@ class Par2File(object):
         return names
 
 
-'''p2 = Par2File("/home/stephan/.ginzibix/incomplete/VORSTDTWEBRS03E02OE1.720p.PAR2")
-print(60 * "-")
-print("Par2 filenames:")
-for p, md5 in p2.filenames():
-    print("  " + p + " / " + str(md5))
-os.chdir("/home/stephan/.ginzibix/incomplete")
-rf = rarfile.RarFile("VORSTDTWEBRS03E02OE1.720p.part01.rar")
-a = rf.testrar()
-print(a)'''
+def multipartrar_test(directory, rarname0):
+    rarnames = []
+    sortedrarnames = []
+    cwd0 = os.getcwd()
+    os.chdir(directory)
+    for r in glob.glob("*.rar"):
+        rarnames.append(r)
+    for r in rarnames:
+        rarnr = r.split(".part")[-1].split(".rar")[0]
+        sortedrarnames.append((int(rarnr), r))
+    sortedrarnames = sorted(sortedrarnames, key=lambda nr: nr[0])
+    rar0_nr, rar0_nm = [(nr, rarn) for (nr, rarn) in sortedrarnames if rarn == rarname0][0]
+    ok_sorted = True
+    for i, (nr, rarnr) in enumerate(sortedrarnames):
+        if i + 1 == rar0_nr:
+            break
+        if i + 1 != nr:
+            ok_sorted = False
+            break
+    if not ok_sorted:
+        print(-1)
+        return -1              # -1 cannot check, rar in between is missing
+    # ok sorted, unrar t
+    ssh = subprocess.Popen(["unrar", "t", rarname0], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+    status = 1
+    for ss in ssh.stderr.readlines():
+        ss0 = ss.decode("utf-8")
+        if rarname0 in ss0:
+            status = -2
+            break
+
+    #    1  success tested
+    #    -1 cannot check, rar sequence not complete
+    #    -2 rarfile error
+
+    print(status)
+    os.chdir(cwd0)
+
