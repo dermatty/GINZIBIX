@@ -41,6 +41,8 @@ import re
 import struct
 import rarfile
 import subprocess
+import pexpect
+import time
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -230,3 +232,50 @@ def multipartrar_test(directory, rarname0):
     print(status)
     os.chdir(cwd0)
 
+
+def partial_unrar(directory, rarname0):
+    # todo: scan directory for new rars -> move to unpackdir and unrar
+    t0 = time.time()
+    cwd0 = os.getcwd()
+    os.chdir(directory)
+    cmd = "unrar x -y -o+ -vp " + rarname0
+    child = pexpect.spawn(cmd)
+    status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
+    while True:
+        str0 = ""
+        while True:
+            try:
+                a = child.read_nonblocking().decode("utf-8")
+                str0 += a
+            except pexpect.exceptions.EOF:
+                break
+            if str0[-6:] == "[Q]uit":
+                break
+        if "error" in str0:
+            gg = re.search(r"\S*[.]rar", str0, flags=re.IGNORECASE)
+            if "packed data checksum" in str0:
+                statmsg = gg.group() + " : packed data checksum error (= corrupt rar!)"
+                status = -1
+            elif "- checksum error" in str0:
+                statmsg = gg.group() + " : checksum error (= rar is missing!)"
+                status = -2
+            else:
+                statmsg = gg.group() + " : unknown error"
+                status = -3
+            print(str0)
+            break
+        if "All OK" in str0:
+            statmsg = "All OK"
+            status = 0
+            break
+        percstr = re.findall(r" [0-9]+%", str0)[-1]
+        print(percstr)
+        # print(str0)
+        print("-" * 16)
+        child.sendline("C")
+    print("100% - done in " + str(time.time() - t0) + " sec.")
+    print(status, statmsg)
+    os.chdir(cwd0)
+
+
+partial_unrar("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo", "st502304a4df4c023adf43c1462a.part01.rar")

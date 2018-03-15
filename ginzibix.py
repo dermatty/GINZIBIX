@@ -421,7 +421,7 @@ class ConnectionWorker(Thread):
                 info0 = [inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
         except Exception as e:
-            logger.error(str(e) + ": " + resp + " : " + self.idn + " for article " + article_name + ", return status = -2")
+            logger.error(str(e) + self.idn + " for article " + article_name + ", return status = -2")
             status = -2
             info0 = None
         return status, bytesdownloaded, info0
