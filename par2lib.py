@@ -43,6 +43,7 @@ import rarfile
 import subprocess
 import pexpect
 import time
+import inotify_simple
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -233,14 +234,77 @@ def multipartrar_test(directory, rarname0):
     os.chdir(cwd0)
 
 
-def partial_unrar(directory, rarname0):
-    # todo: scan directory for new rars -> move to unpackdir and unrar
-    t0 = time.time()
+def get_inotify_events(inotify):
+    rar_events = []
+    for event in inotify.read():
+        str0 = event.name
+        is_created_file = False
+        flgs0 = []
+        for flg in inotify_simple.flags.from_mask(event.mask):
+            if "flags.CREATE" in str(flg) and "flags.ISDIR" not in str(flg):
+                flgs0.append(str(flg))
+                is_created_file = True
+        if not is_created_file:
+            continue
+        gg = re.search(r"\S*[.]rar", str0, flags=re.IGNORECASE)
+        if gg.group():
+            rar_events.append((gg.group(), flgs0))
+    return rar_events
+
+
+def get_rar_files(directory):
+    rarlist = []
+    for rarf in glob.glob("*.rar"):
+        gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
+        rarlist.append((int(gg.group().split(".")[0]), rarf))
+    return rarlist
+
+
+def partial_unrar(directory):
     cwd0 = os.getcwd()
     os.chdir(directory)
-    cmd = "unrar x -y -o+ -vp " + rarname0
+    # create unpack dir
+    if directory[-1] != "/":
+        directory += "/"
+    unpack_dir = directory + "_unpack0"
+    '''dir_done = False
+    i = 0
+    while not dir_done:
+        unpack_dir = directory + "_unpack" + str(i)
+        if os.path.exists(unpack_dir):
+            i += 1
+        else:
+            break'''
+    try:
+        # os.mkdir(unpack_dir)
+        pass
+    except Exception as e:
+        print(str(e) + ": cannot create unpack_dir")
+        return -1
+    # init inotify
+    inotify = inotify_simple.INotify()
+    watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
+    inotify.add_watch(directory, watch_flags)
+
+    # get already present rar files
+    eventslist = []
+    rar_basislist = get_rar_files(directory)
+    rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
+
+    # wait for first file to arrive before starting unrar if no rar files present
+    while not rar_sortedlist or rar_sortedlist[0][0] != 1:
+        events = get_inotify_events(inotify)
+        if events not in eventslist:
+            eventslist.append(events)
+            rar_basislist = get_rar_files(directory)
+            rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
+
+    # first valid rar_sortedlist in place, start unrar!
+    cmd = "unrar x -y -o+ -vp " + rar_sortedlist[0][1] + " " + unpack_dir
+    print(cmd)
     child = pexpect.spawn(cmd)
     status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
+    rarindex = 1
     while True:
         str0 = ""
         while True:
@@ -268,14 +332,25 @@ def partial_unrar(directory, rarname0):
             statmsg = "All OK"
             status = 0
             break
-        percstr = re.findall(r" [0-9]+%", str0)[-1]
-        print(percstr)
+        # percstr = re.findall(r" [0-9]+%", str0)[-1]
+        print(str0)
         # print(str0)
         print("-" * 16)
+        rarindex += 1
+        if rarindex not in [nr for nr, _ in rar_sortedlist]:
+            gotnextrar = False
+            while not gotnextrar:
+                events = get_inotify_events(inotify)
+                if events not in eventslist:
+                    eventslist.append(events)
+                    rar_basislist = get_rar_files(directory)
+                    rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
+                    if rarindex in [nr for nr, _ in rar_sortedlist]:
+                        gotnextrar = True
         child.sendline("C")
-    print("100% - done in " + str(time.time() - t0) + " sec.")
+    print("100% - done")
     print(status, statmsg)
     os.chdir(cwd0)
 
 
-partial_unrar("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo", "st502304a4df4c023adf43c1462a.part01.rar")
+partial_unrar("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo")
