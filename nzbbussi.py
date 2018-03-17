@@ -1,540 +1,201 @@
-import nntplib
-import xml.etree.ElementTree as ET
-import time
-import yenc
+#!/home/stephan/.virtualenvs/nntp/bin/python
+
+import threading
 from threading import Thread
-import glob
-import ssl
-import posix_ipc
-import configparser
-import subprocess
-import os
-import signal
-from os.path import expanduser
+import time
 import sys
+import os
+import queue
+from os.path import expanduser
+import configparser
+import signal
+import glob
+import xml.etree.ElementTree as ET
+import nntplib
+import ssl
+import yenc
+import multiprocessing as mp
+import logging
+import logging.handlers
+import psutil
+import re
+import par2lib
+import hashlib
+import rarfile
+import subprocess
+import pymongo
 
-# testchange
+# ------------------- pymongo ---------------------
 
-USERHOME = expanduser("~")
-MAIN_DIR = USERHOME + "/.nzbbussi/"
-CONFIG_DIR = MAIN_DIR + "config/"
-NZB_DIR = MAIN_DIR + "nzb/"
-COMPLETE_DIR = MAIN_DIR + "complete/"
-INCOMPLETE_DIR = MAIN_DIR + "incomplete/"
-LOGS_DIR = MAIN_DIR + "logs/"
+DB_URL = "mongodb://ubuntuvm1.iv.at:27017"
+DB_NAME = "ginzibix_db"
+MONGODB = pymongo.MongoClient(DB_URL)[DB_NAME]
+# testinsert = {"testdata": ["1", "2"]}
+# res00 = MONGODB["TEST"].insert_one(testinsert)
 
-# python 3 unrar
-# https://pypi.python.org/pypi/unrar/
-# https://github.com/markokr/rarfile
+# -------------------- globals --------------------
 
+userhome = expanduser("~")
+maindir = userhome + "/.ginzibix/"
+dirs = {
+    "userhome": userhome,
+    "main": maindir,
+    "config": maindir + "config/",
+    "nzb": maindir + "nzb/",
+    "complete": maindir + "complete/",
+    "incomplete": maindir + "incomplete/",
+    "logs": maindir + "logs/"
+}
+_ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
 
-SEMAPHORE = posix_ipc.Semaphore("news_sema", posix_ipc.O_CREAT)
-SEMAPHORE.release()
-
-SERVER_CONFIGS = []
-FAILED_ARTICLE_LIST = []
-# 0 = started, 1 = Full Success, 2 = Articles missing, -1 = finally no success -> repair useless, too many articles missing
-ACTIVE_THREADS_STATUS = []
-
-BYTES_WRITTEN = 0
-DTIME = 0
-AVGBYTES = 0
-
-
-def siginthandler(signum, frame):
-    global servers
-    servers.quit()
-    sys.exit()
-
-
-def shutdown():
-    global servers
-    servers.quit()
-    print("ByeBye!")
-    sys.exit()
-
-def writer(nobyt):
-    global SEMAPHORE
-    global DTIME
-    global BYTES_WRITTEN
-    global AVGBYTES
-    SEMAPHORE.acquire()
-    if DTIME == 0:
-        DTIME = time.time()
-    BYTES_WRITTEN += nobyt
-    AVGBYTES = BYTES_WRITTEN / (time.time() - DTIME)
-    SEMAPHORE.release()
-
-
-def set_global_active_thread_status(nr, status):
-    global ACTIVE_THREADS_STATUS
-    SEMAPHORE.acquire()
-    ACTIVE_THREADS_STATUS[nr] = (status)
-    SEMAPHORE.release()
+# init logger
+logger = logging.getLogger("ginzibix")
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler(dirs["logs"] + "ginzibix.log", mode="w")
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
 
 
-def append_global_failed_articels(failedarticles):
-    global FAILED_ARTICLE_LIST
-    SEMAPHORE.acquire()
-    FAILED_ARTICLE_LIST.append(failedarticles)
-    SEMAPHORE.release()
+# -------------------- Procedures --------------------
+
+def calc_file_md5hash(fn):
+    hash_md5 = hashlib.md5()
+    try:
+        with open(fn, "rb") as f0:
+            for chunk in iter(lambda: f0.read(4096), b""):
+                hash_md5.update(chunk)
+        md5 = hash_md5.digest()
+    except Exception as e:
+        logger.warning("MD5 calc error: " + str(e))
+        md5 = -1
+    return md5
 
 
-'''
-class ArticleDownloader():
-
-    def __init__(self, threadno, items, serverlist):
-        global USER
-        global SERVER
-        global PASSWORD
-        global PORT
-        self.ITEMS = items
-        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-        self.THREADNO = threadno
-        self.SERVERLIST = serverlist
-        self.SERVER = []
-        # (server_name, server, user, password, port, usessl, level, connections, 0))
-        for s in self.SERVERLIST:
-            server_name, server, user, password, port, usessl, level, connections, threads_active = s
-            if usessl:
-                self.SERVER.append(nntplib.NNTP_SSL(server, user=user, password=password, ssl_context=self.context, port=port, readermode=True))
-            else:
-                self.SERVER.append(nntplib.NNTP(server, user=user, password=password, ssl_context=self.context, port=port, readermode=True))
-
-    # downloads an article, returns list of data
-    def download_article(self, articles):
-        infolist = []
-        for art in articles:
-            print("Downloading article #" + str(art[1]) + ": " + art[0])
-            try:
-                resp_h, info_h = self.SERVER.head(art[0])  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
-                resp, info = self.SERVER.body(art[0])      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
-                if resp_h[:3] != "221" or resp[:3] != "222":
-                    continue
-            except Exception as e:
-                print("Article download error: " + str(e))
-                continue
-            infolist.append(info)
+def decode_articles(mp_work_queue0, mp_result_queue0, logger):
+    bytes0 = bytearray()
+    bytesfinal = bytearray()
+    while True:
+        try:
+            res0 = mp_work_queue0.get()
+        except KeyboardInterrupt:
+            return
+        if not res0:
+            logger.info("Exiting decoder process!")
             break
-        return infolist
-
-    # yenc decode infolist from article(s)
-    def decode_articles(self, infolist):
-        headerfound = 0
-        endfound = 0
-        partfound = 0
-        byt = bytearray()
-        pcrc32 = ""
+        infolist, save_dir, filename, filetype = res0
+        del bytes0
+        bytesfinal = bytearray()
+        status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
+        statusmsg = "ok"
         for info in infolist:
-            for inf in info.lines:
+            headerok = False
+            trailerok = False
+            partfound = False
+            trail_crc = None
+            head_crc = None
+            bytes0 = bytearray()
+            partnr = 0
+            artsize0 = 0
+            for inf in info:
                 try:
                     inf0 = inf.decode()
                     if inf0 == "":
-                            continue
-                    if inf0[:7] == "=ybegin":
-                        headerfound += 1
                         continue
-                    if inf0[:5] == "=yend":
-                        pcrc32 = inf0.split("pcrc32=")[1]
-                        endfound += 1
+                    if inf0.startswith("=ybegin"):
+                        try:
+                            artname = re.search(r"name=(\S+)", inf0).group(1)
+                            artsize = int(re.search(r"size=(\S+)", inf0).group(1))
+                            artsize0 += artsize
+                            m_obj = re.search(r"crc32=(\S+)", inf0)
+                            if m_obj:
+                                head_crc = m_obj.group(1)
+                            headerok = True
+                        except Exception as e:
+                            logger.warning(str(e) + ": malformed =ybegin header in article " + artname)
                         continue
-                    if inf0[:6] == "=ypart":
-                        partfound += 1
+                    if inf0.startswith("=ypart"):
+                        partfound = True
+                        partnr += 1
+                        continue
+                    if inf0.startswith("=yend"):
+                        try:
+                            artsize = int(re.search(r"size=(\S+)", inf0).group(1))
+                            m_obj = re.search(r"crc32=(\S+)", inf0)
+                            if m_obj:
+                                trail_crc = m_obj.group(1)
+                            trailerok = True
+                        except Exception as e:
+                            logger.warning(str(e) + ": malformed =yend trailer in article " + artname)
                         continue
                 except Exception as e:
                     pass
-                byt.extend(inf)
-            if headerfound != 1 or endfound != 1 or partfound > 1:
-                print("Wrong yenc structure detected")
-                byt.clear()
-                continue           # try next article if provided
+                try:
+                    bytes0.extend(inf)
+                    pass
+                except KeyboardInterrupt:
+                    return
+            if not headerok or not trailerok:  # or not partfound or partnr > 1:
+                logger.warning(filename + ": wrong yenc structure detected")
+                statusmsg = "yenc_structure_error"
+                status = 0
+            _, decodedcrc32, decoded = yenc.decode(bytes0)
+            if not head_crc and not trail_crc:
+                statusmsg = "no_pcrc32_error"
+                logger.warning(filename + ": no pcrc32 detected")
+                status = -1
             else:
-                break              # all fine, return first article as bytearray + crc32
-        return byt, pcrc32
-
-    def run(self):
-        global BYTES_WRITTEN, COMPLETE_DIR
-        failedarticles = []
-        # loop over whole (.rar) file
-        success = False
-        for header, articlelist_ext in self.ITEMS:
-            nr_articles = int(articlelist_ext[0])
-            articlelist = articlelist_ext[1:]
-            byt = bytearray()
-            # downlaod all articles
-            for artnr in range(nr_articles):
-                articles_for_download = [f for f in articlelist if f[1] == artnr + 1]
-                # if article no. not found in articlelist -> failedarticles
-                if articles_for_download == []:
-                    print("Article #" + str(artnr+1) + " is missing in NZB file")
-                    failedarticles.append((header, artnr + 1, nr_articles))
-                    continue
-                infolist = self.download_article(articles_for_download)
-                # if cannot download article -> failedarticles
-                if infolist == []:
-                    print("Download of Article failed")
-                    failedarticles.append((header, artnr + 1, nr_articles))
-                    continue
-                # all ok until now, decode it!
-                article_bytes, pcrc32 = self.decode_articles(infolist)
-                if pcrc32 == "":
-                    failedarticles.append((header, artnr + 1, nr_articles))
-                    print("Could not decode article!")
-                    continue
-                # check crc32
-                _, crc32, decoded = yenc.decode(article_bytes)
-                if crc32.strip("0") != pcrc32.strip("0"):
-                    failedarticles.append((header, artnr + 1, nr_articles))
-                    print("CRC32 checksum error: " + crc32 + " / " + pcrc32)
-                    continue
-                # all ok, add bytes from article to file
-                byt.extend(decoded)
-            with open(COMPLETE_DIR + header, "wb") as f0:
-                f0.write(byt)
+                head_crc0 = None if not head_crc else head_crc.lower()
+                trail_crc0 = None if not trail_crc else trail_crc.lower()
+                crc32list = [head_crc0, trail_crc0]
+                crc32 = decodedcrc32.lower()
+                if crc32 not in crc32list:
+                    logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
+                    statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
+                    status = -2
+            bytesfinal.extend(decoded)
+        if artsize0 != len(bytesfinal):
+            statusmsg = "article file length wrong"
+            status = -3
+            logger.info("Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
+        md5 = None
+        full_filename = save_dir + filename
+        try:
+            if not os.path.isdir(save_dir):
+                os.makedirs(save_dir)
+            with open(full_filename, "wb") as f0:
+                f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
-                print(header + " saved!!")
-                success = True
-        append_global_failed_articels(failedarticles)
-        if success:
-            set_global_active_thread_status(self.THREADNO, 1)
-        else:
-            set_global_active_thread_status(self.THREADNO, 2)
-        self.SERVER.quit()
-'''
-'''
-         =ybegin part=27 total=134 line=128 size=51200000 name=Ednuerf Fneuf-1-Pittis AVCHD1080p fuer DVD5.Ger.part025.rar
-         =ypart begin=9984001 end=10368000
-         =yend size=384000 part=27 pcrc32=7d2799b9
-         check crc32: 7d2799b9
-         check length: 384000
-'''
-
-
-def modify_articlelist(idx, item):
-        global ARTICLELIST
-        SEMAPHORE.acquire()
-        ARTICLELIST[idx] = item
-        SEMAPHORE.release()
-
-
-class ArticleDownload(Thread):
-
-    def __init__(self, art_nr, art_name, server_ref, servers):
-        Thread.__init__(self)
-        global ARTICLELIST
-        self.daemon = True
-        self.art_nr = art_nr
-        self.art_name = art_name
-        # server_res: m_idx, m_name, m_level, m_nntpobj, m_threadidx
-        self.serverindex, self.servername, self.level, self.server_nntpobj, self.server_threadix = server_ref
-        self.servers = servers
-            
-        # ARTICLELIST = [(art_nr, art_name, age, status (-1 default), unused_servers, content)]
-        self.article = [(idx, art_nr0, art_name0, age0, status0, unused_servers0, content)
-                        for idx, (art_nr0, art_name0, age0, status0, unused_servers0, content) in enumerate(ARTICLELIST)
-                        if art_nr == self.art_nr and art_name0 == self.art_name][0]
-        self.articleindex, _, _, self.age, self.status, self.unused_servers, _ = self.article
-
-    def get_article(self):
-
-        print("Downloading article #" + str(self.art_nr) + ": " + self.art_name)
-        try:
-            # print(">>>", self.servers.server_threadlist)
-            resp_h, info_h = self.server_nntpobj.head(self.art_name)  # 221 = article retrieved head follows: 222 0 <rocWBjTgD4RpOrSMspot_6o99@JBinUp.local>
-            resp, info = self.server_nntpobj.body(self.art_name)      # 222 = article retrieved head follows: 221 0 <TDG36IMQlKcVW5NHovr11_10o99@JBinUp.local>
-            if resp_h[:3] != "221" or resp[:3] != "222":
-                raise("No Succes answer from server!")
-            else:
-                print("head + body downloaded!")
+            logger.info(filename + " decoded and saved!")
+            # calc hash for rars
+            if filetype == "rar":
+                md5 = calc_file_md5hash(save_dir + filename)
+                if md5 == -1:
+                    raise("Cannot calculate md5 hash")
+                logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
-            print("Article download error: " + str(e))
-            return False, None
-        return True, info
-
-    def run(self):
-        global SEMAPHORE
-        if not self.server_nntpobj:
-            self.server_nntpobj = self.servers.make_connection(self.serverindex, self.server_threadix)
-            if not self.server_nntpobj:
-                return False, None
-        # set server connection as busy
-        # serverthreads.append((server_name, connlist, retention, level))
-        SEMAPHORE.acquire()
-        s0_name, s0_conn, s0_ret, s0_level = self.servers.server_threadlist[self.serverindex]
-        s0_conn[self.server_threadix] = (self.server_nntpobj, True)
-        self.servers.server_threadlist[self.serverindex] = (s0_name, s0_conn, s0_ret, s0_level)
-        unused_new = self.unused_servers[:]
-        unused_new.remove(self.servername)
-        SEMAPHORE.release()
-        modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, 1, unused_new, None))
-
-        success, info = self.get_article()
-        # ARTICLELIST = [(art_nr, art_name, age, status, unused_servers, content)]
-        # status = -2 failed
-        #          -1 queued
-        #          0 success
-        #          1 downloading
-        if success:
-            # [(art_nr, art_name, age, status, unused_servers, content)]
-            modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, 0, unused_new, info))
-        elif not success and not unused_new:
-            modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, -2, unused_new, info))
-        elif not success and unused_new:
-            modify_articlelist(self.articleindex, (self.art_nr, self.art_name, self.age, -1, unused_new, info))
-        SEMAPHORE.acquire()
-        server_name, connection_list, retention, level = self.servers.server_threadlist[self.serverindex]
-        c_nntpobj, c_isbusy = connection_list[self.server_threadix]
-        connection_list[self.server_threadix] = (c_nntpobj, False)
-        self.servers.server_threadlist[self.serverindex] = (server_name, connection_list, retention, level)
-        SEMAPHORE.release()
-        return
+            statusmsg = "file_error"
+            logger.error(str(e) + ": " + filename)
+            status = -4
+        logger.info(filename + " decoded with status " + str(status) + " / " + statusmsg)
+        mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
 
 
-class Downloader():
-    def __init__(self, servers):
-        self.servers = servers
-
-    def get_next_article_from_articlelist(self):
-        global ARTICLELIST, SEMAPHORE
-        SEMAPHORE.acquire()
-        res0 = False, False
-        for i, art in enumerate(ARTICLELIST):
-            art_nr, art_name, age, status, unused_servers, content = art
-            if status == -1 and unused_servers:
-                res0 = True, (art_nr, art_name, age, unused_servers, content)
-                modify_articlelist(i, (art_nr, art_name, age, 1, unused_servers, content))
-                break
-            if status == -1 and not unused_servers:
-                print("*** dead ***")
-                modify_articlelist(i, (art_nr, art_name, age, -2, [], None))
-            if status == 1:
-                res0 = False, True
-        SEMAPHORE.release()
-        return res0
-
-    def get_free_server_from_server_threadlist(self, age, unused_servers):
-        t0 = time.time()
-        # (server_name, connection_list[(nntplib_obj, is_busy)], retention, level)
-        # print("-----", unused_servers)
-        while time.time() - t0 < 1:            # max 1 sekunde suchen
-            suited_servers0 = [(sidx, s0, connlist, level) for sidx, (s0, connlist, retention, level) in enumerate(self.servers.server_threadlist)
-                               if s0 in unused_servers and retention > age * 0.9]
-            suited_servers1 = []
-            for s_idx, s_name, s_connlist, s_level in suited_servers0:
-                for threadidx, (nntpobj, is_busy) in enumerate(s_connlist):
-                    if not is_busy:
-                        suited_servers1.append((s_idx, s_name, s_level, nntpobj, threadidx))
-            if not suited_servers1:
-                continue
-            min_server = (None, None, 10000, None, None)
-            for s_idx, s_name, s_level, s_nntpobj, s_threadix in suited_servers1:
-                m_idx, m_name, m_level, m_nntpobj, n_threadidx = min_server
-                if s_level < m_level:
-                    min_server = (s_idx, s_name, s_level, s_nntpobj, s_threadix)
-            m_idx, m_name, m_level, m_nntpobj, n_threadidx = min_server
-            if m_name:
-                return min_server
-            else:
-                return None
-        return None
-
-    def decode_articles(self, infolist):
-        headerfound = 0
-        endfound = 0
-        partfound = 0
-        byt = bytearray()
-        pcrc32 = ""
-        for info in infolist:
-            for inf in info.lines:
-                try:
-                    inf0 = inf.decode()
-                    if inf0 == "":
-                            continue
-                    if inf0[:7] == "=ybegin":
-                        headerfound += 1
-                        continue
-                    if inf0[:5] == "=yend":
-                        pcrc32 = inf0.split("pcrc32=")[1]
-                        endfound += 1
-                        continue
-                    if inf0[:6] == "=ypart":
-                        partfound += 1
-                        continue
-                except Exception as e:
-                    pass
-                byt.extend(inf)
-            if headerfound != 1 or endfound != 1 or partfound > 1:
-                print("Wrong yenc structure detected")
-                byt.clear()
-                continue           # try next article if provided
-            else:
-                break              # all fine, return first article as bytearray + crc32
-        return byt, pcrc32
-
-    def download(self):
-        global ARTICLELIST
-        # ARTICLELIST = [(art_nr, art_name, age, status, unused_servers, content)]
-        # status = -1 queued
-        #          0 success
-        #          1 failed
-        #          -2 downloading
-        for i, art0 in enumerate(ARTICLELIST):
-            art_nr, art_name, age, status, _, _ = art0
-            modify_articlelist(i, (art_nr, art_name, age, status, self.servers.unused_serverlist, None))
-
-        stillrunning = True
-        while stillrunning:
-            res0, stillrunning = self.get_next_article_from_articlelist()  # get article with status 0 oder -1
-            if not res0 and not stillrunning:
-                break            # fertisch!!!!
-            if not res0 and stillrunning:
-                continue
-            art_nr, art_name, age, unused_servers, _ = stillrunning
-            print("ART", art_nr)
-            # server_res: m_idx, m_name, m_level, m_nntpobj, m_threadidx
-            server_res = self.get_free_server_from_server_threadlist(age, unused_servers)
-            if server_res:
-                ad = ArticleDownload(art_nr, art_name, server_res, self.servers)
-                ad.start()
-            else:
-                print("Cannot queue articel, delaying ...")
-            time.sleep(0.1)
-
-        print("All articles downloaded where possible")
-
-        lenarticlelist = len(ARTICLELIST)
-        articles_status = [status for _, _, _, status, _, _ in ARTICLELIST]
-        print(articles_status)
-        nr_okarticles = len([status for status in articles_status if status == 0])
-        print(lenarticlelist, nr_okarticles)
-        if nr_okarticles == lenarticlelist:
-            # postprocess articles
-            infolist = []
-            for i in range(len(ARTICLELIST)):
-                for art_nr, _, _, _, _, info in ARTICLELIST:
-                    if art_nr - 1 == i:
-                        infolist.append(info)
-            bytes0 = bytearray()
-            stat_decode = 0
-            for info in infolist:
-                bytesresult, pcrc32 = self.decode_articles(infolist)
-                if pcrc32 == "":
-                    print("CRC32 checksum missing!")
-                    stat_decode = -1
-                    # continue
-                # check crc32
-                _, crc32, decoded = yenc.decode(bytesresult)
-                if crc32.strip("0") != pcrc32.strip("0"):
-                    print("CRC32 checksum error: " + crc32 + " / " + pcrc32)
-                    stat_decode = -1
-                # all ok, add bytes from article to file
-                bytes0.extend(decoded)
-            return stat_decode, bytes0
-        else:
-            return -2, None
-
-        '''nr_damagedarticles = len([status for status in articles_status if status == -2])
-        if nr_damagedarticles / lenarticlelist > 0.03:
-            return -1           # >= 3% (??) par repair useless -> return -1 ---> ausprobieren
-        else:
-            return 1            # < 3% par repair sinnvoll: return 1 (means par2 files nachladen und repair versuchen)
-        '''
-
-
-class Servers():
-
-    def __init__(self, cfg):
-        self.cfg = cfg
-        self.server_config = self.get_server_config(self.cfg)
-        self.server_threadlist, self.unused_serverlist = self.connect()
-
-        # self.server_threadlist
-        # (server_name, connection_list[(nntplib_obj, is_busy)], retention, level)
-
-    def modify_serverthreadlist(self, idx, item):
-        SEMAPHORE.acquire()
-        self.server_threadlist[idx] = item
-        SEMAPHORE.release()
-
-    def quit(self):
-        for s in self.server_threadlist:
-            server_name, connlist, _, _ = s
-            for i, (server0, _) in enumerate(connlist):
-                if not server0:
-                    continue
-                try:
-                    server0.quit()
-                    print("Connection to server " + server_name + " / connection #" + str(i+1) + " closed!")
-                except Exception as e:
-                    print("Server quit error: " + str(e))
-
-    def make_connection(self, server_idx, connection_idx):
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-        server_name, server, user, password, port, usessl, level, max_connections, retention, threads_active = self.server_config[server_idx]
-        (server_name_t, connlist_t, retention_t, level_t) = self.server_threadlist[server_idx]
-        try:
-            if usessl:
-                server0 = nntplib.NNTP_SSL(server, user=user, password=password, ssl_context=context, port=port, readermode=True)
-            else:
-                server0 = nntplib.NNTP(server, user=user, password=password, ssl_context=context, port=port, readermode=True)
-            print("Established connection #" + str(connection_idx + 1) + "on server " + server_name)
-            connlist_t[connection_idx] = (server0, False)
-            self.server_threadlist[server_idx] = (server_name_t, connlist_t, retention_t, level_t)
-            return server0
-        except Exception as e:
-            print("Cannot connect to server " + server_name)
-        return False
-
-    def connect(self):
-        serverthreads = []
-        unused = []
-        for s in self.server_config:
-            server_name, server, user, password, port, usessl, level, max_connections, retention, threads_active = s
-            connlist = []
-            for mc in range(max_connections):
-                try:
-                    connlist.append((False, False))
-                except Exception as e:
-                    pass
-            if connlist:
-                unused.append(server_name)
-                serverthreads.append((server_name, connlist, retention, level))
-            else:
-                print("Cannot connect to server " + server_name + ", skipping ...")
-        return serverthreads, unused
-
-    def get_server_config(self, cfg):
-        # get servers from config
-        snr = 0
-        sconf = []
-        while True:
-            try:
-                snr += 1
-                snrstr = "SERVER" + str(snr)
-                server_name = cfg[snrstr]["SERVER_NAME"]
-                server = cfg[snrstr]["SERVER_URL"]
-                user = cfg[snrstr]["USER"]
-                password = cfg[snrstr]["PASSWORD"]
-                port = int(cfg[snrstr]["PORT"])
-                usessl = True if cfg[snrstr]["SSL"].lower() == "yes" else False
-                level = int(cfg[snrstr]["LEVEL"])
-                connections = int(cfg[snrstr]["CONNECTIONS"])
-            except Exception as e:
-                snr -= 1
-                break
-            try:
-                retention = int(cfg[snrstr]["RETENTION"])
-                sconf.append((server_name, server, user, password, port, usessl, level, connections, retention, 0))
-            except Exception as e:
-                sconf.append((server_name, server, user, password, port, usessl, level, connections, 999999, 0))
-        if not sconf:
-            return None
-        return sconf
-
-
-# Parse NZB xml
-def ParseNZB(nzbroot):
+def ParseNZB(nzbdir):
+    cwd0 = os.getcwd()
+    os.chdir(nzbdir)
+    logger.info("Getting NZB files from " + nzbdir)
+    for nzb in glob.glob("*.nzb"):
+        pass
+    try:
+        tree = ET.parse(nzb)
+        logger.info("Downloading NZB file: " + nzb)
+    except Exception as e:
+        logger.error(str(e) + ": please provide at least 1 NZB file!")
+        return nzb, None
+    nzbroot = tree.getroot()
+    os.chdir(cwd0)
     filedic = {}
     for r in nzbroot:
         headers = r.attrib
@@ -551,8 +212,6 @@ def ParseNZB(nzbroot):
             if filetype.lower() == "par2":
                 if hn.split(".")[-2][:3] == "vol":
                     filetype = "PAR2"
-            # if PAR2FILE is None and hn[-5:].lower() == ".par2":
-            #     PAR2FILE = hn
         except Exception as e:
             continue
         for s in r:
@@ -564,150 +223,814 @@ def ParseNZB(nzbroot):
                     continue
                 nr0 = r0.attrib["number"]
                 filename = "<" + r0.text + ">"
-                filelist.append((filename, int(nr0)))
+                bytescount = int(r0.attrib["bytes"])
+                filelist.append((filename, int(nr0), bytescount))
             i -= 1
             if segfound:
                 filelist.insert(0, (age, filetype, int(nr0)))
                 filedic[hn] = filelist
-    return filedic
+    return nzb, filedic
 
 
-if __name__ == "__main__":
+# -------------------- Classes --------------------
 
-    CFG = configparser.ConfigParser()
-    CFG.read(CONFIG_DIR + "/nzbbussi.config")
+# captures SIGINT / SIGTERM and closes down everything
+class SigHandler():
+
+    def __init__(self, servers, threads, mp_work_queue, logger):
+        self.servers = servers
+        self.logger = logger
+        self.threads = threads
+        self.mp_work_queue = mp_work_queue
+        self.signal = False
+
+    def handler2(self, signal, frame):
+        return
+
+    def signalhandler(self, signal, frame):
+        self.logger.warning("signalhandler: got SIGINT/SIGTERM!")
+        self.signal = True
+        self.logger.warning("signalhandler: stopping decoder processes")
+        self.mp_work_queue.put(None)
+        time.sleep(1)
+        self.logger.warning("signalhandler: stopping download threads")
+        for t, _ in self.threads:
+            t.stop()
+            t.join()
+        self.logger.warning("signalhandler: closing all server connections")
+        self.servers.close_all_connections()
+        self.logger.warning("signalhandler: exiting")
+        print()
+        sys.exit()
+
+
+# Does all the server stuff (open, close connctions) and contains all relevant
+# data
+class Servers():
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        # server_config = [(server_name, server_url, user, password, port, usessl, level, connections, retention)]
+        self.server_config = self.get_server_config(self.cfg)
+        # all_connections = [(server_name, conn#, retention, nntp_obj)]
+        self.all_connections = self.get_all_connections()
+        # level_servers0 = {"0": ["EWEKA", "BULK"], "1": ["TWEAK"], "2": ["NEWS", "BALD"]}
+        self.level_servers = self.get_level_servers()
+
+    def __bool__(self):
+        if not self.server_config:
+            return False
+        return True
+
+    def get_single_server_config(self, server_name0):
+        for server_name, server_url, user, password, port, usessl, level, connections, retention in self.server_config:
+            if server_name == server_name0:
+                return server_name, server_url, user, password, port, usessl, level, connections, retention
+        return None
+
+    def get_all_connections(self):
+        conn = []
+        for s_name, _, _, _, _, _, _, s_connections, s_retention in self.server_config:
+            for c in range(s_connections):
+                conn.append((s_name, c + 1, s_retention, None))
+        return conn
+
+    def get_level_servers(self):
+        s_tuples = []
+        for s_name, _, _, _, _, _, s_level, _, _ in self.server_config:
+            s_tuples.append((s_name, s_level))
+        sorted_s_tuples = sorted(s_tuples, key=lambda server: server[1])
+        ls = {}
+        for s_name, s_level in sorted_s_tuples:
+            if str(s_level) not in ls:
+                ls[str(s_level)] = []
+            ls[str(s_level)].append(s_name)
+        return ls
+
+    def open_connection(self, server_name0, conn_nr):
+        result = None
+        for idx, (sn, cn, rt, nobj) in enumerate(self.all_connections):
+            if sn == server_name0 and cn == conn_nr:
+                if nobj:
+                    return nobj
+                else:
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                    sc = self.get_single_server_config(server_name0)
+                    if sc:
+                        server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
+                        try:
+                            logger.info("Opening connection # " + str(conn_nr) + "to server " + server_name)
+                            if usessl:
+                                nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
+                            else:
+                                nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
+                            logger.info("Opened Connection #" + str(conn_nr) + " on server " + server_name0)
+                            result = nntpobj
+                            self.all_connections[idx] = (sn, cn, rt, nntpobj)
+                            break
+                        except Exception as e:
+                            logger.error("Server " + server_name0 + " connect error: " + str(e))
+                            self.all_connections[idx] = (sn, cn, rt, None)
+                            break
+                    else:
+                        logger.error("Cannot get server config for server: " + server_name0)
+                        self.all_connections[idx] = (sn, cn, rt, None)
+                        break
+        return result
+
+    def close_all_connections(self):
+        for (sn, cn, _, nobj) in self.all_connections:
+            if nobj:
+                try:
+                    nobj.quit()
+                    logger.warning("Closed connection #" + str(cn) + " on " + sn)
+                except Exception as e:
+                    logger.warning("Cannot quit server " + sn + ": " + str(e))
+
+    def get_server_config(self, cfg):
+        # get servers from config
+        snr = 0
+        sconf = []
+        while True:
+            try:
+                snr += 1
+                snrstr = "SERVER" + str(snr)
+                server_name = cfg[snrstr]["SERVER_NAME"]
+                server_url = cfg[snrstr]["SERVER_URL"]
+                user = cfg[snrstr]["USER"]
+                password = cfg[snrstr]["PASSWORD"]
+                port = int(cfg[snrstr]["PORT"])
+                usessl = True if cfg[snrstr]["SSL"].lower() == "yes" else False
+                level = int(cfg[snrstr]["LEVEL"])
+                connections = int(cfg[snrstr]["CONNECTIONS"])
+            except Exception as e:
+                snr -= 1
+                break
+            try:
+                retention = int(cfg[snrstr]["RETENTION"])
+                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
+            except Exception as e:
+                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))
+        if not sconf:
+            return None
+        return sconf
+
+
+# This is the thread worker per connection to NNTP server
+class ConnectionWorker(Thread):
+    def __init__(self, lock, connection, articlequeue, resultqueue, servers):
+        Thread.__init__(self)
+        # self.daemon = True
+        self.connection = connection
+        self.articlequeue = articlequeue
+        self.resultqueue = resultqueue
+        self.lock = lock
+        self.servers = servers
+        self.nntpobj = None
+        self.running = True
+        self.name, self.conn_nr = self.connection
+        self.idn = self.name + " #" + str(self.conn_nr)
+        self.bytesdownloaded = 0
+        self.last_timestamp = 0
+
+    def stop(self):
+        self.running = False
+
+    # return status, info
+    #        status = 1:  ok
+    #                 0:  article not found
+    #                -1:  retention not sufficient
+    #                -2:  server connection error
+    def download_article(self, article_name, article_age):
+        sn, _ = self.connection
+        bytesdownloaded = 0
+        server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
+        if retention < article_age * 0.95:
+            logger.warning("Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
+            return -1, None
+        try:
+            # resp_h, info_h = self.nntpobj.head(article_name)
+            resp, info = self.nntpobj.body(article_name)
+            if resp[:3] != "222":
+                # if resp_h[:3] != "221" or resp[:3] != "222":
+                logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
+                status = 0
+                info0 = None
+            else:
+                status = 1
+                info0 = [inf for inf in info.lines]
+                bytesdownloaded = sum(len(i) for i in info0)
+        except Exception as e:
+            logger.error(str(e) + self.idn + " for article " + article_name + ", return status = -2")
+            status = -2
+            info0 = None
+        return status, bytesdownloaded, info0
+
+    def retry_connect(self):
+        if self.nntpobj or not self.running:
+            return
+        idx = 0
+        name, conn_nr = self.connection
+        idn = name + " #" + str(conn_nr)
+        logger.info("Server " + idn + " connecting ...")
+        while idx < 5 and self.running:
+            self.nntpobj = self.servers.open_connection(name, conn_nr)
+            if self.nntpobj:
+                logger.info("Server " + idn + " connected!")
+                self.last_timestamp = time.time()
+                return
+            logger.warning("Could not connect to server " + idn + ", will retry in 5 sec.")
+            time.sleep(5)
+            idx += 1
+        if not self.running:
+            logger.warning("No connection retries anymore due to exiting")
+        else:
+            logger.error("Connect retries to " + idn + " failed!")
+
+    def remove_from_remaining_servers(self, name, remaining_servers):
+        next_servers = []
+        for s in remaining_servers:
+            addserver = s[:]
+            try:
+                addserver.remove(name)
+            except Exception as e:
+                pass
+            if addserver:
+                next_servers.append(addserver)
+        return next_servers
+
+    def run(self):
+        logger.info(self.idn + " thread starting !")
+        while True and self.running:
+            self.retry_connect()
+            if not self.nntpobj:
+                time.sleep(5)
+                continue
+            self.lock.acquire()
+            artlist = list(self.articlequeue.queue)
+            try:
+                test_article = artlist[-1]
+            except IndexError:
+                self.lock.release()
+                time.sleep(0.1)
+                continue
+            if not test_article:
+                article = self.articlequeue.get()
+                self.articlequeue.task_done()
+                self.lock.release()
+                logger.warning(self.idn + ": got poison pill!")
+                break
+            _, _, _, _, _, _, remaining_servers = test_article
+            # no servers left
+            # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
+            if not remaining_servers:
+                article = self.articlequeue.get()
+                self.lock.release()
+                self.resultqueue.put(article + (None,))
+                continue
+            if self.name not in remaining_servers[0]:
+                self.lock.release()
+                time.sleep(0.1)
+                continue
+            article = self.articlequeue.get()
+            self.lock.release()
+            filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
+            # print("Downloading on server " + idn + ": + for article #" + str(art_nr), filename)
+            status, bytesdownloaded, info = self.download_article(art_name, age)
+            # if server connection error - disconnect
+            if status == -2:
+                # disconnect
+                logger.warning("Stopping server " + self.idn)
+                try:
+                    self.nntpobj.quit()
+                except Exception as e:
+                    pass
+                self.nntpobj = None
+                # take next server
+                next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
+                next_servers.append([self.name])    # add current server to end of list
+                logger.warning("Requeuing " + art_name + " on server " + self.idn)
+                # requeue
+                self.articlequeue.task_done()
+                self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
+                time.sleep(10)
+                continue
+            # if download successfull - put to resultqueue
+            if status == 1:
+                self.bytesdownloaded += bytesdownloaded
+                # print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
+                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info))
+                self.articlequeue.task_done()
+            # if article could not be found on server / retention not good enough - requeue to other server
+            if status in [0, -1]:
+                next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
+                self.articlequeue.task_done()
+                if not next_servers:
+                    logger.error("Download finally failed on server " + self.idn + ": for article #" + str(art_nr), next_servers)
+                    self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
+                else:
+                    logger.warning("Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: ", next_servers)
+                    self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
+        logger.info(self.idn + " exited!")
+
+
+# Handles download of a NZB file
+class Downloader():
+    def __init__(self, servers, dirs, nzb, logger):
+        self.nzb = nzb
+        self.nzbdir = re.sub(r"[.]nzb$", "", self.nzb, flags=re.IGNORECASE) + "/"
+        self.servers = servers
+        self.lock = threading.Lock()
+        self.level_servers = self.servers.level_servers
+        self.all_connections = self.servers.all_connections
+        self.articlequeue = queue.LifoQueue()
+        self.resultqueue = queue.Queue()
+        self.mp_work_queue = mp.Queue()
+        self.mp_result_queue = mp.Queue()
+        self.threads = []
+        self.dirs = dirs
+        self.logger = logger
+
+    def article_producer(self, articles, articlequeue):
+        for article in articles:
+            articlequeue.put(article)
+
+    def make_allfilelist(self, filedic):
+        allfilelist = []
+        filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "par2": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
+        idx = 0
+        p2 = None
+        savedir = dirs["incomplete"] + self.nzbdir
+        for (filename, filelist) in filedic.items():
+            file_already_exists = False
+            for fname0 in glob.glob(savedir + "*"):
+                short_fn = fname0.split("/")[-1]
+                if short_fn == filename:
+                    file_already_exists = True
+                    break
+
+            age, filetype, nr_articles = filelist[0]
+            filetype0 = filetype
+            if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
+                filetype0 = "rar"
+                filetypecounter["rar"]["max"] += 1
+                filetypecounter["rar"]["filelist"].append(filename)
+            elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
+                filetype0 = "nfo"
+                filetypecounter["nfo"]["max"] += 1
+                filetypecounter["nfo"]["filelist"].append(filename)
+            elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
+                filetype0 = "sfv"
+                filetypecounter["sfv"]["max"] += 1
+                filetypecounter["sfv"]["filelist"].append(filename)
+            elif re.search(r"[.]par2$", filename, flags=re.IGNORECASE):
+                if re.search(r"vol[0-9][0-9]*[+]", filename, flags=re.IGNORECASE):
+                    filetype0 = "par2vol"
+                    filetypecounter["par2vol"]["max"] += 1
+                    filetypecounter["par2vol"]["filelist"].append(filename)
+                else:
+                    filetype0 = "par2"
+                    filetypecounter["par2"]["max"] += 1
+                    filetypecounter["par2"]["filelist"].append(filename)
+                    if file_already_exists:
+                        p2 = par2lib.Par2File(savedir + filename)
+            else:
+                filetype0 = "etc"
+                filetypecounter["etc"]["max"] += 1
+                filetypecounter["etc"]["filelist"].append(filename)
+            if file_already_exists:
+                filetypecounter[filetype0]["counter"] += 1
+                md5 = calc_file_md5hash(savedir + filename)
+                filetypecounter[filetype0]["loadedfiles"].append((filename, savedir + filename, md5))
+                continue
+            allfilelist.append([(filename, age, filetype0, nr_articles)])
+            for i, f in enumerate(filelist):
+                if i > 0:
+                    fn, nr, bytescount = f
+                    allok = True
+                    # check for duplicate art.
+                    if len(allfilelist[idx]) > 2:
+                        for i1, art in enumerate(allfilelist[idx]):
+                            if i1 > 1:
+                                nr1, fn1, _ = art
+                                if nr1 == nr:
+                                    allok = False
+                                    break
+                    if allok:
+                        allfilelist[idx].append((nr, fn, bytescount))
+            idx += 1
+        return allfilelist, filetypecounter, p2
+
+    def getbytescount(self, filelist):
+        # generate all articles and files
+        bytescount0 = 0
+        for file_articles in filelist:
+            # iterate over all articles in file
+            for i, art0 in enumerate(file_articles):
+                if i == 0:
+                    continue
+                _, _, art_bytescount = art0
+                bytescount0 += art_bytescount
+        bytescount0 = bytescount0 / (1024 * 1024 * 1024)
+        return bytescount0
+
+    def inject_articles(self, ftypes, filelist, files0, infolist0, bytescount0_0):
+        # generate all articles and files
+        files = files0
+        infolist = infolist0
+        bytescount0 = bytescount0_0
+        for j, file_articles in enumerate(reversed(filelist)):
+            # iterate over all articles in file
+            filename, age, filetype, nr_articles = file_articles[0]
+            # check if file already exists in "incomplete"
+            if filetype in ftypes:
+                level_servers = self.get_level_servers(age)
+                files[filename] = (nr_articles, age, filetype, False, True)
+                infolist[filename] = [None] * nr_articles
+                for i, art0 in enumerate(file_articles):
+                    if i == 0:
+                        continue
+                    art_nr, art_name, art_bytescount = art0
+                    bytescount0 += art_bytescount
+                    q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
+                    self.articlequeue.put(q)
+        bytescount0 = bytescount0 / (1024 * 1024 * 1024)
+        return files, infolist, bytescount0
+
+    def process_resultqueue(self, avgmiblist00, infolist00, files00):
+        # read resultqueue + distribute to files
+        newresult = False
+        avgmiblist = avgmiblist00
+        infolist = infolist00
+        files = files00
+        while True:
+            try:
+                resultarticle = self.resultqueue.get_nowait()
+                self.resultqueue.task_done()
+                filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0 = resultarticle
+                bytesdownloaded = sum(len(i) for i in inf0)
+                avgmiblist.append((time.time(), bytesdownloaded, download_server))
+                try:
+                    infolist[filename][art_nr - 1] = inf0
+                    newresult = True
+                except TypeError:
+                    continue
+                # check if file is completed and put to mp_queue/decode in case
+                (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
+                if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:        # check for failed!! todo!!
+                    failed0 = False
+                    if "failed" in infolist[filename]:
+                        logger.error(filename + "failed!!")
+                        failed0 = True
+                    inflist0 = infolist[filename][:]
+                    self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename, filetype))
+                    files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
+                    infolist[filename] = None
+                    logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
+            except KeyError:
+                pass
+            except queue.Empty:
+                break
+        return newresult, avgmiblist, infolist, files
+
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00):
+        avgmiblist = avgmiblist00
+        max_mem_needed = 0
+        bytescount0 = bytescount00
+        availmem0 = availmem00
+        # get Mib downloaded
+        if len(avgmiblist) > 50:
+            del avgmiblist[0]
+        if len(avgmiblist) > 10:
+            avgmib_dic = {}
+            for (server_name, _, _, _, _, _, _, _, _) in self.servers.server_config:
+                bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
+                if len(bytescountlist) > 2:
+                    avgmib_db = sum(bytescountlist)
+                    avgmib_mint = min([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
+                    avgmib_maxt = max([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
+                    # print(avgmib_maxt, avgmib_mint)
+                    avgmib_dic[server_name] = (avgmib_db / (avgmib_maxt - avgmib_mint)) / (1024 * 1024) * 8
+                else:
+                    avgmib_dic[server_name] = 0
+            for server_name, avgmib in avgmib_dic.items():
+                mem_needed = ((psutil.virtual_memory()[0] - psutil.virtual_memory()[1]) - availmem0) / (1024 * 1024 * 1024)
+                if mem_needed > max_mem_needed:
+                    max_mem_needed = mem_needed
+        # set in all threads servers alive timestamps
+        # check if server is longer off > 120 sec, if yes, kill thread & stop server
+        try:
+            print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
+                  + "{0:.3f}".format(max_mem_needed) + " GB                 ")
+        except UnboundLocalError:
+            print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
+        gbdown0 = 0
+        mbitsec0 = 0
+        for k, (t, last_timestamp) in enumerate(self.threads):
+            gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
+            gbdown0 += gbdown
+            gbdown_str = "{0:.3f}".format(gbdown)
+            mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
+            mbitsec0 += mbitsec
+            mbitsec_str = "{0:.1f}".format(mbitsec)
+            print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
+        print("-" * 60)
+        gbdown0_str = "{0:.3f}".format(gbdown0)
+        print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
+              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
+        for key, item in filetypecounter00.items():
+            print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
+        print()
+        for _ in range(len(self.threads) + 4):
+            sys.stdout.write("\033[F")
+
+    def download_and_process(self, filedic):
+        availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
+        allfileslist, filetypecounter, p2 = self.make_allfilelist(filedic)
+        logger.info("Downloading articles for: " + self.nzb)
+
+        # overall GB
+        bytescount0 = self.getbytescount(allfileslist)
+
+        # start decoder thread
+        mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
+        mpp.start()
+
+        # start parallel par2 checker thread
+        # mp2 = mp.Process(target=par2checker, arg=(self.mp_result_queue, self.mp2_resultqueue, self.logger, ))
+
+        # register sigint/sigterm handlers
+        self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue, self.logger)
+        signal.signal(signal.SIGINT, self.sighandler.signalhandler)
+        signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
+
+        avgmiblist = []
+        status = 0        # 0 = running, 1 = exited successfull, -1 = exited cannot unrar
+        inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
+        files = {}
+        infolist = {}
+        files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+        rf = None
+        loadpar2vols = False
+
+        # if par2 file already exist but par2vols not yet downloaded, check downloaded rars against it and inject in case
+        if filetypecounter["rar"]["counter"] > 0 and p2 and filetypecounter["par2vol"]["counter"] < filetypecounter["par2vol"]["max"]:
+            logger.info("PAR2 file already exists, checking md5 sum")
+            # first, check md5 sums of rar files vs sums in par2 files
+            for (f0, f0_full, md5) in filetypecounter["rar"]["loadedfiles"]:
+                md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0]
+                if False in md5match:
+                    logger.error("md5 mismatch " + f0 + ", loading par2vol files!")
+                    loadpar2vols = True
+                    inject_set0 = ["par2vol"]
+                    files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                    break
+                else:
+                    logger.info("md5 check ok: " + f0 + str(md5match))
+            # if md5sum check was ok, 2nd check: unrar
+            if not loadpar2vols:
+                cwd0 = os.getcwd()
+                rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
+                os.chdir(dirs["incomplete"] + self.nzbdir)
+                rf = rarfile.RarFile(rarname)
+                try:
+                    logger.info("Testing rars")
+                    rf.testrar()
+                    logger.info("rarfile.testrar successfull")
+                    os.chdir(cwd0)
+                except Exception as e:
+                    os.chdir(cwd0)
+                    logger.info("rarfile.testrar not successfull, loading remaining par2vol files")
+                    loadpar2vols = True
+                    inject_set0 = ["par2vol"]
+                    files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+        elif filetypecounter["par2vol"]["counter"] == filetypecounter["par2vol"]["max"]:
+            loadpar2vols = True
+
+        # if files in queue, start connection worker threads
+        if allfileslist:
+            for sn, scon, _, _ in self.all_connections:
+                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
+                self.threads.append((t, time.time()))
+                t.start()
+
+        # main download & processing loop
+        while True and not self.sighandler.signal:
+
+            # get mp_result_queue
+            rarcounter0 = filetypecounter["rar"]["counter"]
+            while True:
+                try:
+                    corrupt_rar_found = False
+                    filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
+                    filetypecounter[filetype]["counter"] += 1
+                    filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
+                    if filetype == "par2":
+                        p2 = par2lib.Par2File(full_filename)
+                    if filetype == "rar" and status != 0:
+                        corrupt_rar_found = True
+                except queue.Empty:
+                    break
+
+            # if rarfiles + par2 file have been downloaded -> check md5 and reload par2vols in case
+            if filetypecounter["rar"]["counter"] > rarcounter0 and p2 and not corrupt_rar_found and not loadpar2vols:
+                newrars = filetypecounter["rar"]["counter"] - rarcounter0
+                for (f0, f0_full, md5) in filetypecounter["rar"]["loadedfiles"][-newrars:]:
+                    md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0]
+                    if False in md5match:
+                        logger.error("md5 mismatch " + filename)
+                        corrupt_rar_found = True
+                    else:
+                        logger.info("md5 check ok: " + filename + str(md5match))
+
+            # if corrupt_rar_found, load par2 vols
+            if corrupt_rar_found and not loadpar2vols:
+                inject_set0 = ["par2vol"]
+                
+                files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                loadpar2vols = True
+
+            # if all downloaded postprocess
+            dobreak = True
+            for filetype, item in filetypecounter.items():
+                if filetype == "par2vol" and not loadpar2vols:
+                    continue
+                if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
+                    dobreak = False
+                    break
+
+            # if ready to quit: unrar -t if rars not loaded
+            if dobreak:
+                # if no par2vols loaded: unrar test and reload par2vols in case
+                if not loadpar2vols and filetypecounter["rar"]["counter"] > 0:
+                    cwd0 = os.getcwd()
+                    rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
+                    rf = rarfile.RarFile(rarname)
+                    logger.info("Testing rars")
+                    # rf.testrar()
+                    ret0 = par2lib.multipartrar_test(dirs["incomplete"] + self.nzbdir, rarname)
+                    if ret0 == 1:
+                        logger.info("rarfile.testrar successfull")
+                        status = 1
+                        break
+                    else:
+                        if filetypecounter["par2vol"]["max"] > 0:
+                            logger.warning("rarfile.testrar error: loading par2vol files")
+                            inject_set0 = ["par2vols"]
+                            files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                            loadpar2vols = True
+                            dobreak = False
+                        else:
+                            logger.error("rarfile.testrar error: no par2vols exist, exiting")
+                            status = -1
+                            break
+                else:
+                    status = 1
+                    break
+
+            # read resultqueue + decode via mp
+            newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
+
+            # disply connection speeds in console
+            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter)
+
+            if dobreak:
+                break
+
+            # update threads timestamps (if alive)
+            # if thread is dead longer than 120 sec - kill it
+            for k, (t, last_timestamp) in enumerate(self.threads):
+                if t.isAlive() and t.nntpobj:
+                        last_timestamp = time.time()
+                        self.threads[k] = (t, last_timestamp)
+                if t.isAlive() and time.time() - last_timestamp > 120:
+                    t.stop()
+                    t.join()
+                    try:
+                        t.nntopj.quit()
+                        t.nntpobj = None
+                    except Exception as e:
+                        logger.error(str(e))
+
+            # if all servers down (= no WAN)
+            if len([t for t, _ in self.threads if t.isAlive()]) == 0:
+                status = -1
+                break
+            time.sleep(0.1)
+
+        exitstatus = 0
+
+        # parrepair ??
+        if status == 1 and loadpar2vols and filetypecounter["rar"]["counter"] > 0:
+            p2_name, _, _ = filetypecounter["par2"]["loadedfiles"][0]
+            cwd0 = os.getcwd()
+            os.chdir(dirs["incomplete"] + self.nzbdir)
+            logger.warning("RAR files possibly damaged and all par2vols loaded, performing par2verify ...")
+            ssh = subprocess.Popen(['par2verify', p2_name], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+            sshres = ssh.stdout.readlines()
+
+            repair_is_required = False
+            repair_is_possible = False
+            for ss in sshres:
+                ss0 = ss.decode("utf-8")
+                if "Repair is required" in ss0:
+                    repair_is_required = True
+                if "Repair is possible" in ss0:
+                    repair_is_possible = True
+            if repair_is_possible and repair_is_required:
+                logger.info("Repair is required and possible, performing par2repair ...")
+                # repair
+                ssh = subprocess.Popen(['par2repair', p2_name], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+                sshres = ssh.stdout.readlines()
+                repair_complete = False
+                for ss in sshres:
+                    ss0 = ss.decode("utf-8")
+                    if "Repair complete" in ss0:
+                        repair_complete = True
+                if not repair_complete:
+                    exitstatus = -1
+                    logger.error("Could not repair")
+                else:
+                    logger.info("Repair success!!")
+            elif repair_is_required and not repair_is_possible:
+                logger.error("Repair is required but not possible!")
+                exitstatus = -1
+            elif not repair_is_required and not repair_is_possible:
+                logger.error("Repair is not required - all OK!")
+            os.chdir(cwd0)
+
+        if exitstatus == 0 and filetypecounter["rar"]["counter"] > 0:
+            cwd0 = os.getcwd()
+            rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
+            os.chdir(dirs["incomplete"] + self.nzbdir)
+            logger.info("Extracting rar archive ...")
+            ssh = subprocess.Popen(["unrar", "x", "-y", "-kb", rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+            sshres = ssh.stdout.readlines()
+            all_ok = False
+            for ss in sshres:
+                ss0 = ss.decode("utf-8")
+                if "All OK" in ss0:
+                    all_ok = True
+            if not all_ok:
+                exitstatus = -1
+                logger.error("Error in extracting rars")
+            else:
+                logger.info("All rars extracted!")
+            os.chdir(cwd0)
+
+        if self.sighandler.signal:
+            time.sleep(1000)
+
+        # clean up
+        logger.info("cleaning up ...")
+        self.mp_work_queue.put(None)
+        self.resultqueue.join()
+        self.articlequeue.join()
+        for t, _ in self.threads:
+            t.stop()
+            t.join()
+        self.servers.close_all_connections()
+        return exitstatus
+
+    def get_level_servers(self, retention):
+        le_serv0 = []
+        for level, serverlist in self.level_servers.items():
+            level_servers = serverlist
+            le_dic = {}
+            for le in level_servers:
+                _, _, _, _, _, _, _, _, age = self.servers.get_single_server_config(le)
+                le_dic[le] = age
+            les = [le for le in level_servers if le_dic[le] > retention * 0.9]
+            le_serv0.append(les)
+        return le_serv0
+
+
+# -------------------- main --------------------
+
+if __name__ == '__main__':
+
+    print("Welcome to ginzibix 0.1-alpha, binary usenet downloader")
+    print("-" * 60)
+
+    cfg = configparser.ConfigParser()
+    cfg.read(dirs["config"] + "/ginzibix.config")
 
     # get servers
-    servers = Servers(CFG)
+    servers = Servers(cfg)
     if not servers:
-        print("At least one server has to be provided, exiting!")
+        logger.error("At least one server has to be provided, exiting!")
         sys.exit()
 
-    signal.signal(signal.SIGINT, siginthandler)
-    signal.signal(signal.SIGTERM, siginthandler)
+    nzb, filedic = ParseNZB(dirs["nzb"])
+    if filedic:
+        t0 = time.time()
+        dl = Downloader(servers, dirs, nzb, logger)
+        status = dl.download_and_process(filedic)
+        print("\n" + nzb + " downloaded in " + str(int(time.time() - t0)) + " sec. with status " + str(status))
 
-    # get nzbs -> atm only pls only 1 nzb in nzb dir!
-    os.chdir(NZB_DIR)
-    print("Getting NZB files from " + NZB_DIR)
-    for NZB in glob.glob("*.nzb"):
-        pass
-    try:
-        tree = ET.parse(NZB)
-        print("Downloading " + NZB)
-    except Exception as e:
-        print(str(e) + ": please provide at least 1 NZB file, exiting!")
-        sys.exit()
-    nzb_root = tree.getroot()
-    os.chdir(MAIN_DIR)
-
-    filedic = ParseNZB(nzb_root)
-
-    j = 0
-    for key, filelist in filedic.items():
-        ARTICLELIST = []
-        SERVER_THREAD_LIST = []
-        for i, f in enumerate(filelist):
-            if i == 0:
-                age, filetype, nr_articles = f
-            else:
-                fn, nr = f
-                ARTICLELIST.append((nr, fn, age, -1, [], None))
-        d = Downloader(servers)
-        print("Downloading File: " + key)
-        result, binaryfile = d.download()
-        # result = 0:   all articles downloaded & checksums ok -> no par repair necessary
-        #        =-1:   all articles downloaded but checksums not ok -> par check nec., download par2 files
-        #        =-2:   failed, articles missing, stop!
-        if result != -2:
-            print(INCOMPLETE_DIR + key)
-            with open(INCOMPLETE_DIR + key, "wb") as f0:
-                f0.write(binaryfile)
-                f0.flush()
-                f0.close()
-        else:
-            print("File damaged, with articles missing!!")
-            shutdown()
-        j += 1
-        if j > 2:
-            shutdown()
-
-    # downloader = Downloader(filedic, SERVERLIST)
-    # success = downloader.download()
-
-    ''' threadlist = []
-    for co in range(connections):
-        threadlist.append([])
-    sn = 0
-    for key, item in filedic.items():
-        threadlist[sn].append((key, item))
-        sn += 1
-        if sn >= connections:
-            sn = 0
-    sn = 0
-    threads = []
-    print
-    for t in threadlist:
-        th = Download(sn, t, SERVERLIST)
-        threads.append(th)
-        sn += 1
-
-    for th in threads:
-        ACTIVE_THREADS_STATUS.append(0)
-        print("Starting Thread")
-        th.start()
-
-    # 1 = full success
-    # -1 = par2 repair makes sense
-    # -2 = par2 repair makes NO sense
-    downloadstatus = 0
-    while True:
-        # Download ended with "Article missing" -> try to get from fill server, if any
-        # if no fill server -> check if too much articels are missing
-        # 0 = started
-        # 1 = Full Success
-        # 2 = Articles missing, start thread for alternative download or check if par2 makes sense
-        # -1 = cannot redownload missing articles, but par2 repair makes sense
-        # -2 = cannot redownload missing articles and par2 repair makes NO sense
-        if 2 in ACTIVE_THREADS_STATUS:
-            # try to redownload, from other server. if no server left, check if repair is useless
-            pass
-        # if status for all threads is only "success" or "no success": exit loop
-        if 0 not in ACTIVE_THREADS_STATUS and 2 not in ACTIVE_THREADS_STATUS:
-            if -1 not in ACTIVE_THREADS_STATUS and -2 not in ACTIVE_THREADS_STATUS:
-                downloadstatus = 1
-            break
-        time.sleep(1)
-
-    sys.exit()
-        
-    for th in threads:
-        print("------------------------")
-        th.join()
-
-
-
-
-    print("par repair:")
-
-    # PAR-REPAIR
-    os.chdir(COMPLETE_DIR)
-    ssh = subprocess.Popen(["/usr/bin/par2verify", PAR2FILE], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # ssh = subprocess.Popen(["ls", "-al"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    sshres = ssh.stdout.readlines()
-    answer = sshres[-1].decode("utf-8")
-    if answer[0:21] == "All files are correct":
-        print("No par repair required")
-    else:
-        print("par2 repair required")
-        # TO DO: only download all par2 files if we are here
-        ssh = subprocess.Popen(["/usr/bin/par2repair", PAR2FILE], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        sshres = ssh.stdout.readlines()
-        answer = sshres[-1].decode("utf-8")
-        if answer[0:15] == "Repair complete":
-            print("Repair complete!")
-        else:
-            print("Cannot repair!")
-    os.chdir(MAIN_DIR)
-    # UNRAR
-
-    # DELETE ALL INTERIM FILES'''
+    logger.warning("### EXITED GINZIBIX ###")

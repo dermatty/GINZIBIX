@@ -44,6 +44,9 @@ import subprocess
 import pexpect
 import time
 import inotify_simple
+import shutil
+import queue
+import multiprocessing as mp
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -195,7 +198,67 @@ class Par2File(object):
         return names
 
 
-def multipartrar_test(directory, rarname0):
+def par_verifier(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_dir, logger, filetypecounter):
+
+    rarfilelist = []
+    p2 = None
+    while True:
+        # get from inqueue
+        res0 = None
+        while True:
+            try:
+                res0 = mp_inqueue.get_nowait()
+            except queue.Empty:
+                break
+        if res0:
+            filename, status, md5, p2_0 = res0
+            rarfilelist.append((filename, status, md5, 0))
+            # 0 ... not tested
+            # -1 ... not ok (yet)
+            if p2_0:
+                p2 = p2_0
+
+        # if no par2 given have to test with "unrar t"
+        doloadpar2vols = False
+        verifystatus = 0  # 0 .. still running, 1 .. all ok/finished, -1 .. not ok/finished
+        corruptrars = []
+        if not p2:
+            rarf = [r.split("/")[-1] for r in glob.glob(download_dir + "*")]
+            maxrar = filetypecounter["rar"]["max"]
+            for i, (filename, status, md5, isok) in enumerate(rarfilelist):
+                if os.path.isfile(verifiedrar_dir + filename):
+                    continue
+                if filename in rarf and isok == 0 or isok == -1:
+                    res0 = multipartrar_test(download_dir, filename, logger)
+                    logger.info("PAR_VERIFIER > unrar t: " + filename + " = " + str(res0))
+                    rarfilelist[i] = filename, status, md5, res0
+                    if res0 == 1:
+                        logger.info("PAR_VERIFIER > copying " + filename + " to " + verifiedrar_dir)
+                        shutil.copy(download_dir + filename, verifiedrar_dir)
+                    else:
+                        corruptrars.append(((filename, status, md5, isok)))
+                        logger.warning("PAR_VERIFIER > error in 'unrar t' for file " + filename)
+                        doloadpar2vols = True
+            # if all checked is there still a fill which is not ok??
+            # todo check this exit condition !!!
+            if len(rarf) == maxrar and len(rarfilelist) == maxrar:
+                allok = True
+                for (filename, status, md5, isok) in rarfilelist:
+                    if isok != 1:
+                        allok = False
+                        break
+                verifystatus = 1
+                if not allok:
+                    verifystatus = -1
+                    doloadpar2vols = True
+
+        mp_outqueue.put((doloadpar2vols, verifystatus))
+        if verifystatus != 0:
+            break
+        time.sleep(0.5)
+
+
+def multipartrar_test(directory, rarname0, logger):
     rarnames = []
     sortedrarnames = []
     cwd0 = os.getcwd()
@@ -215,27 +278,46 @@ def multipartrar_test(directory, rarname0):
             ok_sorted = False
             break
     if not ok_sorted:
-        print(-1)
+        # print(-1)
         return -1              # -1 cannot check, rar in between is missing
     # ok sorted, unrar t
-    ssh = subprocess.Popen(["unrar", "t", rarname0], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+    cmd = "unrar t " + rarname0
+    child = pexpect.spawn(cmd)
+    str0 = []
+    str00 = ""
     status = 1
-    for ss in ssh.stderr.readlines():
-        ss0 = ss.decode("utf-8")
-        if rarname0 in ss0:
-            status = -2
+
+    while True:
+        try:
+            a = child.read_nonblocking().decode("utf-8")
+            if a == "\n":
+                if str00:
+                    str0.append(str00)
+                    str00 = ""
+            if ord(a) < 32:
+                continue
+            str00 += a
+        except pexpect.exceptions.EOF:
             break
+    # logger.info("MULTIPARTRAR_TEST > " + str(str0))
+    for i, s in enumerate(str0):
+        if rarname0 in s:
+            try:
+                if "- checksum error" in str0[i + 2]:
+                    status = -2
+                if "Cannot find" in s:
+                    status = -1
+            except Exception as e:
+                logger.info("MULTIPARTRAR_TEST > " + str(e))
+                status = -1
 
-    #    1  success tested
-    #    -1 cannot check, rar sequence not complete
-    #    -2 rarfile error
-
-    print(status)
     os.chdir(cwd0)
+    return status
 
 
 def get_inotify_events(inotify):
     rar_events = []
+    par2_events = []
     for event in inotify.read():
         str0 = event.name
         is_created_file = False
@@ -246,10 +328,14 @@ def get_inotify_events(inotify):
                 is_created_file = True
         if not is_created_file:
             continue
-        gg = re.search(r"\S*[.]rar", str0, flags=re.IGNORECASE)
-        if gg.group():
-            rar_events.append((gg.group(), flgs0))
-    return rar_events
+        gg_rar = re.search(r"\S*[.]rar", str0, flags=re.IGNORECASE)
+        if gg_rar.group():
+            rar_events.append((gg_rar.group(), flgs0))
+        gg_par2 = re.search(r"\S*[.]par2", str0)
+        if gg_par2.group():
+            rar_events.append((gg_rar.group(), flgs0))
+    return rar_events, par2_events
+
 
 
 def get_rar_files(directory):
@@ -267,20 +353,16 @@ def partial_unrar(directory):
     if directory[-1] != "/":
         directory += "/"
     unpack_dir = directory + "_unpack0"
-    '''dir_done = False
-    i = 0
-    while not dir_done:
-        unpack_dir = directory + "_unpack" + str(i)
-        if os.path.exists(unpack_dir):
-            i += 1
-        else:
-            break'''
     try:
-        # os.mkdir(unpack_dir)
-        pass
+        if not os.path.isdir(unpack_dir):
+            os.mkdir(unpack_dir)
+        else:
+            shutil.rmtree(unpack_dir)
+            os.mkdir(unpack_dir)
     except Exception as e:
         print(str(e) + ": cannot create unpack_dir")
         return -1
+    sys.exit()
     # init inotify
     inotify = inotify_simple.INotify()
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
@@ -288,7 +370,7 @@ def partial_unrar(directory):
 
     # get already present rar files
     eventslist = []
-    rar_basislist = get_rar_files(directory)
+    rar_basislist, par2list = get_rar_files(directory)
     rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
 
     # wait for first file to arrive before starting unrar if no rar files present
@@ -296,12 +378,11 @@ def partial_unrar(directory):
         events = get_inotify_events(inotify)
         if events not in eventslist:
             eventslist.append(events)
-            rar_basislist = get_rar_files(directory)
+            rar_basislist, par2list = get_rar_files(directory)
             rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
 
     # first valid rar_sortedlist in place, start unrar!
     cmd = "unrar x -y -o+ -vp " + rar_sortedlist[0][1] + " " + unpack_dir
-    print(cmd)
     child = pexpect.spawn(cmd)
     status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
     rarindex = 1
@@ -353,4 +434,6 @@ def partial_unrar(directory):
     os.chdir(cwd0)
 
 
-partial_unrar("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo")
+# partial_unrar("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo")
+# ret = multipartrar_test("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0", "st502304a4df4c023adf43c1462a.part04.rar")
+# print(ret)

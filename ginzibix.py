@@ -173,7 +173,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
                 md5 = calc_file_md5hash(save_dir + filename)
                 if md5 == -1:
                     raise("Cannot calculate md5 hash")
-                logger.info(full_filename + " md5: " + str(md5))
+                # logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
             logger.error(str(e) + ": " + filename)
@@ -547,9 +547,27 @@ class Downloader():
         self.resultqueue = queue.Queue()
         self.mp_work_queue = mp.Queue()
         self.mp_result_queue = mp.Queue()
+        self.mp_parverify_outqueue = mp.Queue()
+        self.mp_parverify_inqueue = mp.Queue()
         self.threads = []
         self.dirs = dirs
         self.logger = logger
+        # create dirs
+        self.download_dir = dirs["incomplete"] + self.nzbdir + "_downloaded0/"
+        self.verifiedrar_dir = dirs["incomplete"] + self.nzbdir + "_verifiedrars0/"
+        self.unpack_dir = dirs["incomplete"] + self.nzbdir + "_unpack/"
+        self.main_dir = dirs["incomplete"] + self.nzbdir
+        try:
+            if not os.path.isdir(self.unpack_dir):
+                os.mkdir(self.unpack_dir)
+            if not os.path.isdir(self.verifiedrar_dir):
+                os.mkdir(self.verifiedrar_dir)
+            if not os.path.isdir(self.main_dir):
+                os.mkdir(self.main_dir)
+            if not os.path.isdir(self.download_dir):
+                os.mkdir(self.download_dir)
+        except Exception as e:
+            logger.error(str(e) + " in creating dirs ...")
 
     def article_producer(self, articles, articlequeue):
         for article in articles:
@@ -565,15 +583,20 @@ class Downloader():
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
         idx = 0
         p2 = None
-        savedir = dirs["incomplete"] + self.nzbdir
+        savedirs = [self.download_dir, self.verifiedrar_dir, self.main_dir]
+        
         for (filename, filelist) in filedic.items():
+            sdir0 = ""
             file_already_exists = False
-            for fname0 in glob.glob(savedir + "*"):
-                short_fn = fname0.split("/")[-1]
-                if short_fn == filename:
-                    file_already_exists = True
+            for sdir0 in savedirs:
+                for fname0 in glob.glob(sdir0 + "*"):
+                    short_fn = fname0.split("/")[-1]
+                    if short_fn == filename:
+                        file_already_exists = True
+                        break
+                if file_already_exists:
                     break
-
+            filename0 = sdir0 + filename
             age, filetype, nr_articles = filelist[0]
             filetype0 = filetype
             if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
@@ -598,15 +621,15 @@ class Downloader():
                     filetypecounter["par2"]["max"] += 1
                     filetypecounter["par2"]["filelist"].append(filename)
                     if file_already_exists:
-                        p2 = par2lib.Par2File(savedir + filename)
+                        p2 = par2lib.Par2File(filename0)
             else:
                 filetype0 = "etc"
                 filetypecounter["etc"]["max"] += 1
                 filetypecounter["etc"]["filelist"].append(filename)
             if file_already_exists:
                 filetypecounter[filetype0]["counter"] += 1
-                md5 = calc_file_md5hash(savedir + filename)
-                filetypecounter[filetype0]["loadedfiles"].append((filename, savedir + filename, md5))
+                md5 = calc_file_md5hash(filename0)
+                filetypecounter[filetype0]["loadedfiles"].append((filename, filename0, md5))
                 continue
             allfilelist.append([(filename, age, filetype0, nr_articles)])
             for i, f in enumerate(filelist):
@@ -688,7 +711,7 @@ class Downloader():
                         logger.error(filename + "failed!!")
                         failed0 = True
                     inflist0 = infolist[filename][:]
-                    self.mp_work_queue.put((inflist0, dirs["incomplete"] + self.nzbdir, filename, filetype))
+                    self.mp_work_queue.put((inflist0, self.download_dir, filename, filetype))
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
                     infolist[filename] = None
                     logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
@@ -749,7 +772,14 @@ class Downloader():
         for _ in range(len(self.threads) + 4):
             sys.stdout.write("\033[F")
 
+    # main download routine
     def download_and_process(self, filedic):
+        # directories
+        #    incomplete/_downloaded0:   all files go straight to here after download
+        #    incomplete/_verifiedrar0:  downloaded & verfied rars, ready to unrar
+        #    incomplete/_unpack0:       unpacked verified rars
+        #    incomplete:                final directory before moving to complete
+
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
         allfileslist, filetypecounter, p2 = self.make_allfilelist(filedic)
         logger.info("Downloading articles for: " + self.nzb)
@@ -761,8 +791,10 @@ class Downloader():
         mpp = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
         mpp.start()
 
-        # start parallel par2 checker thread
-        # mp2 = mp.Process(target=par2checker, arg=(self.mp_result_queue, self.mp2_resultqueue, self.logger, ))
+        # start par2verify thread
+        mpp_par = mp.Process(target=par2lib.par_verifier, args=(self.mp_parverify_outqueue, self.mp_parverify_inqueue,
+                                                            self.download_dir, self.verifiedrar_dir, self.main_dir, self.logger, filetypecounter, ))
+        mpp_par.start()
 
         # register sigint/sigterm handlers
         self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue, self.logger)
@@ -775,42 +807,8 @@ class Downloader():
         files = {}
         infolist = {}
         files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-        rf = None
         loadpar2vols = False
-
-        # if par2 file already exist but par2vols not yet downloaded, check downloaded rars against it and inject in case
-        if filetypecounter["rar"]["counter"] > 0 and p2 and filetypecounter["par2vol"]["counter"] < filetypecounter["par2vol"]["max"]:
-            logger.info("PAR2 file already exists, checking md5 sum")
-            # first, check md5 sums of rar files vs sums in par2 files
-            for (f0, f0_full, md5) in filetypecounter["rar"]["loadedfiles"]:
-                md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0]
-                if False in md5match:
-                    logger.error("md5 mismatch " + f0 + ", loading par2vol files!")
-                    loadpar2vols = True
-                    inject_set0 = ["par2vol"]
-                    files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-                    break
-                else:
-                    logger.info("md5 check ok: " + f0 + str(md5match))
-            # if md5sum check was ok, 2nd check: unrar
-            if not loadpar2vols:
-                cwd0 = os.getcwd()
-                rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
-                os.chdir(dirs["incomplete"] + self.nzbdir)
-                rf = rarfile.RarFile(rarname)
-                try:
-                    logger.info("Testing rars")
-                    rf.testrar()
-                    logger.info("rarfile.testrar successfull")
-                    os.chdir(cwd0)
-                except Exception as e:
-                    os.chdir(cwd0)
-                    logger.info("rarfile.testrar not successfull, loading remaining par2vol files")
-                    loadpar2vols = True
-                    inject_set0 = ["par2vol"]
-                    files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-        elif filetypecounter["par2vol"]["counter"] == filetypecounter["par2vol"]["max"]:
-            loadpar2vols = True
+        p2 = None
 
         # if files in queue, start connection worker threads
         if allfileslist:
@@ -823,38 +821,31 @@ class Downloader():
         while True and not self.sighandler.signal:
 
             # get mp_result_queue
-            rarcounter0 = filetypecounter["rar"]["counter"]
             while True:
                 try:
-                    corrupt_rar_found = False
                     filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
                     filetypecounter[filetype]["counter"] += 1
                     filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
-                    if filetype == "par2":
-                        p2 = par2lib.Par2File(full_filename)
-                    if filetype == "rar" and status != 0:
-                        corrupt_rar_found = True
+                    # if filetype == "par2":
+                    #     p2 = par2lib.Par2File(full_filename)
+                    if filetype == "rar":
+                        logger.info("Putting " + filename + " to parverify_queue")
+                        self.mp_parverify_outqueue.put((filename, status, md5, p2))
                 except queue.Empty:
                     break
 
-            # if rarfiles + par2 file have been downloaded -> check md5 and reload par2vols in case
-            if filetypecounter["rar"]["counter"] > rarcounter0 and p2 and not corrupt_rar_found and not loadpar2vols:
-                newrars = filetypecounter["rar"]["counter"] - rarcounter0
-                for (f0, f0_full, md5) in filetypecounter["rar"]["loadedfiles"][-newrars:]:
-                    md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0]
-                    if False in md5match:
-                        logger.error("md5 mismatch " + filename)
-                        corrupt_rar_found = True
-                    else:
-                        logger.info("md5 check ok: " + filename + str(md5match))
-
-            # if corrupt_rar_found, load par2 vols
-            if corrupt_rar_found and not loadpar2vols:
-                inject_set0 = ["par2vol"]
-                
-                files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-                loadpar2vols = True
-
+            # get mp_parverify_inqueue
+            if not loadpar2vols:
+                while True:
+                    try:
+                        loadpar2vols, parverify_status = self.mp_parverify_inqueue.get_nowait()
+                    except queue.Empty:
+                        break
+                if loadpar2vols:
+                    logger.info("Queuing par2vols")
+                    inject_set0 = ["par2vol"]
+                    files, infolist, bytescount00 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                    bytescount0 += bytescount00
             # if all downloaded postprocess
             dobreak = True
             for filetype, item in filetypecounter.items():
@@ -862,35 +853,6 @@ class Downloader():
                     continue
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     dobreak = False
-                    break
-
-            # if ready to quit: unrar -t if rars not loaded
-            if dobreak:
-                # if no par2vols loaded: unrar test and reload par2vols in case
-                if not loadpar2vols and filetypecounter["rar"]["counter"] > 0:
-                    cwd0 = os.getcwd()
-                    rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
-                    rf = rarfile.RarFile(rarname)
-                    logger.info("Testing rars")
-                    # rf.testrar()
-                    ret0 = par2lib.multipartrar_test(dirs["incomplete"] + self.nzbdir, rarname)
-                    if ret0 == 1:
-                        logger.info("rarfile.testrar successfull")
-                        status = 1
-                        break
-                    else:
-                        if filetypecounter["par2vol"]["max"] > 0:
-                            logger.warning("rarfile.testrar error: loading par2vol files")
-                            inject_set0 = ["par2vols"]
-                            files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-                            loadpar2vols = True
-                            dobreak = False
-                        else:
-                            logger.error("rarfile.testrar error: no par2vols exist, exiting")
-                            status = -1
-                            break
-                else:
-                    status = 1
                     break
 
             # read resultqueue + decode via mp
@@ -923,69 +885,6 @@ class Downloader():
                 break
             time.sleep(0.1)
 
-        exitstatus = 0
-
-        # parrepair ??
-        if status == 1 and loadpar2vols and filetypecounter["rar"]["counter"] > 0:
-            p2_name, _, _ = filetypecounter["par2"]["loadedfiles"][0]
-            cwd0 = os.getcwd()
-            os.chdir(dirs["incomplete"] + self.nzbdir)
-            logger.warning("RAR files possibly damaged and all par2vols loaded, performing par2verify ...")
-            ssh = subprocess.Popen(['par2verify', p2_name], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-            sshres = ssh.stdout.readlines()
-
-            repair_is_required = False
-            repair_is_possible = False
-            for ss in sshres:
-                ss0 = ss.decode("utf-8")
-                if "Repair is required" in ss0:
-                    repair_is_required = True
-                if "Repair is possible" in ss0:
-                    repair_is_possible = True
-            if repair_is_possible and repair_is_required:
-                logger.info("Repair is required and possible, performing par2repair ...")
-                # repair
-                ssh = subprocess.Popen(['par2repair', p2_name], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-                sshres = ssh.stdout.readlines()
-                repair_complete = False
-                for ss in sshres:
-                    ss0 = ss.decode("utf-8")
-                    if "Repair complete" in ss0:
-                        repair_complete = True
-                if not repair_complete:
-                    exitstatus = -1
-                    logger.error("Could not repair")
-                else:
-                    logger.info("Repair success!!")
-            elif repair_is_required and not repair_is_possible:
-                logger.error("Repair is required but not possible!")
-                exitstatus = -1
-            elif not repair_is_required and not repair_is_possible:
-                logger.error("Repair is not required - all OK!")
-            os.chdir(cwd0)
-
-        if exitstatus == 0 and filetypecounter["rar"]["counter"] > 0:
-            cwd0 = os.getcwd()
-            rarname, rarname_full, _ = filetypecounter["rar"]["loadedfiles"][0]
-            os.chdir(dirs["incomplete"] + self.nzbdir)
-            logger.info("Extracting rar archive ...")
-            ssh = subprocess.Popen(["unrar", "x", "-y", "-kb", rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-            sshres = ssh.stdout.readlines()
-            all_ok = False
-            for ss in sshres:
-                ss0 = ss.decode("utf-8")
-                if "All OK" in ss0:
-                    all_ok = True
-            if not all_ok:
-                exitstatus = -1
-                logger.error("Error in extracting rars")
-            else:
-                logger.info("All rars extracted!")
-            os.chdir(cwd0)
-
-        if self.sighandler.signal:
-            time.sleep(1000)
-
         # clean up
         logger.info("cleaning up ...")
         self.mp_work_queue.put(None)
@@ -995,7 +894,7 @@ class Downloader():
             t.stop()
             t.join()
         self.servers.close_all_connections()
-        return exitstatus
+        return status
 
     def get_level_servers(self, retention):
         le_serv0 = []
