@@ -150,7 +150,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
                 crc32list = [head_crc0, trail_crc0]
                 crc32 = decodedcrc32.lower()
                 if crc32 not in crc32list:
-                    logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
+                    # logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
                     statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
                     status = -2
             bytesfinal.extend(decoded)
@@ -237,12 +237,13 @@ def ParseNZB(nzbdir):
 # captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
 
-    def __init__(self, servers, threads, mp_work_queue, logger):
+    def __init__(self, servers, threads, mp_work_queue, mp_paroutqueue, logger):
         self.servers = servers
         self.logger = logger
         self.threads = threads
         self.mp_work_queue = mp_work_queue
         self.signal = False
+        self.mp_paroutqueue = mp_paroutqueue
 
     def handler2(self, signal, frame):
         return
@@ -250,6 +251,8 @@ class SigHandler():
     def signalhandler(self, signal, frame):
         self.logger.warning("signalhandler: got SIGINT/SIGTERM!")
         self.signal = True
+        self.logger.warning("signalhandler: sending stop to rarverifier")
+        self.mp_paroutqueue.put((None, None, -1, -1))
         self.logger.warning("signalhandler: stopping decoder processes")
         self.mp_work_queue.put(None)
         time.sleep(1)
@@ -260,7 +263,6 @@ class SigHandler():
         self.logger.warning("signalhandler: closing all server connections")
         self.servers.close_all_connections()
         self.logger.warning("signalhandler: exiting")
-        print()
         sys.exit()
 
 
@@ -793,11 +795,11 @@ class Downloader():
 
         # start par2verify thread
         mpp_par = mp.Process(target=par2lib.par_verifier, args=(self.mp_parverify_outqueue, self.mp_parverify_inqueue,
-                                                            self.download_dir, self.verifiedrar_dir, self.main_dir, self.logger, filetypecounter, ))
+                             self.download_dir, self.verifiedrar_dir, self.main_dir, self.logger, filetypecounter, ))
         mpp_par.start()
 
         # register sigint/sigterm handlers
-        self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue, self.logger)
+        self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue, self.mp_parverify_outqueue, self.logger)
         signal.signal(signal.SIGINT, self.sighandler.signalhandler)
         signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
 
@@ -826,8 +828,8 @@ class Downloader():
                     filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
                     filetypecounter[filetype]["counter"] += 1
                     filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
-                    # if filetype == "par2":
-                    #     p2 = par2lib.Par2File(full_filename)
+                    if filetype == "par2":
+                        p2 = par2lib.Par2File(full_filename)
                     if filetype == "rar":
                         logger.info("Putting " + filename + " to parverify_queue")
                         self.mp_parverify_outqueue.put((filename, status, md5, p2))
@@ -884,6 +886,23 @@ class Downloader():
                 status = -1
                 break
             time.sleep(0.1)
+
+        # get final par2 repair status
+        parverify_status = 0
+        logger.info("Waiting for receiving ok from par_verifier")
+        while True:
+            try:
+                endcode, parverify_status = self.mp_parverify_inqueue.get_nowait()
+                if endcode == -9999:
+                    break
+            except queue.Empty:
+                pass
+        if parverify_status == 1:
+            logger.info("All rar files ok / repaired!")
+        elif parverify_status == -1:
+            logger.error("Some rar files were corrupt/could not be repaired!")
+        else:
+            logger.error("Got no reasonable final state from par_verifier ...")
 
         # clean up
         logger.info("cleaning up ...")

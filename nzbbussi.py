@@ -59,17 +59,6 @@ logger.addHandler(fh)
 
 # -------------------- Procedures --------------------
 
-def calc_file_md5hash(fn):
-    hash_md5 = hashlib.md5()
-    try:
-        with open(fn, "rb") as f0:
-            for chunk in iter(lambda: f0.read(4096), b""):
-                hash_md5.update(chunk)
-        md5 = hash_md5.digest()
-    except Exception as e:
-        logger.warning("MD5 calc error: " + str(e))
-        md5 = -1
-    return md5
 
 
 def decode_articles(mp_work_queue0, mp_result_queue0, logger):
@@ -170,7 +159,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
             logger.info(filename + " decoded and saved!")
             # calc hash for rars
             if filetype == "rar":
-                md5 = calc_file_md5hash(save_dir + filename)
+                md5 = par2lib.calc_file_md5hash(save_dir + filename)
                 if md5 == -1:
                     raise("Cannot calculate md5 hash")
                 logger.info(full_filename + " md5: " + str(md5))

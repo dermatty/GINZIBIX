@@ -47,6 +47,7 @@ import inotify_simple
 import shutil
 import queue
 import multiprocessing as mp
+import hashlib
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -198,10 +199,26 @@ class Par2File(object):
         return names
 
 
+def calc_file_md5hash(fn):
+    hash_md5 = hashlib.md5()
+    try:
+        with open(fn, "rb") as f0:
+            for chunk in iter(lambda: f0.read(4096), b""):
+                hash_md5.update(chunk)
+        md5 = hash_md5.digest()
+    except Exception as e:
+        md5 = -1
+    return md5
+
+
 def par_verifier(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_dir, logger, filetypecounter):
 
     rarfilelist = []
     p2 = None
+    maxrar = filetypecounter["rar"]["max"]
+    logger.info("PAR_VERIFIER > Starting!")
+
+    # phase I: verify
     while True:
         # get from inqueue
         res0 = None
@@ -212,19 +229,22 @@ def par_verifier(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_di
                 break
         if res0:
             filename, status, md5, p2_0 = res0
+            if md5 == -1 and p2_0 == -1:
+                logger.warning("PAR_VERIFIER > Received signal to stop from main!")
+                break
             rarfilelist.append((filename, status, md5, 0))
             # 0 ... not tested
             # -1 ... not ok (yet)
+            # 1 ... tested & ok
             if p2_0:
                 p2 = p2_0
 
         # if no par2 given have to test with "unrar t"
         doloadpar2vols = False
-        verifystatus = 0  # 0 .. still running, 1 .. all ok/finished, -1 .. not ok/finished
+        verifiedstatus = 0  # 0 .. still running, 1 .. all ok/finished, -1 .. not ok/finished
         corruptrars = []
         if not p2:
-            rarf = [r.split("/")[-1] for r in glob.glob(download_dir + "*")]
-            maxrar = filetypecounter["rar"]["max"]
+            rarf = [r.split("/")[-1] for r in glob.glob(download_dir + "*.rar")]
             for i, (filename, status, md5, isok) in enumerate(rarfilelist):
                 if os.path.isfile(verifiedrar_dir + filename):
                     continue
@@ -239,23 +259,119 @@ def par_verifier(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_di
                         corruptrars.append(((filename, status, md5, isok)))
                         logger.warning("PAR_VERIFIER > error in 'unrar t' for file " + filename)
                         doloadpar2vols = True
-            # if all checked is there still a fill which is not ok??
-            # todo check this exit condition !!!
-            if len(rarf) == maxrar and len(rarfilelist) == maxrar:
-                allok = True
-                for (filename, status, md5, isok) in rarfilelist:
-                    if isok != 1:
-                        allok = False
-                        break
-                verifystatus = 1
-                if not allok:
-                    verifystatus = -1
-                    doloadpar2vols = True
-
-        mp_outqueue.put((doloadpar2vols, verifystatus))
-        if verifystatus != 0:
+        else:
+            rarf = [r.split("/")[-1] for r in glob.glob(download_dir + "*.rar")]
+            for i, (filename, status, md5, isok) in enumerate(rarfilelist):
+                if os.path.isfile(verifiedrar_dir + filename):
+                    continue
+                if filename in rarf and isok == 0:
+                    md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
+                    logger.info("PAR_VERIFIER > p2 md5: " + filename + " = " + str(md5match))
+                    if False in md5match:
+                        rarfilelist[i] = filename, status, md5, -1
+                        corruptrars.append(((filename, status, md5, -1)))
+                        logger.warning("PAR_VERIFIER > error in 'p2 md5' for file " + filename)
+                        doloadpar2vols = True
+                    else:
+                        rarfilelist[i] = filename, status, md5, 1
+                        logger.info("PAR_VERIFIER > copying " + filename + " to " + verifiedrar_dir)
+                        shutil.copy(download_dir + filename, verifiedrar_dir)
+        if doloadpar2vols:
+            mp_outqueue.put((doloadpar2vols, -9999))
+        # if all checked is there still a fill which is not ok??
+        if len(rarf) == maxrar and len(rarfilelist) == maxrar:
+            allok = True
+            for (filename, status, md5, isok) in rarfilelist:
+                if isok != 1:
+                    allok = False
+                    break
+            verifiedstatus = 1
+            if not allok:
+                verifiedstatus = -1
             break
         time.sleep(0.5)
+
+    logger.info("PAR_VERIFIER > rar verify status is " + str(verifiedstatus))
+
+    # phase II: repair
+    if corruptrars or verifiedstatus == -1:
+        logger.info("PAR_VERIFIER > Starting repair")
+        rf = [(r, re.search(r"[.]par2$", r.split("/")[-1], flags=re.IGNORECASE)) for r in glob.glob(download_dir + "*")]
+        rf_par2 = [r for r, rs in rf if rs is not None]
+        if rf_par2:
+            rf_0 = [(r, re.search(r"vol[0-9][0-9]*[+]", r, flags=re.IGNORECASE)) for r in rf_par2]
+            rf_par2vol = [r for r, rs in rf_0 if rs is not None]
+            if rf_par2vol:
+                logger.info("PAR_VERIFIER > par2vol files present, repairing ...")
+                res0 = multipartrar_repair(download_dir, rf_par2vol[0], logger)
+                if res0 == 1:
+                    logger.info("PAR_VERIFIER > repair success")
+                    # copy all no yet copied rars to verifiedrar_dir
+                    rf_0 = [(r, re.search(r"[.]rar$", r, flags=re.IGNORECASE)) for r in glob.glob(download_dir + "*")]
+                    rars_in_downloaddir = [r.split("/")[-1] for r, rs in rf_0 if rs is not None]
+                    files_in_verifieddir = [r.split("/")[-1] for r in glob.glob(verifiedrar_dir + "*")]
+                    for filename in rars_in_downloaddir:
+                        if filename not in files_in_verifieddir:
+                            logger.info("PAR_VERIFIER > copying " + filename + " to verifiedrar_dir")
+                            shutil.copy(download_dir + filename, verifiedrar_dir)
+                        # delete all rars in download_dir
+                        logger.info("PAR_VERIFIER > repair success")
+                    verifiedstatus = 1
+                else:
+                    logger.error("PAR_VERIFIER > repair failed!")
+            else:
+                logger.warning("PAR_VERIFIER > No par2vol files present, cannot repair!")
+                verifiedstatus = -1
+        else:
+            logger.warning("PAR_VERIFIER > no par files exist!")
+            verifiedstatus = -1
+    else:
+        logger.info("PAR_VERIFIER > All files ok, no repair needed!")
+        verifiedstatus = 1
+
+    logger.warning("PAR_VERIFIER > Exiting par_verifier!")
+    mp_outqueue.put((-9999, verifiedstatus))
+
+
+def multipartrar_repair(directory, parvolname, logger):
+    cwd0 = os.getcwd()
+    os.chdir(directory)
+    logger.warning("MULTIRAR_REPAIR > checking if repair possible ...")
+    ssh = subprocess.Popen(['par2verify', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+    sshres = ssh.stdout.readlines()
+    repair_is_required = False
+    repair_is_possible = False
+    exitstatus = 0
+    for ss in sshres:
+        ss0 = ss.decode("utf-8")
+        if "Repair is required" in ss0:
+            repair_is_required = True
+        if "Repair is possible" in ss0:
+            repair_is_possible = True
+    if repair_is_possible and repair_is_required:
+        logger.info("MULTIRAR_REPAIR > Repair is required and possible, performing par2repair ...")
+        # repair
+        ssh = subprocess.Popen(['par2repair', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+        sshres = ssh.stdout.readlines()
+        repair_complete = False
+        for ss in sshres:
+            ss0 = ss.decode("utf-8")
+            if "Repair complete" in ss0:
+                repair_complete = True
+        if not repair_complete:
+            exitstatus = -1
+            logger.error("MULTIRAR_REPAIR > Could not repair")
+        else:
+            logger.info("MULTIRAR_REPAIR > Repair success!!")
+            exitstatus = 1
+    elif repair_is_required and not repair_is_possible:
+        logger.error("MULTIRAR_REPAIR > Repair is required but not possible!")
+        exitstatus = -1
+    elif not repair_is_required and not repair_is_possible:
+        logger.error("MULTIRAR_REPAIR > Repair is not required - all OK!")
+        exitstatus = 1
+    os.chdir(cwd0)
+    return exitstatus
 
 
 def multipartrar_test(directory, rarname0, logger):
