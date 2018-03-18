@@ -170,7 +170,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
             logger.info(filename + " decoded and saved!")
             # calc hash for rars
             if filetype == "rar":
-                md5 = calc_file_md5hash(save_dir + filename)
+                md5 = 0  # calc_file_md5hash(save_dir + filename)
                 if md5 == -1:
                     raise("Cannot calculate md5 hash")
                 # logger.info(full_filename + " md5: " + str(md5))
@@ -252,7 +252,7 @@ class SigHandler():
         self.logger.warning("signalhandler: got SIGINT/SIGTERM!")
         self.signal = True
         self.logger.warning("signalhandler: sending stop to rarverifier")
-        self.mp_paroutqueue.put((None, None, -1, -1))
+        self.mp_paroutqueue.put(-1)
         self.logger.warning("signalhandler: stopping decoder processes")
         self.mp_work_queue.put(None)
         time.sleep(1)
@@ -551,6 +551,7 @@ class Downloader():
         self.mp_result_queue = mp.Queue()
         self.mp_parverify_outqueue = mp.Queue()
         self.mp_parverify_inqueue = mp.Queue()
+        self.mp_unrarqueue = mp.Queue()
         self.threads = []
         self.dirs = dirs
         self.logger = logger
@@ -727,6 +728,7 @@ class Downloader():
         avgmiblist = avgmiblist00
         max_mem_needed = 0
         bytescount0 = bytescount00
+        bytescount0 += 0.00001
         availmem0 = availmem00
         # get Mib downloaded
         if len(avgmiblist) > 50:
@@ -795,8 +797,13 @@ class Downloader():
 
         # start par2verify thread
         mpp_par = mp.Process(target=par2lib.par_verifier, args=(self.mp_parverify_outqueue, self.mp_parverify_inqueue,
-                             self.download_dir, self.verifiedrar_dir, self.main_dir, self.logger, filetypecounter, ))
+                             self.download_dir, self.verifiedrar_dir, self.main_dir, self.logger, filetypecounter, p2, ))
         mpp_par.start()
+
+        # start partial_unrar thread
+        mpp_unrar = mp.Process(target=par2lib.partial_unrar, args=(self.mp_unrarqueue, self.verifiedrar_dir, self.unpack_dir,
+                                                                   self.logger, ))
+        mpp_unrar.start()
 
         # register sigint/sigterm handlers
         self.sighandler = SigHandler(self.servers, self.threads, self.mp_work_queue, self.mp_parverify_outqueue, self.logger)
@@ -828,11 +835,10 @@ class Downloader():
                     filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
                     filetypecounter[filetype]["counter"] += 1
                     filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
-                    if filetype == "par2":
+                    if (filetype == "par2" or filetype == "par2vol") and not p2:
                         p2 = par2lib.Par2File(full_filename)
-                    if filetype == "rar":
-                        logger.info("Putting " + filename + " to parverify_queue")
-                        self.mp_parverify_outqueue.put((filename, status, md5, p2))
+                        logger.info("Sending " + filename + "-p2 object to parverify_queue")
+                        self.mp_parverify_outqueue.put(p2)
                 except queue.Empty:
                     break
 
@@ -903,6 +909,20 @@ class Downloader():
             logger.error("Some rar files were corrupt/could not be repaired!")
         else:
             logger.error("Got no reasonable final state from par_verifier ...")
+
+        # get final unrar status
+        unrar_status = 0
+        logger.info("Waiting for receiving ok from unrar")
+        while True:
+            try:
+                unrar_status, statmsg = self.mp_unrarqueue.get_nowait()
+                break
+            except queue.Empty:
+                pass
+        if unrar_status == 0:
+            logger.info("Unrar - " + statmsg)
+        else:
+            logger.error("Unrar - " + statmsg)
 
         # clean up
         logger.info("cleaning up ...")
