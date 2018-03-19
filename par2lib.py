@@ -186,6 +186,9 @@ class Par2File(object):
         """Returns the filenames that this par2 file repairs."""
         return [(p.name.decode("utf-8"), p.file_hashfull) for p in self.packets if isinstance(p, FileDescriptionPacket)]
 
+    def md5_16khash(self):
+        return [(p.name.decode("utf-8"), p.file_hash16k) for p in self.packets if isinstance(p, FileDescriptionPacket)]
+    
     def related_pars(self):
         """Returns a list of related par2 files (ones par2 will try to read
         from to find file recovery blocks).  If this par2 file was a file-like
@@ -205,6 +208,20 @@ def calc_file_md5hash(fn):
         with open(fn, "rb") as f0:
             for chunk in iter(lambda: f0.read(4096), b""):
                 hash_md5.update(chunk)
+        md5 = hash_md5.digest()
+    except Exception as e:
+        md5 = -1
+    return md5
+
+
+def calc_file_md5hash_16k(fn):
+    hash_md5 = hashlib.md5()
+    try:
+        with open(fn, "rb") as f0:
+            for i, chunk in enumerate(iter(lambda: f0.read(4096), b"")):
+                hash_md5.update(chunk)
+                if i == 3:
+                    break
         md5 = hash_md5.digest()
     except Exception as e:
         md5 = -1
@@ -532,6 +549,75 @@ def partial_unrar(unrarqueue, directory, unpack_dir, logger):
     unrarqueue.put((status, statmsg))
 
 
-# partial_unrar("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo")
-# ret = multipartrar_test("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0", "st502304a4df4c023adf43c1462a.part04.rar")
-# print(ret)
+def renamer(directory, logger):
+    cwd0 = os.getcwd()
+    # logger.debug("Starting renamer ...")
+    os.chdir(directory)
+
+    # rename par2files
+    par2list = []
+    for p in glob.glob("*"):
+        pname = p.split("/")[-1]
+        with open(pname, "rb") as f:
+            content = f.read()
+            length = len(content)
+            f.seek(length - 50)
+            bstr0 = b"PAR 2.0\0Creator\0"
+            lastcontent = f.read(50)
+            if bstr0 in lastcontent:
+                par2list.append((pname, length))
+    if not par2list:
+        return -1, None
+    p2files = sorted(par2list, key=lambda length: length[1])
+    par2basename = p2files[0][0].split(".")[0]
+    p2files = [p2 for p2, p2l in p2files]
+    try:
+        par2name = par2basename + ".par2"
+        # os.rename(p2files[0], par2basename + ".par2")
+        p2obj = Par2File(par2name)
+    except Exception as e:
+        # logger.exception("RENAMER > " + str(e))
+        return -1, None
+    for i, p2 in enumerate(p2files):
+        if i == 0:
+            continue
+        try:
+            aa = 1
+            # os.rename(p2files[i], par2basename + ".vol" + str(i).zfill(3) + "+001.PAR2")
+        except Exception as e:
+            # logger.exception("RENAMER > " + str(e))
+            return -1, None
+
+    # rename rar files
+    if not p2obj:
+        return -1
+    rarfileslist = p2obj.md5_16khash()
+    rarfileslist0 = [r for r, hash in rarfileslist]
+    allfilelist = []
+    for r in glob.glob("*"):
+        rshort = r.split("/")[-1]
+        allfilelist.append((rshort, calc_file_md5hash_16k(r)))
+    for a_name, a_md5 in allfilelist:
+        try:
+            r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
+            if r_name != a_name:
+                print("Renaming " + a_name + " to " + r_name)
+                os.rename(a_name, r_name)
+            rarfileslist0.remove(r_name)
+        except IndexError:
+            pass
+        except Exception as e:
+            print(str(e))
+
+    if rarfileslist0:
+        print("something happened")
+
+    # todo:
+    #     for a in allfilelist:
+    #         if file mit Kennung "RAR", aber ohne match --> was tun?
+
+    os.chdir(cwd0)
+    return 1, par2basename + ".par2"
+
+
+renamer("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0", None)

@@ -924,6 +924,9 @@ class Downloader():
         else:
             logger.error("Unrar - " + statmsg)
 
+        # todo:
+        #   clean directories and move to final directory
+
         # clean up
         logger.info("cleaning up ...")
         self.mp_work_queue.put(None)
