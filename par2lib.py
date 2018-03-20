@@ -48,6 +48,7 @@ import shutil
 import queue
 import multiprocessing as mp
 import hashlib
+from random import randint
 
 signatures = {
     'par2': 'PAR2\x00',
@@ -549,75 +550,123 @@ def partial_unrar(unrarqueue, directory, unpack_dir, logger):
     unrarqueue.put((status, statmsg))
 
 
-def renamer(directory, logger):
+def renamer(source_dir, dest_dir, logger):
+    if source_dir[-1] != "/":
+        source_dir += "/"
+    if dest_dir[-1] != "/":
+        dest_dir += "/"
     cwd0 = os.getcwd()
+
     # logger.debug("Starting renamer ...")
-    os.chdir(directory)
+    os.chdir(source_dir)
 
-    # rename par2files
-    par2list = []
-    for p in glob.glob("*"):
-        pname = p.split("/")[-1]
-        with open(pname, "rb") as f:
-            content = f.read()
-            length = len(content)
-            f.seek(length - 50)
-            bstr0 = b"PAR 2.0\0Creator\0"
-            lastcontent = f.read(50)
-            if bstr0 in lastcontent:
-                par2list.append((pname, length))
-    if not par2list:
-        return -1, None
-    p2files = sorted(par2list, key=lambda length: length[1])
-    par2basename = p2files[0][0].split(".")[0]
-    p2files = [p2 for p2, p2l in p2files]
-    try:
-        par2name = par2basename + ".par2"
-        # os.rename(p2files[0], par2basename + ".par2")
-        p2obj = Par2File(par2name)
-    except Exception as e:
-        # logger.exception("RENAMER > " + str(e))
-        return -1, None
-    for i, p2 in enumerate(p2files):
-        if i == 0:
+    p2obj = None
+    p2basename = None
+
+    while True:
+
+        # get all files not yet .renamed
+        print("1. Reading _downloaded0")
+        notrenamedfiles = []
+        for fn in glob.glob("*"):
+            fn0 = fn.split("/")[-1]
+            if not fn0.endswith(".renamed"):
+                notrenamedfiles.append((fn0, calc_file_md5hash_16k(fn0)))
+        # todo:
+        #     inqueue.get_nowait and quit if downloader finished
+        if not notrenamedfiles:
+            break
             continue
-        try:
-            aa = 1
-            # os.rename(p2files[i], par2basename + ".vol" + str(i).zfill(3) + "+001.PAR2")
-        except Exception as e:
-            # logger.exception("RENAMER > " + str(e))
-            return -1, None
+        print(notrenamedfiles)
+        print("-" * 50)
 
-    # rename rar files
-    if not p2obj:
-        return -1
-    rarfileslist = p2obj.md5_16khash()
-    rarfileslist0 = [r for r, hash in rarfileslist]
-    allfilelist = []
-    for r in glob.glob("*"):
-        rshort = r.split("/")[-1]
-        allfilelist.append((rshort, calc_file_md5hash_16k(r)))
-    for a_name, a_md5 in allfilelist:
-        try:
-            r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
-            if r_name != a_name:
-                print("Renaming " + a_name + " to " + r_name)
-                os.rename(a_name, r_name)
-            rarfileslist0.remove(r_name)
-        except IndexError:
-            pass
-        except Exception as e:
-            print(str(e))
+        # get all files in renamed
+        print("2. Reading _renamed0")
+        renamedfiles = []
+        for fn in glob.glob(dest_dir + "*"):
+            fn0 = fn.split("/")[-1]
+            if fn0.endswith(".par2") and not p2obj:
+                p2obj = Par2File(fn)
+                p2basename = fn.split(".par2")[0]
+            renamedfiles.append(fn0)
+        print(renamedfiles)
+        print("-" * 50)
 
-    if rarfileslist0:
-        print("something happened")
+        # if par2 not in _renamed search main par2 in _downloaded0
+        if not p2obj:
+            print("No p2obj yet found, looking in _downloaded0")
+            mainparlist = []
+            for fn, _ in notrenamedfiles:
+                p2_test = Par2File(fn)
+                if p2_test.filenames():
+                    filelen = len(p2_test.contents)
+                    mainparlist.append((fn, filelen))
+            if mainparlist:
+                p2min = sorted(mainparlist, key=lambda length: length[1])[0][0]
+                p2obj = Par2File(p2min)
+                p2basename = p2min
+                print("p2obj found: " + str(p2min))
 
-    # todo:
-    #     for a in allfilelist:
-    #         if file mit Kennung "RAR", aber ohne match --> was tun?
+        # search for not yet renamed par2/vol files
+        not_renamed_par2list = []
+        for pname, _ in notrenamedfiles:
+            with open(pname, "rb") as f:
+                content = f.read()
+                # check if PAR 2.0\0Creator\0 in last 50 bytes
+                # if not -> it's no par file
+                lastcontent = content[-50:]
+                bstr0 = b"PAR 2.0\0Creator\0"
+                if bstr0 not in lastcontent:
+                    continue
+                # check for PAR2\x00 in first 50 bytes
+                # if no -> it's par2vol, else: could be par2
+                firstcontent = content[:100]
+                bstr0 = b"PAR2\0"
+                bstr1 = b"PAR 2.0\0FileDesc"
+                if bstr0 not in firstcontent:
+                    ptype = "par2vol"
+                elif bstr1 in firstcontent:
+                    ptype = "par2"
+                else:
+                    ptype = "par2vol"
+                not_renamed_par2list.append((pname, ptype))
+        if not_renamed_par2list:
+            for pname, ptype in not_renamed_par2list:
+                if ptype == "par2":
+                    p2obj = Par2File(fn)
+                    p2basename = fn.split(".par2")[0]
+                    shutil.copyfile(source_dir + pname, dest_dir + pname)
+                    os.rename(source_dir + pname, source_dir + pname + ".renamed")
+                elif ptype == "par2vol" and p2basename:
+                    volpart1 = randint(1, 99)
+                    volpart2 = randint(1, 99)
+                    shutil.copyfile(source_dir + pname, dest_dir + p2basename + ".vol" + str(volpart1).zfill(3) +
+                                    "+" + str(volpart2).zfill(3) + ".PAR2")
+                    os.rename(source_dir + pname, source_dir + pname + ".renamed")
+
+        # rename + move rar files
+        if p2obj:
+            rarfileslist = p2obj.md5_16khash()
+            for a_name, a_md5 in notrenamedfiles:
+                try:
+                    r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
+                    if r_name != a_name:
+                        shutil.copyfile(source_dir + a_name, dest_dir + r_name)
+                    else:
+                        shutil.copyfile(source_dir + a_name, dest_dir + a_name)
+                    os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
+                except IndexError:
+                    pass
+                except Exception as e:
+                    print(str(e))
+
+        # todo: copy all other files
+        # .
+        # .
+        # .
 
     os.chdir(cwd0)
-    return 1, par2basename + ".par2"
 
 
-renamer("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0", None)
+renamer("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0",
+        "/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_renamed0", None)

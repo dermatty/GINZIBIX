@@ -558,8 +558,9 @@ class Downloader():
         # create dirs
         self.download_dir = dirs["incomplete"] + self.nzbdir + "_downloaded0/"
         self.verifiedrar_dir = dirs["incomplete"] + self.nzbdir + "_verifiedrars0/"
-        self.unpack_dir = dirs["incomplete"] + self.nzbdir + "_unpack/"
+        self.unpack_dir = dirs["incomplete"] + self.nzbdir + "_unpack0/"
         self.main_dir = dirs["incomplete"] + self.nzbdir
+        self.rename_dir = dirs["incomplete"] + self.nzbdir + "_renamed0/"
         try:
             if not os.path.isdir(self.unpack_dir):
                 os.mkdir(self.unpack_dir)
@@ -569,6 +570,8 @@ class Downloader():
                 os.mkdir(self.main_dir)
             if not os.path.isdir(self.download_dir):
                 os.mkdir(self.download_dir)
+            if not os.path.isdir(self.rename_dir):
+                os.mkdir(self.rename_dir)
         except Exception as e:
             logger.error(str(e) + " in creating dirs ...")
 
