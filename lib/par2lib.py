@@ -477,7 +477,10 @@ def get_rar_files(directory):
 
 def partial_unrar(unrarqueue, directory, unpack_dir, logger):
     cwd0 = os.getcwd()
-    os.chdir(directory)
+    try:
+        os.chdir(directory)
+    except FileNotFoundError:
+        os.mkdir(directory)
     # init inotify
     inotify = inotify_simple.INotify()
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
@@ -679,5 +682,5 @@ def renamer(source_dir, dest_dir, logger):
     os.chdir(cwd0)
 
 
-renamer("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0",
-        "/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_renamed0", None)
+# renamer("/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_downloaded0",
+#        "/home/stephan/.ginzibix/incomplete/st502304a4df4c023adf43c1462a.nfo/_renamed0", None)
