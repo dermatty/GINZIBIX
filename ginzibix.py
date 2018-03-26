@@ -19,11 +19,9 @@ import logging
 import logging.handlers
 import psutil
 import re
-import par2lib
 import hashlib
-import rarfile
-import subprocess
 import pymongo
+import lib.par2lib as par2lib
 
 # ------------------- pymongo ---------------------
 
