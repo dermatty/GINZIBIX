@@ -21,7 +21,7 @@ import psutil
 import re
 import hashlib
 import pymongo
-import lib.par2lib as par2lib
+import lib
 
 # ------------------- pymongo ---------------------
 
@@ -560,12 +560,12 @@ class Downloader():
         self.main_dir = dirs["incomplete"] + self.nzbdir
         self.rename_dir = dirs["incomplete"] + self.nzbdir + "_renamed0/"
         try:
+            if not os.path.isdir(self.main_dir):
+                os.mkdir(self.main_dir)
             if not os.path.isdir(self.unpack_dir):
                 os.mkdir(self.unpack_dir)
             if not os.path.isdir(self.verifiedrar_dir):
                 os.mkdir(self.verifiedrar_dir)
-            if not os.path.isdir(self.main_dir):
-                os.mkdir(self.main_dir)
             if not os.path.isdir(self.download_dir):
                 os.mkdir(self.download_dir)
             if not os.path.isdir(self.rename_dir):
@@ -625,7 +625,7 @@ class Downloader():
                     filetypecounter["par2"]["max"] += 1
                     filetypecounter["par2"]["filelist"].append(filename)
                     if file_already_exists:
-                        p2 = par2lib.Par2File(filename0)
+                        p2 = lib.Par2File(filename0)
             else:
                 filetype0 = "etc"
                 filetypecounter["etc"]["max"] += 1
@@ -797,13 +797,13 @@ class Downloader():
         mpp.start()
 
         # start par2verify thread
-        mpp_par = mp.Process(target=par2lib.par_verifier, args=(self.mp_parverify_outqueue, self.mp_parverify_inqueue,
+        mpp_par = mp.Process(target=lib.par_verifier, args=(self.mp_parverify_outqueue, self.mp_parverify_inqueue,
                              self.download_dir, self.verifiedrar_dir, self.main_dir, self.logger, filetypecounter, p2, ))
         mpp_par.start()
 
         # start partial_unrar thread
-        mpp_unrar = mp.Process(target=par2lib.partial_unrar, args=(self.mp_unrarqueue, self.verifiedrar_dir, self.unpack_dir,
-                                                                   self.logger, ))
+        mpp_unrar = mp.Process(target=lib.partial_unrar, args=(self.mp_unrarqueue, self.verifiedrar_dir, self.unpack_dir,
+                                                               self.logger, ))
         mpp_unrar.start()
 
         # register sigint/sigterm handlers
@@ -837,7 +837,7 @@ class Downloader():
                     filetypecounter[filetype]["counter"] += 1
                     filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
                     if (filetype == "par2" or filetype == "par2vol") and not p2:
-                        p2 = par2lib.Par2File(full_filename)
+                        p2 = lib.Par2File(full_filename)
                         logger.info("Sending " + filename + "-p2 object to parverify_queue")
                         self.mp_parverify_outqueue.put(p2)
                 except queue.Empty:
