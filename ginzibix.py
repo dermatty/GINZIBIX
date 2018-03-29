@@ -969,6 +969,9 @@ if __name__ == '__main__':
         sys.exit()
 
     nzb, filedic = ParseNZB(dirs["nzb"])
+    for key, item in filedic.items():
+        print(key)
+    sys.exit()
     if filedic:
         t0 = time.time()
         dl = Downloader(servers, dirs, nzb, logger)
