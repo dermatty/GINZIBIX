@@ -48,7 +48,7 @@ _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
 
 # init logger
 logger = logging.getLogger("ginzibix")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 fh = logging.FileHandler(dirs["logs"] + "ginzibix.log", mode="w")
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 fh.setFormatter(formatter)
@@ -234,6 +234,20 @@ def ParseNZB(nzbdir):
 
 # captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
+
+    def __init__(self, pid_nzbparser, logger):
+        self.logger = logger
+        self.pid_nzbparser = pid_nzbparser
+        self.signal = False
+
+    def signalhandler(self, signal, frame):
+        # stop nzb_parser
+        self.logger.warning("signalhandler: killing nzb_parser.py")
+        os.system("kill -9 " + str(self.pid_nzbparser))
+        sys.exit()
+
+
+class SigHandler0():
 
     def __init__(self, servers, threads, mp_work_queue, mp_paroutqueue, logger):
         self.servers = servers
@@ -952,6 +966,38 @@ class Downloader():
         return le_serv0
 
 
+def main():
+    mp_nzbparser_outqueue = mp.Queue()
+    mp_nzbparser_inqueue = mp.Queue()
+
+    cfg = configparser.ConfigParser()
+    cfg.read(dirs["config"] + "/ginzibix.config")
+    # get servers
+    servers = Servers(cfg)
+    if not servers:
+        logger.error("At least one server has to be provided, exiting!")
+        sys.exit()
+    # start NZB parser
+    nzbdir = dirs["nzb"]
+    mpp = mp.Process(target=lib.ParseNZB, args=(mp_nzbparser_outqueue, mp_nzbparser_inqueue, nzbdir, logger, ))
+    mpp.start()
+    pid_nzbparser = mp_nzbparser_inqueue.get()
+
+    sighandler = SigHandler(pid_nzbparser, logger)
+    signal.signal(signal.SIGINT, sighandler.signalhandler)
+    signal.signal(signal.SIGTERM, sighandler.signalhandler)
+
+    while True:
+        nzbstatusmsg = ""
+        nzbstatus = -1
+        try:
+            nzbstatusmsg, nzbstatus = mp_nzbparser_inqueue.get_nowait()
+        except queue.Empty:
+            pass
+        if nzbstatusmsg:
+            print(nzbstatusmsg)
+
+
 # -------------------- main --------------------
 
 if __name__ == '__main__':
@@ -959,14 +1005,8 @@ if __name__ == '__main__':
     print("Welcome to ginzibix 0.1-alpha, binary usenet downloader")
     print("-" * 60)
 
-    cfg = configparser.ConfigParser()
-    cfg.read(dirs["config"] + "/ginzibix.config")
-
-    # get servers
-    servers = Servers(cfg)
-    if not servers:
-        logger.error("At least one server has to be provided, exiting!")
-        sys.exit()
+    main()
+    sys.exit()
 
     nzb, filedic = ParseNZB(dirs["nzb"])
     for key, item in filedic.items():

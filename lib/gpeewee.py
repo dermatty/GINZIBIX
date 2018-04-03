@@ -1,4 +1,4 @@
-from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, TextField, DateTimeField, BooleanField, IntegerField, IntegrityError, TimeField
+from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, TextField, DateTimeField, BooleanField, IntegerField, IntegrityError, TimeField, OperationalError
 import os
 from os.path import expanduser
 import time
@@ -158,6 +158,59 @@ def db_article_deleteall():
     query.execute()
 
 
+def db_article_insert_many(data):
+    global SQLITE_MAX_VARIABLE_NUMBER
+    i = 0
+    chunksize = SQLITE_MAX_VARIABLE_NUMBER
+    llen = len(data)
+    while i < llen:
+        data0 = data[i: min(i + chunksize, llen)]
+        try:
+            with DB.atomic():
+                query = ARTICLE.insert_many(data0, fields=[ARTICLE.name, ARTICLE.fileentry, ARTICLE.size, ARTICLE.number])
+                query.execute()
+        except OperationalError:
+            chunksize = int(chunksize * 0.9)
+            continue
+        i += chunksize
+    SQLITE_MAX_VARIABLE_NUMBER = chunksize
+
+
+def max_sql_variables():
+    """Get the maximum number of arguments allowed in a query by the current
+    sqlite3 implementation. Based on `this question
+    `_
+
+    Returns
+    -------
+    int
+        inferred SQLITE_MAX_VARIABLE_NUMBER
+    """
+
+    import sqlite3
+    db = sqlite3.connect(':memory:')
+    cur = db.cursor()
+    cur.execute('CREATE TABLE t (test)')
+    low, high = 0, 100000
+    while (high - 1) > low:
+        guess = (high + low) // 2
+        query = 'INSERT INTO t VALUES ' + ','.join(['(?)' for _ in
+                                                    range(guess)])
+        args = [str(i) for i in range(guess)]
+        try:
+            cur.execute(query, args)
+        except sqlite3.OperationalError as e:
+            if "too many SQL variables" in str(e):
+                high = guess
+            else:
+                raise
+        else:
+            low = guess
+    cur.close()
+    db.close()
+    return low
+
+
 # ---- DB ----------------------------------------------------------------------
 
 def db_close():
@@ -173,10 +226,4 @@ def db_drop():
 TABLE_LIST = [NZB, FILE, ARTICLE]
 DB.connect()
 DB.create_tables(TABLE_LIST)
-
-# new_nzb = db_nzb_insert("abc.nzb", 100)
-# new_nzb1 = db_nzb_insert("abc2.nzb", 100)
-
-# print(db_nzb_getall())
-
-# db_nzb_deleteall()
+SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)

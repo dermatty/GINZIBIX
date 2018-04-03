@@ -2,22 +2,21 @@ import os
 import glob
 import xml.etree.ElementTree as ET
 import time
-import logging
+import queue
 import inotify_simple
-from gpeewee import db_nzb_insert, db_nzb_update_size, db_nzb_getall, db_close, db_file_insert, db_file_getall, db_drop, db_article_insert
-from gpeewee import db_article_getall, db_nzb_deleteall, db_file_deleteall, db_article_deleteall, db_nzb_exists
+from .gpeewee import db_nzb_insert, db_nzb_update_size, db_nzb_getall, db_close, db_file_insert, db_file_getall, db_drop, db_article_insert
+from .gpeewee import db_article_getall, db_nzb_deleteall, db_file_deleteall, db_article_deleteall, db_nzb_exists, db_article_insert_many, SQLITE_MAX_VARIABLE_NUMBER
 
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+lpref = __name__ + " - "
 
 
-def decompose_nzb(nzb):
+def decompose_nzb(nzb, logger):
     try:
         tree = ET.parse(nzb)
-        logger.info("Downloading NZB file: " + nzb)
+        logger.info(lpref + "downloading NZB file " + nzb)
     except Exception as e:
-        logger.error(str(e) + ": please provide at least 1 NZB file!")
+        logger.error(lpref + str(e) + ": cannot download NZB file " + nzb)
         return None
     nzbroot = tree.getroot()
     filedic = {}
@@ -68,7 +67,8 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(nzbdir):
+def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
+    mp_outqueue.put(os.getpid())
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
 
@@ -81,29 +81,38 @@ def ParseNZB(nzbdir):
     while True:
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
+            logger.debug(lpref + "got nzb event")
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
                 if db_nzb_exists(nzb0):
+                    logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
                     continue
                 newnzb = db_nzb_insert(nzb0, 0)
                 if newnzb:
+                    logger.info(lpref + "new NZB file " + nzb0 + " detected")
                     # update size
                     # rename nzb here to ....processed
-                    filedic, bytescount = decompose_nzb(nzb)
+                    filedic, bytescount = decompose_nzb(nzb, logger)
                     db_nzb_update_size(nzb0, bytescount)
-                    logger.warning("Analysing NZB: " + nzb0 + " / bytes=" + str(bytescount))
+                    size_gb = bytescount / (1024 * 1024 * 1024)
+                    infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
+                    logger.debug(lpref + "analysing NZB: " + infostr)
                     # insert files + articles
                     for key, items in filedic.items():
+                        data = []
                         for i, it in enumerate(items):
                             if i == 0:
                                 age, nr0 = it
-                                logger.warning("Analysing file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0))
+                                logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0))
                                 newfile = db_file_insert(key, newnzb, nr0, age)
                             else:
                                 fn, no, size = it
-                                db_article_insert(fn, newfile, size, no)
+                                data.append((fn, newfile, size, no))
+                        db_article_insert_many(data)
+                    mp_outqueue.put(("Added NZB: " + infostr, 1))
+                    logger.info(lpref + "Added NZB: " + infostr)
             isfirstrun = False
-
+    logger.warning(lpref + "exiting")
     os.chdir(cwd0)
 
 
@@ -112,7 +121,7 @@ db_nzb_deleteall()
 db_file_deleteall()
 db_article_deleteall()
 
-ParseNZB(nzbdir)
+'''ParseNZB(nzbdir)
 print(80 * "-")
 for d in db_nzb_getall():
     print(d)
@@ -123,4 +132,4 @@ print(80 * "-")
 for d in db_article_getall():
     print(d)
 db_drop()
-db_close()
+db_close()'''
