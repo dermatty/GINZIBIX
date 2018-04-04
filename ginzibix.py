@@ -235,15 +235,16 @@ def ParseNZB(nzbdir):
 # captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
 
-    def __init__(self, pid_nzbparser, logger):
+    def __init__(self, mpp_nzbparser, logger):
         self.logger = logger
-        self.pid_nzbparser = pid_nzbparser
+        self.mpp_nzbparser = mpp_nzbparser
         self.signal = False
 
     def signalhandler(self, signal, frame):
         # stop nzb_parser
-        self.logger.warning("signalhandler: killing nzb_parser.py")
-        os.system("kill -9 " + str(self.pid_nzbparser))
+        self.logger.warning("signalhandler: terminating nzb_parser.py")
+        self.mpp_nzbparser.terminate()
+        self.mpp_nzbparser.join()
         sys.exit()
 
 
@@ -979,23 +980,20 @@ def main():
         sys.exit()
     # start NZB parser
     nzbdir = dirs["nzb"]
-    mpp = mp.Process(target=lib.ParseNZB, args=(mp_nzbparser_outqueue, mp_nzbparser_inqueue, nzbdir, logger, ))
-    mpp.start()
-    pid_nzbparser = mp_nzbparser_inqueue.get()
+    mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(mp_nzbparser_outqueue, mp_nzbparser_inqueue, nzbdir, logger, ))
+    mpp_nzbparser.start()
 
-    sighandler = SigHandler(pid_nzbparser, logger)
+    sighandler = SigHandler(mpp_nzbparser, logger)
     signal.signal(signal.SIGINT, sighandler.signalhandler)
     signal.signal(signal.SIGTERM, sighandler.signalhandler)
 
     while True:
-        nzbstatusmsg = ""
-        nzbstatus = -1
         try:
-            nzbstatusmsg, nzbstatus = mp_nzbparser_inqueue.get_nowait()
+            nzbstatusmsg = mp_nzbparser_inqueue.get_nowait()
+            print(nzbstatusmsg)
         except queue.Empty:
             pass
-        if nzbstatusmsg:
-            print(nzbstatusmsg)
+        time.sleep(1)
 
 
 # -------------------- main --------------------

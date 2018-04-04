@@ -4,8 +4,8 @@ import xml.etree.ElementTree as ET
 import time
 import queue
 import inotify_simple
-from .gpeewee import db_nzb_insert, db_nzb_update_size, db_nzb_getall, db_close, db_file_insert, db_file_getall, db_drop, db_article_insert
-from .gpeewee import db_article_getall, db_nzb_deleteall, db_file_deleteall, db_article_deleteall, db_nzb_exists, db_article_insert_many, SQLITE_MAX_VARIABLE_NUMBER
+from .gpeewee import db_nzb_insert, db_nzb_getall, db_close, db_file_insert, db_file_getall, db_drop, db_article_insert
+from .gpeewee import db_article_getall, db_nzb_deleteall, db_file_deleteall, db_article_deleteall, db_nzb_exists, db_article_insert_many, SQLITE_MAX_VARIABLE_NUMBER, db_file_getsize, db_nzb_getsize
 
 
 lpref = __name__ + " - "
@@ -68,7 +68,6 @@ def get_inotify_events(inotify):
 
 
 def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
-    mp_outqueue.put(os.getpid())
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
 
@@ -87,13 +86,12 @@ def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
                 if db_nzb_exists(nzb0):
                     logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
                     continue
-                newnzb = db_nzb_insert(nzb0, 0)
+                newnzb = db_nzb_insert(nzb0)
                 if newnzb:
                     logger.info(lpref + "new NZB file " + nzb0 + " detected")
                     # update size
                     # rename nzb here to ....processed
                     filedic, bytescount = decompose_nzb(nzb, logger)
-                    db_nzb_update_size(nzb0, bytescount)
                     size_gb = bytescount / (1024 * 1024 * 1024)
                     infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
                     logger.debug(lpref + "analysing NZB: " + infostr)
@@ -109,7 +107,7 @@ def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
                                 fn, no, size = it
                                 data.append((fn, newfile, size, no))
                         db_article_insert_many(data)
-                    mp_outqueue.put(("Added NZB: " + infostr, 1))
+                    mp_outqueue.put("Added NZB: " + infostr)
                     logger.info(lpref + "Added NZB: " + infostr)
             isfirstrun = False
     logger.warning(lpref + "exiting")
