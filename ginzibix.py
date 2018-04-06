@@ -235,9 +235,10 @@ def ParseNZB(nzbdir):
 # captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
 
-    def __init__(self, mpp_nzbparser, logger):
+    def __init__(self, pwdb, mpp_nzbparser, logger):
         self.logger = logger
         self.mpp_nzbparser = mpp_nzbparser
+        self.pwdb = pwdb
         self.signal = False
 
     def signalhandler(self, signal, frame):
@@ -245,6 +246,10 @@ class SigHandler():
         self.logger.warning("signalhandler: terminating nzb_parser.py")
         self.mpp_nzbparser.terminate()
         self.mpp_nzbparser.join()
+        # stop pwdb
+        self.logger.warning("signalhandler: closing pewee.db")
+        self.pwdb.db_drop()
+        self.pwdb.db_close()
         sys.exit()
 
 
@@ -970,6 +975,7 @@ class Downloader():
 def main():
     mp_nzbparser_outqueue = mp.Queue()
     mp_nzbparser_inqueue = mp.Queue()
+    pwdb = lib.PWDB(logger)
 
     cfg = configparser.ConfigParser()
     cfg.read(dirs["config"] + "/ginzibix.config")
@@ -980,10 +986,10 @@ def main():
         sys.exit()
     # start NZB parser
     nzbdir = dirs["nzb"]
-    mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(mp_nzbparser_outqueue, mp_nzbparser_inqueue, nzbdir, logger, ))
+    mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(pwdb, mp_nzbparser_outqueue, mp_nzbparser_inqueue, nzbdir, logger, ))
     mpp_nzbparser.start()
 
-    sighandler = SigHandler(mpp_nzbparser, logger)
+    sighandler = SigHandler(pwdb, mpp_nzbparser, logger)
     signal.signal(signal.SIGINT, sighandler.signalhandler)
     signal.signal(signal.SIGTERM, sighandler.signalhandler)
 

@@ -2,10 +2,9 @@ import os
 import glob
 import xml.etree.ElementTree as ET
 import time
-import queue
+# import logging
 import inotify_simple
-from .gpeewee import db_nzb_insert, db_nzb_getall, db_close, db_file_insert, db_file_getall, db_drop, db_article_insert
-from .gpeewee import db_article_getall, db_nzb_deleteall, db_file_deleteall, db_article_deleteall, db_nzb_exists, db_article_insert_many, SQLITE_MAX_VARIABLE_NUMBER, db_file_getsize, db_nzb_getsize
+# from gpeewee import PWDB
 
 
 lpref = __name__ + " - "
@@ -67,7 +66,7 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
+def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
 
@@ -83,10 +82,10 @@ def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
             logger.debug(lpref + "got nzb event")
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
-                if db_nzb_exists(nzb0):
+                if pwdb.db_nzb_exists(nzb0):
                     logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
                     continue
-                newnzb = db_nzb_insert(nzb0)
+                newnzb = pwdb.db_nzb_insert(nzb0)
                 if newnzb:
                     logger.info(lpref + "new NZB file " + nzb0 + " detected")
                     # update size
@@ -102,11 +101,11 @@ def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
                             if i == 0:
                                 age, nr0 = it
                                 logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0))
-                                newfile = db_file_insert(key, newnzb, nr0, age)
+                                newfile = pwdb.db_file_insert(key, newnzb, nr0, age)
                             else:
                                 fn, no, size = it
                                 data.append((fn, newfile, size, no))
-                        db_article_insert_many(data)
+                        pwdb.db_article_insert_many(data)
                     mp_outqueue.put("Added NZB: " + infostr)
                     logger.info(lpref + "Added NZB: " + infostr)
             isfirstrun = False
@@ -114,20 +113,23 @@ def ParseNZB(mp_inqueue, mp_outqueue, nzbdir, logger):
     os.chdir(cwd0)
 
 
-nzbdir = "/home/stephan/.ginzibix/nzb/"
-db_nzb_deleteall()
-db_file_deleteall()
-db_article_deleteall()
+'''nzbdir = "/home/stephan/.ginzibix/nzb/"
+logger = logging.getLogger(__name__)
 
-'''ParseNZB(nzbdir)
+pwdb = PWDB(logger)
+pwdb.db_nzb_deleteall()
+pwdb.db_file_deleteall()
+pwdb.db_article_deleteall()
+
+ParseNZB(nzbdir, pwdb, logger)
 print(80 * "-")
-for d in db_nzb_getall():
+for d in pwdb.db_nzb_getall():
     print(d)
 print(80 * "-")
-for d in db_file_getall():
+for d in pwdb.db_file_getall():
     print(d)
 print(80 * "-")
-for d in db_article_getall():
+for d in pwdb.db_article_getall():
     print(d)
-db_drop()
-db_close()'''
+pwdb.db_drop()
+pwdb.db_close()'''
