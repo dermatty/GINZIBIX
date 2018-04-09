@@ -3,6 +3,12 @@ import os
 from os.path import expanduser
 import time
 
+'''file status:
+    0 .... not queued yet
+    1 ... downloading
+    2 ... done, ok
+    -1 ... done, errors'''
+
 
 class PWDB:
     def __init__(self, logger):
@@ -22,7 +28,7 @@ class PWDB:
         class NZB(BaseModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
-            timestamp = TimeField(default=time.time())
+            timestamp = TimeField()
             status = IntegerField(default=0)
 
         class FILE(BaseModel):
@@ -33,7 +39,8 @@ class PWDB:
             nzb = ForeignKeyField(NZB, backref='files')
             nr_articles = IntegerField(default=0)
             age = IntegerField(default=0)
-            timestamp = TimeField(default=time.time())
+            ftype = CharField()
+            timestamp = TimeField()
             status = IntegerField(default=0)
 
         class ARTICLE(BaseModel):
@@ -41,7 +48,7 @@ class PWDB:
             fileentry = ForeignKeyField(FILE, backref='articles')
             size = IntegerField(default=0)
             number = IntegerField(default=0)
-            timestamp = TimeField(default=time.time())
+            timestamp = TimeField()
             status = IntegerField(default=0)
 
         def max_sql_variables():
@@ -83,7 +90,7 @@ class PWDB:
         except ValueError:
             prio = 1
         try:
-            new_nzb = self.NZB.create(name=name, priority=prio)
+            new_nzb = self.NZB.create(name=name, priority=prio, timestamp=time.time())
         except Exception as e:
             new_nzb = None
             self.logger.warning(name + ": " + str(e))
@@ -100,7 +107,8 @@ class PWDB:
         try:
             nzb = self.NZB.get(self.NZB.name == name)
             return nzb
-        except:
+        except Exception as e:
+            self.logger.info(name + ": " + str(e))
             return None
 
     def db_nzb_deleteall(self):
@@ -121,9 +129,9 @@ class PWDB:
             size += a.size
         return size
 
-    def db_file_insert(self, name, nzb, nr_articles, age):
+    def db_file_insert(self, name, nzb, nr_articles, age, ftype):
         try:
-            new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age)
+            new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
         except Exception as e:
             new_file = None
             self.logger.warning(str(e))
@@ -143,7 +151,7 @@ class PWDB:
     # ---- self.ARTICLE --------
     def db_article_insert(self, name, fileentry, size, number):
         try:
-            new_article = self.ARTICLE.create(name=name, fileentry=fileentry)
+            new_article = self.ARTICLE.create(name=name, fileentry=fileentry, timestamp=time.time())
         except Exception as e:
             new_article = None
         return new_article
@@ -166,7 +174,8 @@ class PWDB:
             data0 = data[i: min(i + chunksize, llen)]
             try:
                 with self.db.atomic():
-                    query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number])
+                    query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
+                                                                    self.ARTICLE.timestamp])
                     query.execute()
             except OperationalError:
                 chunksize = int(chunksize * 0.9)
@@ -180,6 +189,36 @@ class PWDB:
 
     def db_drop(self):
         self.db.drop_tables(self.tablelist)
+
+    # ---- make_allfilelist -------
+    def make_allfilelist(self):
+        allfilelist = []
+        try:
+            nzb = self.NZB.select().where(self.NZB.status in [0, 1]).order_by(self.NZB.priority)[0]
+        except Exception as e:
+            self.logger.info(str(e) + ": no NZBs to queue")
+            return None
+        files = [files0 for files0 in nzb.files if files0.status in [0, 1]]
+        if not files:
+            self.logger.info("No files to download for NZB " + nzb.name)
+            return None
+        idx = 0
+        for f0 in files:
+            allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
+            articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
+            for a in articles:
+                allok = True
+                if len(allfilelist[idx]) > 2:
+                    for i1, art in enumerate(allfilelist[idx]):
+                        if i1 > 1:
+                            nr1, fn1, _ = art
+                            if nr1 == a.number:
+                                allok = False
+                                break
+                if allok:
+                    allfilelist[idx].append((a.number, a.name, a.size))
+            idx += 1
+        return files
 
 
 ''''

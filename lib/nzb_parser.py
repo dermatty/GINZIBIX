@@ -2,6 +2,7 @@ import os
 import glob
 import xml.etree.ElementTree as ET
 import time
+import re
 # import logging
 import inotify_simple
 # from gpeewee import PWDB
@@ -66,6 +67,23 @@ def get_inotify_events(inotify):
     return events
 
 
+def get_file_type(filename):
+    if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
+        filetype0 = "rar"
+    elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
+        filetype0 = "nfo"
+    elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
+        filetype0 = "sfv"
+    elif re.search(r"[.]par2$", filename, flags=re.IGNORECASE):
+        if re.search(r"vol[0-9][0-9]*[+]", filename, flags=re.IGNORECASE):
+            filetype0 = "par2vol"
+        else:
+            filetype0 = "par2"
+    else:
+        filetype0 = "etc"
+    return filetype0
+
+
 def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
@@ -75,6 +93,8 @@ def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
     inotify.add_watch(nzbdir, watch_flags)
 
     isfirstrun = True
+
+    print(pwdb.make_allfilelist())
 
     while True:
         events = get_inotify_events(inotify)
@@ -100,11 +120,13 @@ def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
                         for i, it in enumerate(items):
                             if i == 0:
                                 age, nr0 = it
-                                logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0))
-                                newfile = pwdb.db_file_insert(key, newnzb, nr0, age)
+                                ftype = get_file_type(key)
+                                logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
+                                             + " / type=" + ftype)
+                                newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
                             else:
                                 fn, no, size = it
-                                data.append((fn, newfile, size, no))
+                                data.append((fn, newfile, size, no, time.time()))
                         pwdb.db_article_insert_many(data)
                     mp_outqueue.put("Added NZB: " + infostr)
                     logger.info(lpref + "Added NZB: " + infostr)

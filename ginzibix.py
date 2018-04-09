@@ -248,7 +248,6 @@ class SigHandler():
         self.mpp_nzbparser.join()
         # stop pwdb
         self.logger.warning("signalhandler: closing pewee.db")
-        self.pwdb.db_drop()
         self.pwdb.db_close()
         sys.exit()
 
