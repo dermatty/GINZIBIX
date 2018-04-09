@@ -191,8 +191,16 @@ class PWDB:
         self.db.drop_tables(self.tablelist)
 
     # ---- make_allfilelist -------
+    #      makes a file/articles list out of top-prio nzb, ready for beeing queued
+    #      to download threads
     def make_allfilelist(self):
         allfilelist = []
+        filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "par2": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                           "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
         try:
             nzb = self.NZB.select().where(self.NZB.status in [0, 1]).order_by(self.NZB.priority)[0]
         except Exception as e:
@@ -204,6 +212,17 @@ class PWDB:
             return None
         idx = 0
         for f0 in files:
+            filetypecounter[f0.ftype]["max"] += 1
+            filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
+            if f0.status not in [0, 1]:
+                filetypecounter[f0.ftype]["counter"] += 1
+                # todo:
+                #    calc md5 hash
+                #    filename0 is real path of file
+                md5 = 0
+                filename0 = ""
+                filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
+                continue
             allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
             articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
             for a in articles:
