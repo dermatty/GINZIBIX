@@ -2,6 +2,9 @@ from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerFie
 import os
 from os.path import expanduser
 import time
+from .par2lib import calc_file_md5hash
+import glob
+
 
 '''file status:
     0 .... not queued yet
@@ -129,6 +132,10 @@ class PWDB:
             size += a.size
         return size
 
+    def db_file_update_status(self, filename, newstatus):
+        query = self.FILES.update(status=newstatus).where(self.FILES.orig_name == filename)
+        query.execute()
+
     def db_file_insert(self, name, nzb, nr_articles, age, ftype):
         try:
             new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
@@ -190,10 +197,20 @@ class PWDB:
     def db_drop(self):
         self.db.drop_tables(self.tablelist)
 
+    # ---- get_downloaded_file_full_path ----
+    def get_downloaded_file_full_path(self, file0, dir0):
+        file_already_exists = False
+        for fname0 in glob.glob(dir0 + "*"):
+            short_fn = fname0.split("/")[-1]
+            if short_fn == file0.name:
+                file_already_exists = True
+                break
+        return dir0 + file0.name, file_already_exists
+
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
     #      to download threads
-    def make_allfilelist(self):
+    def make_allfilelist(self, dir0):
         allfilelist = []
         filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
@@ -206,6 +223,7 @@ class PWDB:
         except Exception as e:
             self.logger.info(str(e) + ": no NZBs to queue")
             return None
+        nzbname = nzb.name
         files = [files0 for files0 in nzb.files if files0.status in [0, 1]]
         if not files:
             self.logger.info("No files to download for NZB " + nzb.name)
@@ -215,14 +233,17 @@ class PWDB:
             filetypecounter[f0.ftype]["max"] += 1
             filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
             if f0.status not in [0, 1]:
-                filetypecounter[f0.ftype]["counter"] += 1
                 # todo:
                 #    calc md5 hash
                 #    filename0 is real path of file
-                md5 = 0
-                filename0 = ""
-                filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
-                continue
+                filename0, file_already_exists = self.get_downloaded_file_full_path(self, f0, dir0)
+                if file_already_exists:
+                    filetypecounter[f0.ftype]["counter"] += 1
+                    md5 = calc_file_md5hash(filename0)
+                    filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
+                    continue
+                else:
+                    self.db_file_update_status(f0.orig_name, 0)
             allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
             articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
             for a in articles:
@@ -237,7 +258,7 @@ class PWDB:
                 if allok:
                     allfilelist[idx].append((a.number, a.name, a.size))
             idx += 1
-        return files
+        return allfilelist, filetypecounter, nzbname
 
 
 ''''

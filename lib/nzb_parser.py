@@ -94,8 +94,6 @@ def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
 
     isfirstrun = True
 
-    print(pwdb.make_allfilelist())
-
     while True:
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
