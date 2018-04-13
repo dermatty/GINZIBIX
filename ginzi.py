@@ -56,8 +56,10 @@ logger.addHandler(fh)
 # captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
 
-    def __init__(self, pwdb, mpp_nzbparser, mpp_decoder, logger):
+    def __init__(self, servers, threads, pwdb, mpp_nzbparser, mpp_decoder, logger):
         self.logger = logger
+        self.servers = servers
+        self.threads = threads
         self.mpp_nzbparser = mpp_nzbparser
         self.mpp_decoder = mpp_decoder
         self.pwdb = pwdb
@@ -75,6 +77,14 @@ class SigHandler():
         # stop pwdb
         self.logger.warning("signalhandler: closing pewee.db")
         self.pwdb.db_close()
+        # threads + servers
+        self.logger.warning("signalhandler: stopping download threads")
+        for t, _ in self.threads:
+            t.stop()
+            t.join()
+        self.logger.warning("signalhandler: closing all server connections")
+        self.servers.close_all_connections()
+        self.logger.warning("signalhandler: exiting")
         sys.exit()
 
     def signalhandler(self, signal, frame):
@@ -479,37 +489,35 @@ class Downloader():
         #    incomplete/_unpack0:       unpacked verified rars
         #    incomplete:                final directory before moving to complete
 
+        
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
+
+        # start decoder mpp
+        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
+        self.mpp_decoder.start()
 
         # start nzb parser mpp
         self.mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(self.pwdb, self.mp_nzbparser_outqueue, self.mp_nzbparser_inqueue,
                                                                    self.dirs["nzb"], self.logger, ))
         self.mpp_nzbparser.start()
 
+        sighandler = SigHandler(self.servers, self.threads, self.pwdb, self.mpp_nzbparser, self.mpp_decoder, self.logger)
+        signal.signal(signal.SIGINT, sighandler.signalhandler)
+        signal.signal(signal.SIGTERM, sighandler.signalhandler)
+
         # wait for first nzb
         nzbname = None
         while not nzbname:
-            # error / to do:
-            # nzbdir in make_allfilelist / geepee.py -> look there in correct dir
-            allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.download_dir)
-            time.sleep(5)
+            allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+            print(nzbname)
         self.make_dirs(nzbname)
 
         logger.info("Downloading articles for: " + self.nzb)
 
-        # start decoder mpp
-        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
-        self.mpp_decoder.start()
-
-        sighandler = SigHandler(self.pwdb, self.mpp_nzbparser, self.mpp_decoder, self.logger)
-        signal.signal(signal.SIGINT, sighandler.signalhandler)
-        signal.signal(signal.SIGTERM, sighandler.signalhandler)
-
-        sighandler.shutdown()
-
         # overall GB
         bytescount0 = self.getbytescount(allfileslist)
 
+        avgmiblist = []
         status = 0        # 0 = running, 1 = exited successfull, -1 = exited cannot unrar
         inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
         files = {}
@@ -525,6 +533,8 @@ class Downloader():
                 self.threads.append((t, time.time()))
                 t.start()
 
+        sighandler.shutdown()
+
         # main download & processing loop
         while True and not self.sighandler.signal:
 
@@ -537,22 +547,10 @@ class Downloader():
                     if (filetype == "par2" or filetype == "par2vol") and not p2:
                         p2 = lib.Par2File(full_filename)
                         logger.info("Sending " + filename + "-p2 object to parverify_queue")
-                        self.mp_parverify_outqueue.put(p2)
+                        # self.mp_parverify_outqueue.put(p2)
                 except queue.Empty:
                     break
 
-            # get mp_parverify_inqueue
-            if not loadpar2vols:
-                while True:
-                    try:
-                        loadpar2vols, parverify_status = self.mp_parverify_inqueue.get_nowait()
-                    except queue.Empty:
-                        break
-                if loadpar2vols:
-                    logger.info("Queuing par2vols")
-                    inject_set0 = ["par2vol"]
-                    files, infolist, bytescount00 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-                    bytescount0 += bytescount00
             # if all downloaded postprocess
             dobreak = True
             for filetype, item in filetypecounter.items():
@@ -565,13 +563,12 @@ class Downloader():
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
 
-            # disply connection speeds in console
-            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter)
-
             if dobreak:
                 break
 
-            # update threads timestamps (if alive)
+        sighandler.shutdown()
+
+        '''# update threads timestamps (if alive)
             # if thread is dead longer than 120 sec - kill it
             for k, (t, last_timestamp) in enumerate(self.threads):
                 if t.isAlive() and t.nntpobj:
@@ -635,7 +632,7 @@ class Downloader():
             t.stop()
             t.join()
         self.servers.close_all_connections()
-        return status
+        return status'''
 
     def get_level_servers(self, retention):
         le_serv0 = []
