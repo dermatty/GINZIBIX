@@ -84,7 +84,7 @@ def get_file_type(filename):
     return filetype0
 
 
-def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
+def ParseNZB(pwdb, nzbdir, logger):
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
 
@@ -127,7 +127,6 @@ def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
                                 fn, no, size = it
                                 data.append((fn, newfile, size, no, time.time()))
                         pwdb.db_article_insert_many(data)
-                    mp_outqueue.put("Added NZB: " + infostr)
                     logger.info(lpref + "Added NZB: " + infostr)
             isfirstrun = False
     logger.warning(lpref + "exiting")

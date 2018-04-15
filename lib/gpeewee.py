@@ -125,6 +125,18 @@ class PWDB:
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
 
+    def db_nzb_update_status(self, nzbname, newstatus):
+        nzb0 = self.NZB.get((self.NZB.name == nzbname))
+        nzb0.status = newstatus
+        nzb0.save()
+
+    def db_nzb_getstatus(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.status
+        except:
+            return None
+
     # ---- self.FILE --------
     def db_file_getsize(self, name):
         file0 = self.FILE.get(self.FILE.orig_name == name)
@@ -231,11 +243,12 @@ class PWDB:
                            "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
         try:
-            nzb = self.NZB.select().where(self.NZB.status in [0, 1]).order_by(self.NZB.priority)[0]
+            nzb = self.NZB.select().where((self.NZB.status == 0) | (self.NZB.status == 1)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
             return None, None, None
         nzbname = nzb.name
+        self.logger.info(lpref + nzbname + ", status: " + str(self.db_nzb_getstatus(nzbname)))
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
         dir00 = dir0 + nzbdir + "_downloaded0/"
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
@@ -274,7 +287,12 @@ class PWDB:
                 if allok:
                     allfilelist[idx].append((a.number, a.name, a.size))
             idx += 1
-        return allfilelist, filetypecounter, nzbname
+        if allfilelist:
+            self.db_nzb_update_status(nzbname, 1)
+            return allfilelist, filetypecounter, nzbname
+        else:
+            self.db_nzb_update_status(nzbname, 2)
+            return None, None, None
 
 
 ''''

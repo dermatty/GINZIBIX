@@ -13,14 +13,12 @@ import glob
 import xml.etree.ElementTree as ET
 import nntplib
 import ssl
-import yenc
 import multiprocessing as mp
 import logging
 import logging.handlers
 import psutil
 import re
 import hashlib
-import pymongo
 import lib
 
 userhome = expanduser("~")
@@ -56,24 +54,33 @@ logger.addHandler(fh)
 # captures SIGINT / SIGTERM and closes down everything
 class SigHandler():
 
-    def __init__(self, servers, threads, pwdb, mpp_nzbparser, mpp_decoder, logger):
+    def __init__(self, threads, pwdb, mpp_work_queue, mpp_nzbparser, logger):
         self.logger = logger
-        self.servers = servers
+        self.servers = None
         self.threads = threads
         self.mpp_nzbparser = mpp_nzbparser
-        self.mpp_decoder = mpp_decoder
+        self.mpp_work_queue = mpp_work_queue
         self.pwdb = pwdb
         self.signal = False
+        self.mpp_renamer = None
 
     def shutdown(self):
+        # stop mpp_renamer
+        #if self.mpp_renamer:
+        #    self.logger.warning("signalhandler: terminating renamer")
+        #    self.mpp_renamer.terminate()
+        #    # self.mpp_renamer.join()
         # stop nzb_parser
-        self.logger.warning("signalhandler: terminating nzb_parser")
-        self.mpp_nzbparser.terminate()
-        self.mpp_nzbparser.join()
-        # stop article decoder
-        self.logger.warning("signalhandler: terminating article_decoder")
-        self.mpp_decoder.terminate()
-        self.mpp_decoder.join()
+        if self.mpp_nzbparser:
+            self.logger.warning("signalhandler: terminating nzb_parser")
+            self.mpp_nzbparser.terminate()
+            # self.mpp_nzbparser.join()
+        if self.mpp_work_queue:
+            # stop article decoder
+            self.logger.warning("signalhandler: terminating article_decoder")
+            self.mpp_work_queue.put(None)
+            time.sleep(2)
+            # self.mpp_decoder.join()
         # stop pwdb
         self.logger.warning("signalhandler: closing pewee.db")
         self.pwdb.db_close()
@@ -82,8 +89,9 @@ class SigHandler():
         for t, _ in self.threads:
             t.stop()
             t.join()
-        self.logger.warning("signalhandler: closing all server connections")
-        self.servers.close_all_connections()
+        if self.servers:
+            self.logger.warning("signalhandler: closing all server connections")
+            self.servers.close_all_connections()
         self.logger.warning("signalhandler: exiting")
         sys.exit()
 
@@ -247,6 +255,10 @@ class ConnectionWorker(Thread):
                 status = 1
                 info0 = [inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
+        except nntplib.NNTPTemporaryError:
+            logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
+            status = 0
+            info0 = None
         except Exception as e:
             logger.error(str(e) + self.idn + " for article " + article_name + ", return status = -2")
             status = -2
@@ -353,22 +365,20 @@ class ConnectionWorker(Thread):
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
                 self.articlequeue.task_done()
                 if not next_servers:
-                    logger.error("Download finally failed on server " + self.idn + ": for article #" + str(art_nr), next_servers)
+                    logger.error("Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
                     self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
                 else:
-                    logger.warning("Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: ", next_servers)
+                    logger.warning("Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         logger.info(self.idn + " exited!")
 
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, servers, dirs, pwdb, logger):
+    def __init__(self, cfg, dirs, pwdb, logger):
+        self.cfg = cfg
         self.pwdb = pwdb
-        self.servers = servers
         self.lock = threading.Lock()
-        self.level_servers = self.servers.level_servers
-        self.all_connections = self.servers.all_connections
         self.articlequeue = queue.LifoQueue()
         self.resultqueue = queue.Queue()
         self.mp_work_queue = mp.Queue()
@@ -381,6 +391,11 @@ class Downloader():
         self.threads = []
         self.dirs = dirs
         self.logger = logger
+
+    def init_servers(self):
+        self.servers = Servers(self.cfg)
+        self.level_servers = self.servers.level_servers
+        self.all_connections = self.servers.all_connections
 
     def make_dirs(self, nzb):
         self.nzb = nzb
@@ -408,7 +423,7 @@ class Downloader():
         for article in articles:
             articlequeue.put(article)
 
-    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00):
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname):
         avgmiblist = avgmiblist00
         max_mem_needed = 0
         bytescount0 = bytescount00
@@ -435,6 +450,7 @@ class Downloader():
                     max_mem_needed = mem_needed
         # set in all threads servers alive timestamps
         # check if server is longer off > 120 sec, if yes, kill thread & stop server
+        print("--> Downloading " + nzbname)
         try:
             print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
                   + "{0:.3f}".format(max_mem_needed) + " GB                 ")
@@ -457,7 +473,7 @@ class Downloader():
         for key, item in filetypecounter00.items():
             print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
         print()
-        for _ in range(len(self.threads) + 4):
+        for _ in range(len(self.threads) + 5):
             sys.stdout.write("\033[F")
 
     def getbytescount(self, filelist):
@@ -542,64 +558,74 @@ class Downloader():
 
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
 
-        # a = self.pwdb.db_file_getall()
-        # print(a)
-        # sys.exit()
-
-        # start decoder mpp
-        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.pwdb,
-                                                                        self.logger, ))
-        self.mpp_decoder.start()
-
         # start nzb parser mpp
-        self.mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(self.pwdb, self.mp_nzbparser_outqueue, self.mp_nzbparser_inqueue,
-                                                                   self.dirs["nzb"], self.logger, ))
+        self.mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(self.pwdb, self.dirs["nzb"], self.logger, ))
         self.mpp_nzbparser.start()
 
-        self.sighandler = SigHandler(self.servers, self.threads, self.pwdb, self.mpp_nzbparser, self.mpp_decoder, self.logger)
+        # start decoder mpp
+        logger.info("Starting decoder process ...")
+        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.pwdb, self.logger, ))
+        self.mpp_decoder.start()
+        
+        self.sighandler = SigHandler(self.threads, self.pwdb, self.mp_work_queue, self.mpp_nzbparser, self.logger)
         signal.signal(signal.SIGINT, self.sighandler.signalhandler)
         signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
 
-        # wait for first nzb
+        getnextnzb = True
+        self.mpp_renamer = None
+        self.mpp_decoder = None
         nzbname = None
-        while not nzbname:
-            allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
-            time.sleep(1)
-        self.make_dirs(nzbname)
-        # print(filetypecounter)
+        delconnections = True
 
-        # self.sighandler.shutdown()
-
-        # start renamer
-        logger.info("Starting Renamer for: " + self.nzb)
-        self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.logger, ))
-        self.mpp_renamer.start()
-
-        logger.info("Downloading articles for: " + self.nzb)
-
-        # overall GB
-        bytescount0 = self.getbytescount(allfileslist)
-
-        avgmiblist = []
-        status = 0        # 0 = running, 1 = exited successfull, -1 = exited cannot unrar
-        inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
-        files = {}
-        infolist = {}
-        files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
-        loadpar2vols = False
-        p2 = None
-
-        # if files in queue, start connection worker threads
-        if allfileslist:
-            for sn, scon, _, _ in self.all_connections:
-                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
-                self.threads.append((t, time.time()))
-                t.start()
-
-        # sighandler.shutdown()
-
-        # main download & processing loop
         while True and not self.sighandler.signal:
+            if getnextnzb:
+                allfileslist = []
+                avgmiblist = []
+                status = 0        # 0 = running, 1 = exited successfull, -1 = exited cannot unrar
+                inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
+                files = {}
+                infolist = {}
+                loadpar2vols = False
+                p2 = None
+                nzbname = None
+                if self.mpp_renamer:
+                    self.mpp_renamer.terminate()
+                    self.mpp_renamer.join()
+                    self.mpp_renamer = None
+                self.resultqueue.join()
+                self.articlequeue.join()
+                t0 = time.time()
+                while not nzbname:
+                    allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+                    if time.time() - t0 > 30 and self.threads:
+                        logger.warning("Idle time > 30 sec, closing all server connections")
+                        for t, _ in self.threads:
+                            t.stop()
+                            t.join()
+                        self.servers.close_all_connections()
+                        self.threads = []
+                        del self.servers
+                        delconnections = True
+                    time.sleep(1)
+                self.make_dirs(nzbname)
+
+                # start renamer
+                # logger.info("Starting Renamer for: " + self.nzb)
+                # self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.logger, ))
+                # self.mpp_renamer.start()
+                # self.sighandler.mpp_renamer = mpp_renamer
+                if delconnections:
+                    self.init_servers()
+                    self.sighandler.servers = self.servers
+                    for sn, scon, _, _ in self.all_connections:
+                        t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
+                        self.threads.append((t, time.time()))
+                        t.start()
+                logger.info("Downloading articles for: " + self.nzb)
+                bytescount0 = self.getbytescount(allfileslist)
+                files, infolist, bytescount0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                getnextnzb = False
+                # self.sighandler.shutdown()
 
             # get mp_result_queue
             while True:
@@ -609,28 +635,28 @@ class Downloader():
                     filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
                     if (filetype == "par2" or filetype == "par2vol") and not p2:
                         p2 = lib.Par2File(full_filename)
-                        logger.info("Sending " + filename + "-p2 object to parverify_queue")
+                        # logger.info("Sending " + filename + "-p2 object to parverify_queue")
                         # self.mp_parverify_outqueue.put(p2)
                 except queue.Empty:
                     break
 
             # if all downloaded postprocess
-            dobreak = True
+            getnextnzb = True
             for filetype, item in filetypecounter.items():
                 if filetype == "par2vol" and not loadpar2vols:
                     continue
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
-                    dobreak = False
+                    getnextnzb = False
                     break
+            if getnextnzb:
+                delconnections = False
+                self.pwdb.db_nzb_update_status(nzbname, 2)
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
 
             # disply connection speeds in console
-            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter)
-
-            if dobreak:
-                break
+            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname)
 
             time.sleep(0.2)
 
@@ -721,13 +747,7 @@ def main():
     cfg = configparser.ConfigParser()
     cfg.read(dirs["config"] + "/ginzibix.config")
 
-    # get servers
-    servers = Servers(cfg)
-    if not servers:
-        logger.error("At least one server has to be provided, exiting!")
-        sys.exit()
-
-    dl = Downloader(servers, dirs, pwdb, logger)
+    dl = Downloader(cfg, dirs, pwdb, logger)
     dl.download_and_process()
 
 

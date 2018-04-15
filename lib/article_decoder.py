@@ -2,8 +2,10 @@ import re
 import yenc
 import os
 
+lpref = __name__ + " - "
 
 def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
+    logger.info(lpref + "Started decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
     while True:
@@ -12,7 +14,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
         except KeyboardInterrupt:
             return
         if not res0:
-            logger.info("Exiting decoder process!")
+            logger.info(lpref + "Exiting decoder process!")
             break
         infolist, save_dir, filename, filetype = res0
         del bytes0
@@ -43,10 +45,9 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
                                 head_crc = m_obj.group(1)
                             headerok = True
                         except Exception as e:
-                            logger.warning(str(e) + ": malformed =ybegin header in article " + artname)
+                            logger.warning(lpref + str(e) + ": malformed =ybegin header in article " + artname)
                         continue
                     if inf0.startswith("=ypart"):
-                        partfound = True
                         partnr += 1
                         continue
                     if inf0.startswith("=yend"):
@@ -57,23 +58,27 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
                                 trail_crc = m_obj.group(1)
                             trailerok = True
                         except Exception as e:
-                            logger.warning(str(e) + ": malformed =yend trailer in article " + artname)
+                            logger.warning(lpref + str(e) + ": malformed =yend trailer in article " + artname)
                         continue
                 except Exception as e:
                     pass
+                bytes00 = bytes0
                 try:
                     bytes0.extend(inf)
                     pass
                 except KeyboardInterrupt:
                     return
+                except Exception as e:
+                    logger.warning(lpref + str(e) + ": " + filename)
+                    bytes0 = bytes00
             if not headerok or not trailerok:  # or not partfound or partnr > 1:
-                logger.warning(filename + ": wrong yenc structure detected")
+                logger.warning(lpref + filename + ": wrong yenc structure detected")
                 statusmsg = "yenc_structure_error"
                 status = 0
             _, decodedcrc32, decoded = yenc.decode(bytes0)
             if not head_crc and not trail_crc:
                 statusmsg = "no_pcrc32_error"
-                logger.warning(filename + ": no pcrc32 detected")
+                logger.warning(lpref + filename + ": no pcrc32 detected")
                 status = -1
             else:
                 try:
@@ -91,7 +96,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
         if artsize0 != len(bytesfinal):
             statusmsg = "article file length wrong"
             status = -3
-            logger.info("Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
+            logger.info(lpref + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
         md5 = None
         full_filename = save_dir + filename
         try:
@@ -101,7 +106,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
                 f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
-            logger.info(filename + " decoded and saved!")
+            logger.info(lpref + filename + " decoded and saved!")
             # calc hash for rars
             if filetype == "rar":
                 md5 = 0  # calc_file_md5hash(save_dir + filename)
@@ -110,17 +115,17 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
                 # logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
-            logger.error(str(e) + ": " + filename)
+            logger.error(lpref + str(e) + ": " + filename)
             status = -4
-        logger.info(filename + " decoded with status " + str(status) + " / " + statusmsg)
+        logger.info(lpref + filename + " decoded with status " + str(status) + " / " + statusmsg)
         pwdbstatus = 2
         if status in [-3, -4]:
             pwdbstatus = -1
         try:
             pwdb.db_file_update_status(filename, pwdbstatus)
-            logger.info("Updated DB for " + filename + ", db.status=" + str(pwdbstatus))
+            logger.info(lpref + "Updated DB for " + filename + ", db.status=" + str(pwdbstatus))
             # s0 = pwdb.db_file_getstatus(filename)
             # logger.info("RETRIEVED " + filename + " status:" + str(s0))
         except Exception as e:
-            logger.error(str(e) + ": cannot update DB for " + filename)
+            logger.error(lpref + str(e) + ": cannot update DB for " + filename)
         mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
