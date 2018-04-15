@@ -4,13 +4,15 @@ from os.path import expanduser
 import time
 from .par2lib import calc_file_md5hash
 import glob
-
+import re
 
 '''file status:
     0 .... not queued yet
     1 ... downloading
     2 ... done, ok
     -1 ... done, errors'''
+
+lpref = __name__ + " - "
 
 
 class PWDB:
@@ -87,16 +89,16 @@ class PWDB:
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
 
     # ---- self.NZB --------
-    def db_nzb_insert(self, name):
+    def db_nzb_insert(self, name0):
         try:
             prio = max([n.priority for n in self.NZB.select().order_by(self.NZB.priority)]) + 1
         except ValueError:
             prio = 1
         try:
-            new_nzb = self.NZB.create(name=name, priority=prio, timestamp=time.time())
+            new_nzb = self.NZB.create(name=name0, priority=prio, timestamp=time.time())
         except Exception as e:
             new_nzb = None
-            self.logger.warning(name + ": " + str(e))
+            self.logger.warning(lpref + name0 + ": " + str(e))
         return new_nzb
 
     def db_nzb_getsize(self, name):
@@ -111,7 +113,6 @@ class PWDB:
             nzb = self.NZB.get(self.NZB.name == name)
             return nzb
         except Exception as e:
-            self.logger.info(name + ": " + str(e))
             return None
 
     def db_nzb_deleteall(self):
@@ -133,15 +134,25 @@ class PWDB:
         return size
 
     def db_file_update_status(self, filename, newstatus):
-        query = self.FILES.update(status=newstatus).where(self.FILES.orig_name == filename)
-        query.execute()
+        file0 = self.FILE.get((self.FILE.orig_name == filename))
+        file0.status = newstatus
+        file0.save()
+        # query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
+        # query.execute()
+
+    def db_file_getstatus(self, filename):
+        try:
+            query = self.FILE.get(self.FILE.orig_name == filename)
+            return query.status
+        except:
+            return None
 
     def db_file_insert(self, name, nzb, nr_articles, age, ftype):
         try:
             new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
         except Exception as e:
             new_file = None
-            self.logger.warning(str(e))
+            self.logger.warning(lpref + str(e))
         return new_file
 
     def db_file_getall(self):
@@ -200,12 +211,13 @@ class PWDB:
     # ---- get_downloaded_file_full_path ----
     def get_downloaded_file_full_path(self, file0, dir0):
         file_already_exists = False
+        # self.logger.info(lpref + dir0 + "*")
         for fname0 in glob.glob(dir0 + "*"):
             short_fn = fname0.split("/")[-1]
-            if short_fn == file0.name:
+            if short_fn == file0.orig_name:
                 file_already_exists = True
                 break
-        return dir0 + file0.name, file_already_exists
+        return dir0 + file0.orig_name, file_already_exists
 
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
@@ -221,23 +233,26 @@ class PWDB:
         try:
             nzb = self.NZB.select().where(self.NZB.status in [0, 1]).order_by(self.NZB.priority)[0]
         except Exception as e:
-            self.logger.info(str(e) + ": no NZBs to queue")
-            return None
+            self.logger.info(lpref + str(e) + ": no NZBs to queue")
+            return None, None, None
         nzbname = nzb.name
-        dir00 = dir0 + nzbname + "/_downloaded0/"
-        files = [files0 for files0 in nzb.files if files0.status in [0, 1]]
+        nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
+        dir00 = dir0 + nzbdir + "_downloaded0/"
+        files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
         if not files:
-            self.logger.info("No files to download for NZB " + nzb.name)
-            return None
+            self.logger.info(lpref + "No files to download for NZB " + nzb.name)
+            return None, None, None
         idx = 0
         for f0 in files:
             filetypecounter[f0.ftype]["max"] += 1
             filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
+            self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status))
             if f0.status not in [0, 1]:
                 # todo:
                 #    calc md5 hash
                 #    filename0 is real path of file
-                filename0, file_already_exists = self.get_downloaded_file_full_path(self, f0, dir00)
+                filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
+                self.logger.info(lpref + filename0 + ", found on dir: " + str(file_already_exists))
                 if file_already_exists:
                     filetypecounter[f0.ftype]["counter"] += 1
                     md5 = calc_file_md5hash(filename0)

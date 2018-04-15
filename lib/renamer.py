@@ -5,6 +5,8 @@ from .par2lib import Par2File, calc_file_md5hash_16k, check_for_par_filetype
 from random import randint
 import inotify_simple
 
+lpref = __name__ + " - "
+
 
 def get_not_yet_renamed_files(source_dir):
     nrf = []
@@ -15,7 +17,7 @@ def get_not_yet_renamed_files(source_dir):
     return nrf
 
 
-def scan_renamed_dir(renamed_dir, p2obj):
+def scan_renamed_dir(renamed_dir, p2obj, logger):
     # get all files in renamed
     rn = []
     p2obj0 = p2obj
@@ -27,12 +29,12 @@ def scan_renamed_dir(renamed_dir, p2obj):
             if ptype0 == 1:
                 p2obj0 = Par2File(fn)
                 p2basename0 = fn.split(".par2")[0]
-                print("Found .par2 in _renamed0: " + fn0)
+                logger.info(lpref + "Found .par2 in _renamed0: " + fn0)
         rn.append(fn0)
     return rn, p2obj0, p2basename0
 
 
-def scan_for_par2(notrenamedfiles):
+def scan_for_par2(notrenamedfiles, logger):
     p2obj0 = None
     p2basename0 = None
     for fn, _ in notrenamedfiles:
@@ -40,7 +42,7 @@ def scan_for_par2(notrenamedfiles):
         if ptype0 == 1:
             p2obj0 = Par2File(fn)
             p2basename0 = fn.split(".par2")[0]
-            print("Found .par2 in _downloaded0: " + fn.split("/")[-1])
+            logger.info(lpref + "Found .par2 in _downloaded0: " + fn.split("/")[-1])
             break
     return p2obj0, p2basename0
 
@@ -80,7 +82,7 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
     return p2obj0, p2basename0
 
 
-def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir):
+def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, logger):
     if not p2obj:
         return
     rarfileslist = p2obj.md5_16khash()
@@ -98,7 +100,7 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
         except IndexError:
             pass
         except Exception as e:
-            print(str(e))
+            logger.warning(lpref + str(e))
     for a_name, a_md5 in notrenamedfiles:
         shutil.copyfile(source_dir + a_name, dest_dir + a_name)
         os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
@@ -152,28 +154,27 @@ def renamer(source_dir, dest_dir, logger):
     while True:
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
-            print("Events: " + str(events))
+            logger.info(lpref + "Events: " + str(events))
             # eventslist.append(events)
             # get all files not yet .renamed
-            print("Reading not yet downloaded files in _downloaded0")
+            logger.info(lpref + "Reading not yet downloaded files in _downloaded0")
             notrenamedfiles = get_not_yet_renamed_files(source_dir)
             # get all renames filed & trying to get .par2 file
-            print("Reading files in _renamed0 & trying to get .par2 file")
-            renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj)
+            logger.info(lpref + "Reading files in _renamed0 & trying to get .par2 file")
+            renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj, logger)
             # if no par2 in _renamed, check _downloaded0
             if not p2obj:
-                print("No p2obj yet found, looking in _downloaded0")
-                p2obj, p2basename = scan_for_par2(notrenamedfiles)
+                logger.info(lpref + "No p2obj yet found, looking in _downloaded0")
+                p2obj, p2basename = scan_for_par2(notrenamedfiles, logger)
                 if p2obj:
-                    print("p2obj found: " + p2basename)
+                    logger.info(lpref + "p2obj found: " + p2basename)
             # rename par2 and move them
             p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles)
             # rename & move rar + remaining files
-            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir)
+            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, logger)
             isfirstrun = False
-            print("-" * 60)
+            # print("-" * 60)
             # get_nowait
-            
     os.chdir(cwd0)
 
 

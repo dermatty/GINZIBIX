@@ -382,6 +382,14 @@ class Downloader():
         self.dirs = dirs
         self.logger = logger
 
+    def make_dirs(self, nzb):
+        self.nzb = nzb
+        self.nzbdir = re.sub(r"[.]nzb$", "", self.nzb, flags=re.IGNORECASE) + "/"
+        self.download_dir = self.dirs["incomplete"] + self.nzbdir + "_downloaded0/"
+        self.verifiedrar_dir = self.dirs["incomplete"] + self.nzbdir + "_verifiedrars0/"
+        self.unpack_dir = self.dirs["incomplete"] + self.nzbdir + "_unpack0/"
+        self.main_dir = self.dirs["incomplete"] + self.nzbdir
+        self.rename_dir = self.dirs["incomplete"] + self.nzbdir + "_renamed0/"
         try:
             if not os.path.isdir(self.main_dir):
                 os.mkdir(self.main_dir)
@@ -396,18 +404,61 @@ class Downloader():
         except Exception as e:
             logger.error(str(e) + " in creating dirs ...")
 
-    def make_dirs(self, nzb):
-        self.nzb = nzb
-        self.nzbdir = re.sub(r"[.]nzb$", "", self.nzb, flags=re.IGNORECASE) + "/"
-        self.download_dir = dirs["incomplete"] + self.nzbdir + "_downloaded0/"
-        self.verifiedrar_dir = dirs["incomplete"] + self.nzbdir + "_verifiedrars0/"
-        self.unpack_dir = dirs["incomplete"] + self.nzbdir + "_unpack0/"
-        self.main_dir = dirs["incomplete"] + self.nzbdir
-        self.rename_dir = dirs["incomplete"] + self.nzbdir + "_renamed0/"
-
     def article_producer(self, articles, articlequeue):
         for article in articles:
             articlequeue.put(article)
+
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00):
+        avgmiblist = avgmiblist00
+        max_mem_needed = 0
+        bytescount0 = bytescount00
+        bytescount0 += 0.00001
+        availmem0 = availmem00
+        # get Mib downloaded
+        if len(avgmiblist) > 50:
+            del avgmiblist[0]
+        if len(avgmiblist) > 10:
+            avgmib_dic = {}
+            for (server_name, _, _, _, _, _, _, _, _) in self.servers.server_config:
+                bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
+                if len(bytescountlist) > 2:
+                    avgmib_db = sum(bytescountlist)
+                    avgmib_mint = min([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
+                    avgmib_maxt = max([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
+                    # print(avgmib_maxt, avgmib_mint)
+                    avgmib_dic[server_name] = (avgmib_db / (avgmib_maxt - avgmib_mint)) / (1024 * 1024) * 8
+                else:
+                    avgmib_dic[server_name] = 0
+            for server_name, avgmib in avgmib_dic.items():
+                mem_needed = ((psutil.virtual_memory()[0] - psutil.virtual_memory()[1]) - availmem0) / (1024 * 1024 * 1024)
+                if mem_needed > max_mem_needed:
+                    max_mem_needed = mem_needed
+        # set in all threads servers alive timestamps
+        # check if server is longer off > 120 sec, if yes, kill thread & stop server
+        try:
+            print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
+                  + "{0:.3f}".format(max_mem_needed) + " GB                 ")
+        except UnboundLocalError:
+            print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
+        gbdown0 = 0
+        mbitsec0 = 0
+        for k, (t, last_timestamp) in enumerate(self.threads):
+            gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
+            gbdown0 += gbdown
+            gbdown_str = "{0:.3f}".format(gbdown)
+            mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
+            mbitsec0 += mbitsec
+            mbitsec_str = "{0:.1f}".format(mbitsec)
+            print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
+        print("-" * 60)
+        gbdown0_str = "{0:.3f}".format(gbdown0)
+        print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
+              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
+        for key, item in filetypecounter00.items():
+            print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
+        print()
+        for _ in range(len(self.threads) + 4):
+            sys.stdout.write("\033[F")
 
     def getbytescount(self, filelist):
         # generate all articles and files
@@ -489,11 +540,15 @@ class Downloader():
         #    incomplete/_unpack0:       unpacked verified rars
         #    incomplete:                final directory before moving to complete
 
-        
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
 
+        # a = self.pwdb.db_file_getall()
+        # print(a)
+        # sys.exit()
+
         # start decoder mpp
-        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.logger, ))
+        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.pwdb,
+                                                                        self.logger, ))
         self.mpp_decoder.start()
 
         # start nzb parser mpp
@@ -501,16 +556,24 @@ class Downloader():
                                                                    self.dirs["nzb"], self.logger, ))
         self.mpp_nzbparser.start()
 
-        sighandler = SigHandler(self.servers, self.threads, self.pwdb, self.mpp_nzbparser, self.mpp_decoder, self.logger)
-        signal.signal(signal.SIGINT, sighandler.signalhandler)
-        signal.signal(signal.SIGTERM, sighandler.signalhandler)
+        self.sighandler = SigHandler(self.servers, self.threads, self.pwdb, self.mpp_nzbparser, self.mpp_decoder, self.logger)
+        signal.signal(signal.SIGINT, self.sighandler.signalhandler)
+        signal.signal(signal.SIGTERM, self.sighandler.signalhandler)
 
         # wait for first nzb
         nzbname = None
         while not nzbname:
             allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
-            print(nzbname)
+            time.sleep(1)
         self.make_dirs(nzbname)
+        # print(filetypecounter)
+
+        # self.sighandler.shutdown()
+
+        # start renamer
+        logger.info("Starting Renamer for: " + self.nzb)
+        self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.logger, ))
+        self.mpp_renamer.start()
 
         logger.info("Downloading articles for: " + self.nzb)
 
@@ -533,7 +596,7 @@ class Downloader():
                 self.threads.append((t, time.time()))
                 t.start()
 
-        sighandler.shutdown()
+        # sighandler.shutdown()
 
         # main download & processing loop
         while True and not self.sighandler.signal:
@@ -563,10 +626,15 @@ class Downloader():
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
 
+            # disply connection speeds in console
+            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter)
+
             if dobreak:
                 break
 
-        sighandler.shutdown()
+            time.sleep(0.2)
+
+        self.sighandler.shutdown()
 
         '''# update threads timestamps (if alive)
             # if thread is dead longer than 120 sec - kill it
@@ -667,8 +735,13 @@ def main():
 
 if __name__ == '__main__':
 
-    print("Welcome to ginzibix 0.1-alpha, binary usenet downloader")
+    progstr = "ginzibix 0.1-alpha, binary usenet downloader"
+    print("Welcome to " + progstr)
     print("-" * 60)
+
+    logger.info("-" * 80)
+    logger.info("starting " + progstr)
+    logger.info("-" * 80)
 
     main()
     sys.exit()

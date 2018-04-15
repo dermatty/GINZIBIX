@@ -103,6 +103,7 @@ def ParseNZB(pwdb, mp_inqueue, mp_outqueue, nzbdir, logger):
                 if pwdb.db_nzb_exists(nzb0):
                     logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
                     continue
+                logger.info(lpref + "inserting " + nzb0 + "into db")
                 newnzb = pwdb.db_nzb_insert(nzb0)
                 if newnzb:
                     logger.info(lpref + "new NZB file " + nzb0 + " detected")

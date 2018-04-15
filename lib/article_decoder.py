@@ -3,7 +3,7 @@ import yenc
 import os
 
 
-def decode_articles(mp_work_queue0, mp_result_queue0, logger):
+def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
     bytes0 = bytearray()
     bytesfinal = bytearray()
     while True:
@@ -76,10 +76,13 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
                 logger.warning(filename + ": no pcrc32 detected")
                 status = -1
             else:
-                head_crc0 = None if not head_crc else head_crc.lower()
-                trail_crc0 = None if not trail_crc else trail_crc.lower()
-                crc32list = [head_crc0, trail_crc0]
-                crc32 = decodedcrc32.lower()
+                try:
+                    head_crc0 = "" if not head_crc else head_crc.lower()
+                    trail_crc0 = "" if not trail_crc else trail_crc.lower()
+                    crc32list = [head_crc0.strip("0"), trail_crc0.strip("0")]
+                    crc32 = decodedcrc32.lower().strip("0")
+                except Exception as e:
+                    logger.error(str(e))
                 if crc32 not in crc32list:
                     # logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
                     statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
@@ -110,4 +113,14 @@ def decode_articles(mp_work_queue0, mp_result_queue0, logger):
             logger.error(str(e) + ": " + filename)
             status = -4
         logger.info(filename + " decoded with status " + str(status) + " / " + statusmsg)
+        pwdbstatus = 2
+        if status in [-3, -4]:
+            pwdbstatus = -1
+        try:
+            pwdb.db_file_update_status(filename, pwdbstatus)
+            logger.info("Updated DB for " + filename + ", db.status=" + str(pwdbstatus))
+            # s0 = pwdb.db_file_getstatus(filename)
+            # logger.info("RETRIEVED " + filename + " status:" + str(s0))
+        except Exception as e:
+            logger.error(str(e) + ": cannot update DB for " + filename)
         mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
