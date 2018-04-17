@@ -514,16 +514,22 @@ class Downloader():
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):
         # read resultqueue + distribute to files
+        empty_yenc_line = b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A'
         newresult = False
         avgmiblist = avgmiblist00
         infolist = infolist00
         files = files00
+        failed = False
         while True:
             try:
                 resultarticle = self.resultqueue.get_nowait()
                 self.resultqueue.task_done()
                 filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0 = resultarticle
                 bytesdownloaded = sum(len(i) for i in inf0)
+                if inf0 == "failed!":
+                    failed = True
+                    inf0 = empty_yenc_line
+                    logger.error(filename + "/" + art_name + ": failed!!")
                 avgmiblist.append((time.time(), bytesdownloaded, download_server))
                 try:
                     infolist[filename][art_nr - 1] = inf0
@@ -535,7 +541,6 @@ class Downloader():
                 if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:        # check for failed!! todo!!
                     failed0 = False
                     if "failed" in infolist[filename]:
-                        logger.error(filename + "failed!!")
                         failed0 = True
                     inflist0 = infolist[filename][:]
                     self.mp_work_queue.put((inflist0, self.download_dir, filename, filetype))
@@ -546,7 +551,7 @@ class Downloader():
                 pass
             except queue.Empty:
                 break
-        return newresult, avgmiblist, infolist, files
+        return newresult, avgmiblist, infolist, files, failed
 
     # main download routine
     def download_and_process(self):
@@ -627,7 +632,7 @@ class Downloader():
                 getnextnzb = False
                 # self.sighandler.shutdown()
 
-            # get mp_result_queue
+            # get mp_result_queue (from article_decoder.py)
             while True:
                 try:
                     filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
@@ -653,7 +658,7 @@ class Downloader():
                 self.pwdb.db_nzb_update_status(nzbname, 2)
 
             # read resultqueue + decode via mp
-            newresult, avgmiblist, infolist, files = self.process_resultqueue(avgmiblist, infolist, files)
+            newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
 
             # disply connection speeds in console
             self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname)
