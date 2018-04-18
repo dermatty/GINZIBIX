@@ -124,7 +124,7 @@ def get_inotify_events(inotify):
 
 
 # renamer with inotify
-def renamer(source_dir, dest_dir, logger):
+def renamer(source_dir, dest_dir, pwdb, logger):
     if source_dir[-1] != "/":
         source_dir += "/"
     if dest_dir[-1] != "/":
