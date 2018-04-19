@@ -103,31 +103,32 @@ def ParseNZB(pwdb, nzbdir, logger):
                 if pwdb.db_nzb_exists(nzb0):
                     logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
                     continue
-                logger.info(lpref + "inserting " + nzb0 + "into db")
-                newnzb = pwdb.db_nzb_insert(nzb0)
-                if newnzb:
-                    logger.info(lpref + "new NZB file " + nzb0 + " detected")
-                    # update size
-                    # rename nzb here to ....processed
-                    filedic, bytescount = decompose_nzb(nzb, logger)
-                    size_gb = bytescount / (1024 * 1024 * 1024)
-                    infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
-                    logger.debug(lpref + "analysing NZB: " + infostr)
-                    # insert files + articles
-                    for key, items in filedic.items():
-                        data = []
-                        for i, it in enumerate(items):
-                            if i == 0:
-                                age, nr0 = it
-                                ftype = get_file_type(key)
-                                logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
-                                             + " / type=" + ftype)
-                                newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
-                            else:
-                                fn, no, size = it
-                                data.append((fn, newfile, size, no, time.time()))
-                        pwdb.db_article_insert_many(data)
-                    logger.info(lpref + "Added NZB: " + infostr)
+                with pwdb.db.atomic():
+                    logger.info(lpref + "inserting " + nzb0 + "into db")
+                    newnzb = pwdb.db_nzb_insert(nzb0)
+                    if newnzb:
+                        logger.info(lpref + "new NZB file " + nzb0 + " detected")
+                        # update size
+                        # rename nzb here to ....processed
+                        filedic, bytescount = decompose_nzb(nzb, logger)
+                        size_gb = bytescount / (1024 * 1024 * 1024)
+                        infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
+                        logger.debug(lpref + "analysing NZB: " + infostr)
+                        # insert files + articles
+                        for key, items in filedic.items():
+                            data = []
+                            for i, it in enumerate(items):
+                                if i == 0:
+                                    age, nr0 = it
+                                    ftype = get_file_type(key)
+                                    logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
+                                                 + " / type=" + ftype)
+                                    newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
+                                else:
+                                    fn, no, size = it
+                                    data.append((fn, newfile, size, no, time.time()))
+                            pwdb.db_article_insert_many(data)
+                        logger.info(lpref + "Added NZB: " + infostr)
             isfirstrun = False
     logger.warning(lpref + "exiting")
     os.chdir(cwd0)

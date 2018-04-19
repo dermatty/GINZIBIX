@@ -9,7 +9,7 @@ import queue
 from os.path import expanduser
 import configparser
 import signal
-import glob
+import inotify_simple
 import xml.etree.ElementTree as ET
 import nntplib
 import ssl
@@ -568,6 +568,43 @@ class Downloader():
                 break
         return newresult, avgmiblist, infolist, files, failed
 
+    def make_allfilelist_inotify(self, timeout0):
+        # immediatley get allfileslist
+        if timeout0 and timeout0 <= -1:
+            logger.debug("--------------------")
+            allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+            if nzbname:
+                logger.debug("Inotify: no timeout, got nzb " + nzbname + " immediately!")
+                return allfileslist, filetypecounter, nzbname
+            else:
+                return None, None, None
+        # setup inotify
+        logger.debug("Setting up inotify for timeout=" + str(timeout0))
+        pwdb_inotify = inotify_simple.INotify()
+        watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
+        wd = pwdb_inotify.add_watch(self.dirs["main"], watch_flags)
+        t0 = time.time()
+        timeout00 = timeout0
+        while True:
+            for event in pwdb_inotify.read(timeout=timeout00):
+                logger.debug("got notify event on " + str(event.name))
+                if event.name == u"ginzibix.db":
+                    logger.debug("Database updated, now checking for nzbname & data")
+                    allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+                    if nzbname:
+                        logger.debug("new nzb found in db, queuing ...")
+                        pwdb_inotify.rm_watch(wd)
+                        return allfileslist, filetypecounter, nzbname
+                    else:
+                        logger.debug("no new nzb found in db, continuing polling ...")
+            # if timeout == None: again blocking, else subtract already spent timeout
+            if timeout00:
+                timeout00 = timeout00 - (time.time() - t0) * 1000
+                t0 = time.time()
+                if timeout00 <= 0:
+                    pwdb_inotify.rm_watch(wd)
+                    return None, None, None
+
     # main download routine
     def download_and_process(self):
         # directories
@@ -619,19 +656,26 @@ class Downloader():
                         os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
                     except Exception as e:
                         logger.info(str(e))
-                t0 = time.time()
-                while not nzbname:
-                    allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
-                    if time.time() - t0 > 30 and self.threads:
+                # ask for immediate result on nzbname
+                allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(-1)
+                if not nzbname:
+                    logger.debug("No new nzb found, polling for 30 sec. before closing connections if alive ...")
+                    # if no success poll for 30 sec
+                    allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(5 * 1000)
+                    if not nzbname:
+                        # if no success: close all connections and poll blocking
                         logger.warning("Idle time > 30 sec, closing all server connections")
-                        for t, _ in self.threads:
-                            t.stop()
-                            t.join()
-                        self.servers.close_all_connections()
-                        self.threads = []
-                        del self.servers
-                        delconnections = True
-                    time.sleep(1)
+                        if self.threads:
+                            for t, _ in self.threads:
+                                t.stop()
+                                t.join()
+                            self.servers.close_all_connections()
+                            self.threads = []
+                            del self.servers
+                            delconnections = True
+                        logger.debug("Polling for new NZBs now in blocking mode!")
+                        allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
+                logger.debug("Making dirs for NZB: " + str(nzbname))
                 self.make_dirs(nzbname)
                 # start renamer
                 logger.debug("Starting renamer process for NZB " + nzbname)
