@@ -101,6 +101,10 @@ class PWDB:
             self.logger.warning(lpref + name0 + ": " + str(e))
         return new_nzb
 
+    def db_nzb_delete(self, name):
+        query = self.NZB.delete.where(self.NZB.name == name)
+        query.execute()
+
     def db_nzb_getsize(self, name):
         nzb0 = self.NZB.get(self.NZB.name == name)
         size = 0
@@ -151,6 +155,16 @@ class PWDB:
         file0.save()
         # query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
         # query.execute()
+
+    def db_file_set_renamed_name(self, orig_name, renamed_name):
+        file0 = self.FILE.get((self.FILE.orig_name == orig_name))
+        file0.renamed_name = renamed_name
+        file0.save()
+
+    def db_file_set_file_type(self, orig_name, ftype):
+        file0 = self.FILE.get((self.FILE.orig_name == orig_name))
+        file0.ftype = ftype
+        file0.save()
 
     def db_file_getstatus(self, filename):
         try:
@@ -226,7 +240,7 @@ class PWDB:
         # self.logger.info(lpref + dir0 + "*")
         for fname0 in glob.glob(dir0 + "*"):
             short_fn = fname0.split("/")[-1]
-            if short_fn == file0.orig_name:
+            if short_fn == file0.orig_name or short_fn == file0.renamed_name:
                 file_already_exists = True
                 break
         return dir0 + file0.orig_name, file_already_exists
@@ -251,6 +265,7 @@ class PWDB:
         self.logger.info(lpref + nzbname + ", status: " + str(self.db_nzb_getstatus(nzbname)))
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
         dir00 = dir0 + nzbdir + "_downloaded0/"
+        dir01 = dir0 + nzbdir + "_renamed0/"
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
         if not files:
             self.logger.info(lpref + "No files to download for NZB " + nzb.name)
@@ -264,7 +279,9 @@ class PWDB:
                 # todo:
                 #    calc md5 hash
                 #    filename0 is real path of file
-                filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
+                filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir01)
+                if not file_already_exists:
+                    filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
                 self.logger.info(lpref + filename0 + ", found on dir: " + str(file_already_exists))
                 if file_already_exists:
                     filetypecounter[f0.ftype]["counter"] += 1

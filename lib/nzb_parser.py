@@ -3,6 +3,7 @@ import glob
 import xml.etree.ElementTree as ET
 import time
 import re
+from .par2lib import get_file_type
 # import logging
 import inotify_simple
 # from gpeewee import PWDB
@@ -17,7 +18,7 @@ def decompose_nzb(nzb, logger):
         logger.info(lpref + "downloading NZB file " + nzb)
     except Exception as e:
         logger.error(lpref + str(e) + ": cannot download NZB file " + nzb)
-        return None
+        return None, None
     nzbroot = tree.getroot()
     filedic = {}
     bytescount0 = 0
@@ -67,23 +68,6 @@ def get_inotify_events(inotify):
     return events
 
 
-def get_file_type(filename):
-    if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
-        filetype0 = "rar"
-    elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
-        filetype0 = "nfo"
-    elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
-        filetype0 = "sfv"
-    elif re.search(r"[.]par2$", filename, flags=re.IGNORECASE):
-        if re.search(r"vol[0-9][0-9]*[+]", filename, flags=re.IGNORECASE):
-            filetype0 = "par2vol"
-        else:
-            filetype0 = "par2"
-    else:
-        filetype0 = "etc"
-    return filetype0
-
-
 def ParseNZB(pwdb, nzbdir, logger):
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
@@ -111,24 +95,28 @@ def ParseNZB(pwdb, nzbdir, logger):
                         # update size
                         # rename nzb here to ....processed
                         filedic, bytescount = decompose_nzb(nzb, logger)
-                        size_gb = bytescount / (1024 * 1024 * 1024)
-                        infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
-                        logger.debug(lpref + "analysing NZB: " + infostr)
-                        # insert files + articles
-                        for key, items in filedic.items():
-                            data = []
-                            for i, it in enumerate(items):
-                                if i == 0:
-                                    age, nr0 = it
-                                    ftype = get_file_type(key)
-                                    logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
-                                                 + " / type=" + ftype)
-                                    newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
-                                else:
-                                    fn, no, size = it
-                                    data.append((fn, newfile, size, no, time.time()))
-                            pwdb.db_article_insert_many(data)
-                        logger.info(lpref + "Added NZB: " + infostr)
+                        if not filedic:
+                            logger.warning("Could not internet nzb " + nzb0 + ", deleting from DB")
+                            pwdb.db_nzb_delete(nzb0)
+                        else:
+                            size_gb = bytescount / (1024 * 1024 * 1024)
+                            infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
+                            logger.debug(lpref + "analysing NZB: " + infostr)
+                            # insert files + articles
+                            for key, items in filedic.items():
+                                data = []
+                                for i, it in enumerate(items):
+                                    if i == 0:
+                                        age, nr0 = it
+                                        ftype = get_file_type(key)
+                                        logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
+                                                     + " / type=" + ftype)
+                                        newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
+                                    else:
+                                        fn, no, size = it
+                                        data.append((fn, newfile, size, no, time.time()))
+                                pwdb.db_article_insert_many(data)
+                            logger.info(lpref + "Added NZB: " + infostr)
             isfirstrun = False
     logger.warning(lpref + "exiting")
     os.chdir(cwd0)

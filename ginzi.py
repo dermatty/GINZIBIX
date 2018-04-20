@@ -10,7 +10,6 @@ from os.path import expanduser
 import configparser
 import signal
 import inotify_simple
-import xml.etree.ElementTree as ET
 import nntplib
 import ssl
 import multiprocessing as mp
@@ -459,7 +458,10 @@ class Downloader():
                     max_mem_needed = mem_needed
         # set in all threads servers alive timestamps
         # check if server is longer off > 120 sec, if yes, kill thread & stop server
-        print("--> Downloading " + nzbname)
+        if nzbname:
+            print("--> Downloading " + nzbname)
+        else:
+            print("--> Downloading paused!" + " " * 30)
         try:
             print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
                   + "{0:.3f}".format(max_mem_needed) + " GB                 ")
@@ -478,10 +480,14 @@ class Downloader():
         print("-" * 60)
         gbdown0_str = "{0:.3f}".format(gbdown0)
         print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
-              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + "             ")
+              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + " " * 10)
         for key, item in filetypecounter00.items():
             print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
-        print("Health: {0:.1f}".format(article_health * 100) + "%       ")
+        if nzbname:
+            trailing_spaces = " " * 10
+        else:
+            trailing_spaces = " " * 70
+        print("Health: {0:.1f}".format(article_health * 100) + "%" + trailing_spaces)
         print()
         for _ in range(len(self.threads) + 6):
             sys.stdout.write("\033[F")
@@ -613,8 +619,6 @@ class Downloader():
         #    incomplete/_unpack0:       unpacked verified rars
         #    incomplete:                final directory before moving to complete
 
-        availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
-
         # start nzb parser mpp
         logger.debug("Starting nzbparser process ...")
         self.mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(self.pwdb, self.dirs["nzb"], self.logger, ))
@@ -649,32 +653,49 @@ class Downloader():
                 p2 = None
                 nzbname = None
                 article_failed = 0
+                availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
+                bytescount0 = 0
+                filetypecounter = {}
+                article_health = 1
+                if self.threads:
+                    for t, _ in self.threads:
+                        t.bytesdownloaded = 0
+                        t.last_timestamp = 0
+                self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
                 self.resultqueue.join()
                 self.articlequeue.join()
                 if self.mpp_pid["renamer"]:
                     try:
+                        # to do: loop over downloaded and wait until empty
+                        logger.debug("Waiting for renamer.py clearing download dir")
+                        while True:
+                            for _, _, fs in os.walk(self.download_dir):
+                                if not fs:
+                                    break
+                            else:
+                                time.sleep(1)
+                                continue
+                            break
+                        logger.debug("Download dir empty!")
                         os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
                     except Exception as e:
                         logger.info(str(e))
-                # ask for immediate result on nzbname
-                allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(-1)
+                # poll for 30 sec
+                logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
+                allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(30 * 1000)
                 if not nzbname:
-                    logger.debug("No new nzb found, polling for 30 sec. before closing connections if alive ...")
-                    # if no success poll for 30 sec
-                    allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(5 * 1000)
-                    if not nzbname:
+                    if self.threads:
                         # if no success: close all connections and poll blocking
                         logger.warning("Idle time > 30 sec, closing all server connections")
-                        if self.threads:
-                            for t, _ in self.threads:
-                                t.stop()
-                                t.join()
-                            self.servers.close_all_connections()
-                            self.threads = []
-                            del self.servers
-                            delconnections = True
-                        logger.debug("Polling for new NZBs now in blocking mode!")
-                        allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
+                        for t, _ in self.threads:
+                            t.stop()
+                            t.join()
+                        self.servers.close_all_connections()
+                        self.threads = []
+                        del self.servers
+                        delconnections = True
+                    logger.debug("Polling for new NZBs now in blocking mode!")
+                    allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
                 logger.debug("Making dirs for NZB: " + str(nzbname))
                 self.make_dirs(nzbname)
                 # start renamer
@@ -690,6 +711,9 @@ class Downloader():
                         t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
                         self.threads.append((t, time.time()))
                         t.start()
+                else:
+                    for t, _ in self.threads:
+                        t.last_timestamp = time.time()
                 logger.info("Downloading articles for: " + self.nzb)
                 bytescount0 = self.getbytescount(allfileslist)
                 files, infolist, bytescount0, article_count = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
@@ -699,6 +723,7 @@ class Downloader():
             # get mp_result_queue (from article_decoder.py)
             while True:
                 try:
+                    # todo: mp_result_queue from renamer + update allfiles !!!!!
                     filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
                     filetypecounter[filetype]["counter"] += 1
                     filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
@@ -731,72 +756,6 @@ class Downloader():
             time.sleep(0.2)
 
         self.sighandler.shutdown()
-
-        '''# update threads timestamps (if alive)
-            # if thread is dead longer than 120 sec - kill it
-            for k, (t, last_timestamp) in enumerate(self.threads):
-                if t.isAlive() and t.nntpobj:
-                        last_timestamp = time.time()
-                        self.threads[k] = (t, last_timestamp)
-                if t.isAlive() and time.time() - last_timestamp > 120:
-                    t.stop()
-                    t.join()
-                    try:
-                        t.nntopj.quit()
-                        t.nntpobj = None
-                    except Exception as e:
-                        logger.error(str(e))
-
-            # if all servers down (= no WAN)
-            if len([t for t, _ in self.threads if t.isAlive()]) == 0:
-                status = -1
-                break
-            time.sleep(0.1)
-
-        # get final par2 repair status
-        parverify_status = 0
-        logger.info("Waiting for receiving ok from par_verifier")
-        while True:
-            try:
-                endcode, parverify_status = self.mp_parverify_inqueue.get_nowait()
-                if endcode == -9999:
-                    break
-            except queue.Empty:
-                pass
-        if parverify_status == 1:
-            logger.info("All rar files ok / repaired!")
-        elif parverify_status == -1:
-            logger.error("Some rar files were corrupt/could not be repaired!")
-        else:
-            logger.error("Got no reasonable final state from par_verifier ...")
-
-        # get final unrar status
-        unrar_status = 0
-        logger.info("Waiting for receiving ok from unrar")
-        while True:
-            try:
-                unrar_status, statmsg = self.mp_unrarqueue.get_nowait()
-                break
-            except queue.Empty:
-                pass
-        if unrar_status == 0:
-            logger.info("Unrar - " + statmsg)
-        else:
-            logger.error("Unrar - " + statmsg)
-
-        # todo:
-        #   clean directories and move to final directory
-
-        # clean up
-        logger.info("cleaning up ...")
-        self.mp_work_queue.put(None)
-        self.resultqueue.join()
-        self.articlequeue.join()
-        for t, _ in self.threads:
-            t.stop()
-            t.join()
-        self.servers.close_all_connections()
-        return status'''
 
     def get_level_servers(self, retention):
         le_serv0 = []

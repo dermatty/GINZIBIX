@@ -1,7 +1,7 @@
 import os
 import shutil
 import glob
-from .par2lib import Par2File, calc_file_md5hash_16k, check_for_par_filetype
+from .par2lib import Par2File, calc_file_md5hash_16k, check_for_par_filetype, get_file_type
 from random import randint
 import inotify_simple
 
@@ -47,7 +47,7 @@ def scan_for_par2(notrenamedfiles, logger):
     return p2obj0, p2basename0
 
 
-def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles):
+def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb):
     # search for not yet renamed par2/vol files
     p2obj0 = p2obj
     p2basename0 = p2basename
@@ -69,41 +69,55 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
             pp = (pname, phash)
             if ptype == "par2":
                 shutil.copyfile(source_dir + pname, dest_dir + pname)
-                os.rename(source_dir + pname, source_dir + pname + ".renamed")
+                pwdb.db_file_set_renamed_name(pname, pname)
+                pwdb.db_file_set_file_type(pname, "par2")
+                # os.rename(source_dir + pname, source_dir + pname + ".renamed")
+                os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
             elif ptype == "par2vol" and p2basename0:
                 # todo: if not p2basename ??
                 volpart1 = randint(1, 99)
                 volpart2 = randint(1, 99)
-                shutil.copyfile(source_dir + pname, dest_dir + p2basename0 + ".vol" + str(volpart1).zfill(3) +
-                                "+" + str(volpart2).zfill(3) + ".PAR2")
-                os.rename(source_dir + pname, source_dir + pname + ".renamed")
+                pname2 = p2basename0 + ".vol" + str(volpart1).zfill(3) + "+" + str(volpart2).zfill(3) + ".PAR2"
+                shutil.copyfile(source_dir + pname, dest_dir + p2basename0 + pname2)
+                pwdb.db_file_set_renamed_name(pname, pname2)
+                pwdb.db_file_set_file_type(pname, "par2vol")
+                # os.rename(source_dir + pname, source_dir + pname + ".renamed")
+                os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
     return p2obj0, p2basename0
 
 
-def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, logger):
-    if not p2obj:
-        return
-    rarfileslist = p2obj.md5_16khash()
-    notrenamedfiles0 = notrenamedfiles[:]
-    for a_name, a_md5 in notrenamedfiles0:
-        pp = (a_name, a_md5)
-        try:
-            r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
-            if r_name != a_name:
-                shutil.copyfile(source_dir + a_name, dest_dir + r_name)
-            else:
-                shutil.copyfile(source_dir + a_name, dest_dir + a_name)
-            os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
-            notrenamedfiles.remove(pp)
-        except IndexError:
-            pass
-        except Exception as e:
-            logger.warning(lpref + str(e))
+def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, logger):
+    if p2obj:
+        rarfileslist = p2obj.md5_16khash()
+        notrenamedfiles0 = notrenamedfiles[:]
+        # rarfiles
+        for a_name, a_md5 in notrenamedfiles0:
+            pp = (a_name, a_md5)
+            try:
+                r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
+                if r_name != a_name:
+                    shutil.copyfile(source_dir + a_name, dest_dir + r_name)
+                else:
+                    shutil.copyfile(source_dir + a_name, dest_dir + a_name)
+                pwdb.db_file_set_renamed_name(a_name, r_name)
+                pwdb.db_file_set_file_type(a_name, "rar")
+                # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
+                os.remove(source_dir + a_name)
+                notrenamedfiles.remove(pp)
+            except IndexError:
+                pass
+            except Exception as e:
+                logger.warning(lpref + str(e))
     for a_name, a_md5 in notrenamedfiles:
         shutil.copyfile(source_dir + a_name, dest_dir + a_name)
-        os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
+        ft = get_file_type(a_name)
+        logger.debug(lpref + "FILETYPE: " + a_name + "/" + ft)
+        pwdb.db_file_set_renamed_name(a_name, a_name)
+        pwdb.db_file_set_file_type(a_name, ft)
+        # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
+        os.remove(source_dir + a_name)
 
 
 def get_inotify_events(inotify):
@@ -169,9 +183,9 @@ def renamer(source_dir, dest_dir, pwdb, logger):
                 if p2obj:
                     logger.info(lpref + "p2obj found: " + p2basename)
             # rename par2 and move them
-            p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles)
+            p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb)
             # rename & move rar + remaining files
-            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, logger)
+            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, logger)
             isfirstrun = False
             # print("-" * 60)
             # get_nowait

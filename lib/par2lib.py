@@ -260,3 +260,18 @@ def calc_file_md5hash_16k(fn):
     return md5
 
 
+def get_file_type(filename):
+    if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
+        filetype0 = "rar"
+    elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
+        filetype0 = "nfo"
+    elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
+        filetype0 = "sfv"
+    elif re.search(r"[.]par2$", filename, flags=re.IGNORECASE):
+        if re.search(r"vol[0-9][0-9]*[+]", filename, flags=re.IGNORECASE):
+            filetype0 = "par2vol"
+        else:
+            filetype0 = "par2"
+    else:
+        filetype0 = "etc"
+    return filetype0
