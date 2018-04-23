@@ -266,6 +266,9 @@ class ConnectionWorker(Thread):
             logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
             status = 0
             info0 = None
+        except KeyboardInterrupt:
+            status = -3
+            info0 = None
         except Exception as e:
             logger.error(str(e) + self.idn + " for article " + article_name + ", return status = -2")
             status = -2
@@ -284,6 +287,7 @@ class ConnectionWorker(Thread):
             if self.nntpobj:
                 logger.info("Server " + idn + " connected!")
                 self.last_timestamp = time.time()
+                self.bytesdownloaded = 0
                 return
             logger.warning("Could not connect to server " + idn + ", will retry in 5 sec.")
             time.sleep(5)
@@ -343,6 +347,9 @@ class ConnectionWorker(Thread):
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
             # print("Downloading on server " + idn + ": + for article #" + str(art_nr), filename)
             status, bytesdownloaded, info = self.download_article(art_name, age)
+            # if ctrl-c - exit thread
+            if status == -3:
+                break
             # if server connection error - disconnect
             if status == -2:
                 # disconnect
@@ -487,7 +494,7 @@ class Downloader():
             trailing_spaces = " " * 10
         else:
             trailing_spaces = " " * 70
-        print("Health: {0:.1f}".format(article_health * 100) + "%" + trailing_spaces)
+        print("Health: {0:.4f}".format(article_health * 100) + "%" + trailing_spaces)
         print()
         for _ in range(len(self.threads) + 6):
             sys.stdout.write("\033[F")
@@ -535,7 +542,7 @@ class Downloader():
         # read resultqueue + distribute to files
         empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
                               b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A',
-                              b"=yend size=173 crc32=8111111c"]
+                              b"=yend size=14 crc32=8111111c"]
         newresult = False
         avgmiblist = avgmiblist00
         infolist = infolist00
@@ -547,7 +554,7 @@ class Downloader():
                 self.resultqueue.task_done()
                 filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0 = resultarticle
                 bytesdownloaded = sum(len(i) for i in inf0)
-                if inf0 == "failed!":
+                if inf0 == "failed":
                     failed += 1
                     inf0 = empty_yenc_article
                     logger.error(filename + "/" + art_name + ": failed!!")
@@ -561,8 +568,9 @@ class Downloader():
                 (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
                 if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:        # check for failed!! todo!!
                     failed0 = False
-                    if "failed" in infolist[filename]:
+                    if b"name=ginzi.txt" in infolist[filename][0]:
                         failed0 = True
+                        logger.error(filename + ": failed!!")
                     inflist0 = infolist[filename][:]
                     self.mp_work_queue.put((inflist0, self.download_dir, filename, filetype))
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
@@ -627,7 +635,7 @@ class Downloader():
 
         # start decoder mpp
         logger.debug("Starting decoder process ...")
-        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.mp_result_queue, self.pwdb, self.logger, ))
+        self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.pwdb, self.logger, ))
         self.mpp_decoder.start()
         self.mpp_pid["decoder"] = self.mpp_decoder.pid
 
@@ -700,7 +708,7 @@ class Downloader():
                 self.make_dirs(nzbname)
                 # start renamer
                 logger.debug("Starting renamer process for NZB " + nzbname)
-                self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.logger, ))
+                self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
                 self.mpp_renamer.start()
                 self.mpp_pid["renamer"] = self.mpp_renamer.pid
                 self.sighandler.mpp_pid = self.mpp_pid
@@ -718,18 +726,21 @@ class Downloader():
                 bytescount0 = self.getbytescount(allfileslist)
                 files, infolist, bytescount0, article_count = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                 getnextnzb = False
-                # self.sighandler.shutdown()
 
             # get mp_result_queue (from article_decoder.py)
             while True:
                 try:
-                    # todo: mp_result_queue from renamer + update allfiles !!!!!
-                    filename, full_filename, filetype, status, statusmsg, md5 = self.mp_result_queue.get_nowait()
-                    filetypecounter[filetype]["counter"] += 1
-                    filetypecounter[filetype]["loadedfiles"].append((filename, full_filename, md5))
-                    # if (filetype == "par2" or filetype == "par2vol") and not p2:
-                    #    p2 = lib.Par2File(full_filename)
-                        # logger.info("Sending " + filename + "-p2 object to parverify_queue")
+                    filename, full_filename, filetype, old_filename, old_filetype = self.mp_result_queue.get_nowait()
+                    # todo: what to do with filetypecounter["filelist"] ???
+                    if filetype == old_filetype:
+                        filetypecounter[filetype]["counter"] += 1
+                    else:
+                        filetypecounter[old_filetype]["max"] -= 1
+                        filetypecounter[filetype]["counter"] += 1
+                    filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
+                    if (filetype == "par2" or filetype == "par2vol") and not p2:
+                        p2 = lib.Par2File(full_filename)
+                        logger.info("Sending " + filename + "-p2 object to parverify_queue")
                         # self.mp_parverify_outqueue.put(p2)
                 except queue.Empty:
                     break
@@ -750,6 +761,15 @@ class Downloader():
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
             article_failed += failed
             article_health = 1 - article_failed / article_count
+            if failed != 0:
+                logger.warning(str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
+                if not loadpar2vols:
+                    logger.info("Queuing par2vols")
+                    inject_set0 = ["par2vol"]
+                    files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                    bytescount0 += bytescount00
+                    article_count += article_count0
+                    loadpar2vols = True
             # disply connection speeds in console
             self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
 

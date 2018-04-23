@@ -2,9 +2,13 @@ from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerFie
 import os
 from os.path import expanduser
 import time
-from .par2lib import calc_file_md5hash
 import glob
 import re
+if __name__ == "__main__":
+    from par2lib import calc_file_md5hash
+else:
+    from .par2lib import calc_file_md5hash
+
 
 '''file status:
     0 .... not queued yet
@@ -245,6 +249,9 @@ class PWDB:
                 break
         return dir0 + file0.orig_name, file_already_exists
 
+    
+
+
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
     #      to download threads
@@ -311,6 +318,24 @@ class PWDB:
             self.db_nzb_update_status(nzbname, 2)
             return None, None, None
 
+
+if __name__ == "__main__":
+
+    import logging
+    import logging.handlers
+
+    logger = logging.getLogger("ginzibix")
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler("/home/stephan/.ginzibix/logs/ginzibix.log", mode="w")
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
+    pwdb = PWDB(logger)
+
+    fall = pwdb.db_file_getall()
+    for f in fall:
+        print(f)
 
 ''''
 # ---- QUEUER -----------------------------------------------------------------

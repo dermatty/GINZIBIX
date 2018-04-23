@@ -47,7 +47,7 @@ def scan_for_par2(notrenamedfiles, logger):
     return p2obj0, p2basename0
 
 
-def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb):
+def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, mp_result_queue):
     # search for not yet renamed par2/vol files
     p2obj0 = p2obj
     p2basename0 = p2basename
@@ -71,6 +71,7 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 shutil.copyfile(source_dir + pname, dest_dir + pname)
                 pwdb.db_file_set_renamed_name(pname, pname)
                 pwdb.db_file_set_file_type(pname, "par2")
+                mp_result_queue.put((pname, dest_dir + pname, "par2", pname, get_file_type(pname)))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
@@ -79,16 +80,18 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 volpart1 = randint(1, 99)
                 volpart2 = randint(1, 99)
                 pname2 = p2basename0 + ".vol" + str(volpart1).zfill(3) + "+" + str(volpart2).zfill(3) + ".PAR2"
-                shutil.copyfile(source_dir + pname, dest_dir + p2basename0 + pname2)
+                # shutil.copyfile(source_dir + pname, dest_dir + p2basename0 + pname2)
+                shutil.copyfile(source_dir + pname, dest_dir + pname2)
                 pwdb.db_file_set_renamed_name(pname, pname2)
                 pwdb.db_file_set_file_type(pname, "par2vol")
+                mp_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, get_file_type(pname)))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
     return p2obj0, p2basename0
 
 
-def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, logger):
+def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, mp_result_queue, logger):
     if p2obj:
         rarfileslist = p2obj.md5_16khash()
         notrenamedfiles0 = notrenamedfiles[:]
@@ -101,8 +104,10 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                     shutil.copyfile(source_dir + a_name, dest_dir + r_name)
                 else:
                     shutil.copyfile(source_dir + a_name, dest_dir + a_name)
+                    r_name = a_name
                 pwdb.db_file_set_renamed_name(a_name, r_name)
                 pwdb.db_file_set_file_type(a_name, "rar")
+                mp_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, get_file_type(a_name)))
                 # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
                 os.remove(source_dir + a_name)
                 notrenamedfiles.remove(pp)
@@ -116,6 +121,7 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
         logger.debug(lpref + "FILETYPE: " + a_name + "/" + ft)
         pwdb.db_file_set_renamed_name(a_name, a_name)
         pwdb.db_file_set_file_type(a_name, ft)
+        mp_result_queue.put((a_name, dest_dir + a_name, ft, a_name, ft))
         # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
         os.remove(source_dir + a_name)
 
@@ -138,7 +144,7 @@ def get_inotify_events(inotify):
 
 
 # renamer with inotify
-def renamer(source_dir, dest_dir, pwdb, logger):
+def renamer(source_dir, dest_dir, pwdb, mp_result_queue, logger):
     if source_dir[-1] != "/":
         source_dir += "/"
     if dest_dir[-1] != "/":
@@ -163,7 +169,6 @@ def renamer(source_dir, dest_dir, pwdb, logger):
 
     # eventslist = []
     isfirstrun = True
-    islastrun = False
 
     while True:
         events = get_inotify_events(inotify)
@@ -183,9 +188,9 @@ def renamer(source_dir, dest_dir, pwdb, logger):
                 if p2obj:
                     logger.info(lpref + "p2obj found: " + p2basename)
             # rename par2 and move them
-            p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb)
+            p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, mp_result_queue)
             # rename & move rar + remaining files
-            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, logger)
+            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, mp_result_queue, logger)
             isfirstrun = False
             # print("-" * 60)
             # get_nowait

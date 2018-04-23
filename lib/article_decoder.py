@@ -5,7 +5,7 @@ import os
 lpref = __name__ + " - "
 
 
-def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
+def decode_articles(mp_work_queue0, pwdb, logger):
     logger.info(lpref + "Started decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
@@ -129,7 +129,7 @@ def decode_articles(mp_work_queue0, mp_result_queue0, pwdb, logger):
             # logger.info("RETRIEVED " + filename + " status:" + str(s0))
         except Exception as e:
             logger.error(lpref + str(e) + ": cannot update DB for " + filename)
-        mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
+        # mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
 
 
 # ---- test only ----
