@@ -649,12 +649,13 @@ class Downloader():
         nzbname = None
         delconnections = True
 
+        inject_set0 = []
+
         while True and not self.sighandler.signal:
             if getnextnzb:
                 allfileslist = []
                 avgmiblist = []
-                status = 0        # 0 = running, 1 = exited successfull, -1 = exited cannot unrar
-                inject_set0 = ["par2", "rar", "sfv", "nfo", "etc"]
+                inject_set0 = ["par2"]             # par2 first!!
                 files = {}
                 infolist = {}
                 loadpar2vols = False
@@ -688,22 +689,29 @@ class Downloader():
                         os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
                     except Exception as e:
                         logger.info(str(e))
-                # poll for 30 sec
-                logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
-                allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(30 * 1000)
+                logger.debug("looking for new NZBs ...")
+                allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(-1)
+                # poll for 30 sec if no nzb immediately found
                 if not nzbname:
-                    if self.threads:
-                        # if no success: close all connections and poll blocking
-                        logger.warning("Idle time > 30 sec, closing all server connections")
-                        for t, _ in self.threads:
-                            t.stop()
-                            t.join()
-                        self.servers.close_all_connections()
-                        self.threads = []
-                        del self.servers
-                        delconnections = True
-                    logger.debug("Polling for new NZBs now in blocking mode!")
-                    allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
+                    logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
+                    allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(30 * 1000)
+                    if not nzbname:
+                        if self.threads:
+                            # if no success: close all connections and poll blocking
+                            logger.warning("Idle time > 30 sec, closing all server connections")
+                            for t, _ in self.threads:
+                                t.stop()
+                                t.join()
+                            self.servers.close_all_connections()
+                            self.threads = []
+                            del self.servers
+                            delconnections = True
+                        logger.debug("Polling for new NZBs now in blocking mode!")
+                        allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
+                if filetypecounter["par2"]["max"] > 0:
+                    inject_set0 = ["par2"]
+                else:
+                    inject_set0 = ["rar", "sfv", "nfo", "etc"]
                 logger.debug("Making dirs for NZB: " + str(nzbname))
                 self.make_dirs(nzbname)
                 # start renamer
@@ -731,17 +739,31 @@ class Downloader():
             while True:
                 try:
                     filename, full_filename, filetype, old_filename, old_filetype = self.mp_result_queue.get_nowait()
-                    # todo: what to do with filetypecounter["filelist"] ???
-                    if filetype == old_filetype:
-                        filetypecounter[filetype]["counter"] += 1
-                    else:
+                    if old_filename != filename or old_filetype != filetype:
+                        logger.debug(old_filename + "/" + old_filetype + " changed to " + filename + " / " + filetype)
+                        # update filetypecounter
+                        filetypecounter[old_filetype]["filelist"].remove(old_filename)
+                        filetypecounter[filetype]["filelist"].append(filename)
                         filetypecounter[old_filetype]["max"] -= 1
                         filetypecounter[filetype]["counter"] += 1
-                    filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
+                        filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
+                        # update allfileslist
+                        for i, o_lists in enumerate(allfileslist):
+                            o_orig_name, o_age, o_type, o_nr_articles = o_lists[0]
+                            if o_orig_name == old_filename:
+                                allfileslist[i][0] = (filename, o_age, o_type, o_nr_articles)
+                    else:
+                        filetypecounter[filetype]["counter"] += 1
+                        filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
                     if (filetype == "par2" or filetype == "par2vol") and not p2:
                         p2 = lib.Par2File(full_filename)
                         logger.info("Sending " + filename + "-p2 object to parverify_queue")
                         # self.mp_parverify_outqueue.put(p2)
+                    if inject_set0 == ["par2"] and (filetype == "par2" or filetypecounter["par2"]["max"] == 0):
+                        inject_set0 = ["rar", "sfv", "nfo", "etc"]
+                        files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                        bytescount0 += bytescount00
+                        article_count += article_count0
                 except queue.Empty:
                     break
 
@@ -754,13 +776,17 @@ class Downloader():
                     getnextnzb = False
                     break
             if getnextnzb:
+                logger.debug(nzbname + "- download complete!")
                 delconnections = False
                 self.pwdb.db_nzb_update_status(nzbname, 2)
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
             article_failed += failed
-            article_health = 1 - article_failed / article_count
+            if article_count != 0:
+                article_health = 1 - article_failed / article_count
+            else:
+                article_health = 0
             if failed != 0:
                 logger.warning(str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
                 if not loadpar2vols:

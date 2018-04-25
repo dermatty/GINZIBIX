@@ -2,23 +2,37 @@ import os
 import glob
 import xml.etree.ElementTree as ET
 import time
-import re
 from .par2lib import get_file_type
-# import logging
 import inotify_simple
-# from gpeewee import PWDB
+from lxml import etree
 
 
 lpref = __name__ + " - "
 
 
 def decompose_nzb(nzb, logger):
-    try:
-        tree = ET.parse(nzb)
-        logger.info(lpref + "downloading NZB file " + nzb)
-    except Exception as e:
-        logger.error(lpref + str(e) + ": cannot download NZB file " + nzb)
-        return None, None
+    maxtry = 10
+    i = 0
+    while True:
+        try:
+            tree = ET.parse(nzb)
+            logger.info(lpref + "loaded NZB file " + nzb)
+            break
+        except Exception as e:
+            logger.warning(lpref + str(e) + ": cannot load NZB file " + nzb + ", trying lxml module in 1 sec.")
+            try:
+                time.sleep(1)
+                tree = etree.parse(nzb)
+                logger.info(lpref + "loaded NZB file " + nzb)
+                break
+            except Exception as e:
+                i += 1
+                if i >= maxtry:
+                    logger.error(lpref + str(e) + ": cannot load NZB file " + nzb + ", aborting ...")
+                    return None, None
+                else:
+                    logger.warning(lpref + str(e) + ": cannot load NZB file " + nzb + " with lxml module, retrying in 1 sec.")
+        time.sleep(1)
     nzbroot = tree.getroot()
     filedic = {}
     bytescount0 = 0
@@ -81,7 +95,10 @@ def ParseNZB(pwdb, nzbdir, logger):
     while True:
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
-            logger.debug(lpref + "got nzb event")
+            if isfirstrun:
+                logger.debug(lpref + "scanning nzb dir ...")
+            else:
+                logger.debug(lpref + "got nzb event")
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
                 if pwdb.db_nzb_exists(nzb0):
@@ -96,7 +113,7 @@ def ParseNZB(pwdb, nzbdir, logger):
                         # rename nzb here to ....processed
                         filedic, bytescount = decompose_nzb(nzb, logger)
                         if not filedic:
-                            logger.warning("Could not internet nzb " + nzb0 + ", deleting from DB")
+                            logger.warning("Could not interpret nzb " + nzb0 + ", deleting from DB")
                             pwdb.db_nzb_delete(nzb0)
                         else:
                             size_gb = bytescount / (1024 * 1024 * 1024)

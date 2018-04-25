@@ -106,7 +106,7 @@ class PWDB:
         return new_nzb
 
     def db_nzb_delete(self, name):
-        query = self.NZB.delete.where(self.NZB.name == name)
+        query = self.NZB.delete().where(self.NZB.name == name)
         query.execute()
 
     def db_nzb_getsize(self, name):
@@ -248,9 +248,6 @@ class PWDB:
                 file_already_exists = True
                 break
         return dir0 + file0.orig_name, file_already_exists
-
-    
-
 
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
