@@ -18,6 +18,7 @@ import logging.handlers
 import psutil
 import re
 import lib
+import zmq
 
 userhome = expanduser("~")
 maindir = userhome + "/.ginzibix/"
@@ -39,12 +40,12 @@ subdirs = {
 _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
 
 # init logger
-logger = logging.getLogger("ginzibix")
+'''logger = logging.getLogger("ginzibix")
 logger.setLevel(logging.DEBUG)
 fh = logging.FileHandler(dirs["logs"] + "ginzibix.log", mode="w")
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 fh.setFormatter(formatter)
-logger.addHandler(fh)
+logger.addHandler(fh)'''
 
 
 # -------------------- Classes --------------------
@@ -71,14 +72,14 @@ class SigHandler():
             try:
                 os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
             except Exception as e:
-                logger.debug(str(e))
+                self.logger.debug(str(e))
         # stop nzbparser
         if self.mpp_pid["nzbparser"]:
             self.logger.warning("signalhandler: terminating nzb_parser")
             try:
                 os.kill(self.mpp_pid["nzbparser"], signal.SIGKILL)
             except Exception as e:
-                logger.debug(str(e))
+                self.logger.debug(str(e))
         # stop article decoder
         if self.mpp_pid["decoder"]:
             self.logger.warning("signalhandler: terminating article_decoder")
@@ -87,7 +88,7 @@ class SigHandler():
             try:
                 os.kill(self.mpp_pid["decoder"], signal.SIGKILL)
             except Exception as e:
-                logger.debug(str(e))
+                self.logger.debug(str(e))
         # stop pwdb
         self.logger.warning("signalhandler: closing pewee.db")
         self.pwdb.db_close()
@@ -110,8 +111,9 @@ class SigHandler():
 # data
 class Servers():
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, logger):
         self.cfg = cfg
+        self.logger = logger
         # server_config = [(server_name, server_url, user, password, port, usessl, level, connections, retention)]
         self.server_config = self.get_server_config(self.cfg)
         # all_connections = [(server_name, conn#, retention, nntp_obj)]
@@ -161,21 +163,21 @@ class Servers():
                     if sc:
                         server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
                         try:
-                            logger.info("Opening connection # " + str(conn_nr) + "to server " + server_name)
+                            self.logger.info("Opening connection # " + str(conn_nr) + "to server " + server_name)
                             if usessl:
                                 nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             else:
                                 nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
-                            logger.info("Opened Connection #" + str(conn_nr) + " on server " + server_name0)
+                            self.logger.info("Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)
                             break
                         except Exception as e:
-                            logger.error("Server " + server_name0 + " connect error: " + str(e))
+                            self.logger.error("Server " + server_name0 + " connect error: " + str(e))
                             self.all_connections[idx] = (sn, cn, rt, None)
                             break
                     else:
-                        logger.error("Cannot get server config for server: " + server_name0)
+                        self.logger.error("Cannot get server config for server: " + server_name0)
                         self.all_connections[idx] = (sn, cn, rt, None)
                         break
         return result
@@ -185,9 +187,9 @@ class Servers():
             if nobj:
                 try:
                     nobj.quit()
-                    logger.warning("Closed connection #" + str(cn) + " on " + sn)
+                    self.logger.warning("Closed connection #" + str(cn) + " on " + sn)
                 except Exception as e:
-                    logger.warning("Cannot quit server " + sn + ": " + str(e))
+                    self.logger.warning("Cannot quit server " + sn + ": " + str(e))
 
     def get_server_config(self, cfg):
         # get servers from config
@@ -218,11 +220,72 @@ class Servers():
         return sconf
 
 
-# This is the thread worker per connection to NNTP server
-class ConnectionWorker(Thread):
-    def __init__(self, lock, connection, articlequeue, resultqueue, servers):
+class GUI_server_thread(Thread):
+    def __init__(self, port, inqueue, logger):
         Thread.__init__(self)
         # self.daemon = True
+        self.port = str(port)
+        self.inqueue = inqueue
+        self.logger = logger
+        self.running = False
+
+    def run(self):
+        context = zmq.Context()
+        socket = context.socket(zmq.REP)
+        socket.RCVTIMEO = 2000
+        socket.bind("tcp://*:" + self.port)
+        self.running = True
+        while self.running:
+            req = None
+            try:
+                req = socket.recv_string()
+            except zmq.ZMQError:
+                pass
+            if req != "data please!":
+                time.sleep(0.1)
+                continue
+            resultguidata = None
+            self.logger.debug("Received client request")
+            while True:
+                try:
+                    resultguidata0 = self.inqueue.get_nowait()
+                    self.logger.debug("Received queue data!")
+                    self.inqueue.task_done()
+                    resultguidata = resultguidata0
+                except queue.Empty:
+                    break
+            if resultguidata:
+                self.logger.debug("Sending GUI data to client")
+                try:
+                    
+                    socket.send_pyobj(resultguidata)
+                except Exception as e:
+                    self.logger.warning("!!!! " + str(e))
+            else:
+                socket.send_pyobj(None)
+        self.logger.debug("Exiting gui_server_thread")
+
+
+class CW_data:
+    # todo CW_Data falsch --> evtl. auch display_console_connection_data adaptieren!!!!!!!
+    def __init__(self, threads):
+        for t, _ in threads:
+        self.connection = CW0.connection
+        self.servers = CW0.servers
+        self.nntpobj = CW0.nntpobj
+        self.name = CW0.name
+        self.conn_nr = CW0.name
+        self.idn = CW0.idn
+        self.bytesdownloaded = CW0.bytesdownloaded
+        self.last_timestamp = CW0.last_timestamp
+
+
+# This is the thread worker per connection to NNTP server
+class ConnectionWorker(Thread):
+    def __init__(self, lock, connection, articlequeue, resultqueue, servers, logger):
+        Thread.__init__(self)
+        # self.daemon = True
+        self.logger = logger
         self.connection = connection
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
@@ -248,14 +311,14 @@ class ConnectionWorker(Thread):
         bytesdownloaded = 0
         server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
         if retention < article_age * 0.95:
-            logger.warning("Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
+            self.logger.warning("Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
             return -1, None
         try:
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
                 # if resp_h[:3] != "221" or resp[:3] != "222":
-                logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
+                self.logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
                 status = 0
                 info0 = None
             else:
@@ -263,14 +326,14 @@ class ConnectionWorker(Thread):
                 info0 = [inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
         except nntplib.NNTPTemporaryError:
-            logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
+            self.logger.warning("Could not find " + article_name + "on " + self.idn + ", return status = 0")
             status = 0
             info0 = None
         except KeyboardInterrupt:
             status = -3
             info0 = None
         except Exception as e:
-            logger.error(str(e) + self.idn + " for article " + article_name + ", return status = -2")
+            self.logger.error(str(e) + self.idn + " for article " + article_name + ", return status = -2")
             status = -2
             info0 = None
         return status, bytesdownloaded, info0
@@ -281,21 +344,21 @@ class ConnectionWorker(Thread):
         idx = 0
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
-        logger.info("Server " + idn + " connecting ...")
+        self.logger.info("Server " + idn + " connecting ...")
         while idx < 5 and self.running:
             self.nntpobj = self.servers.open_connection(name, conn_nr)
             if self.nntpobj:
-                logger.info("Server " + idn + " connected!")
+                self.logger.info("Server " + idn + " connected!")
                 self.last_timestamp = time.time()
                 self.bytesdownloaded = 0
                 return
-            logger.warning("Could not connect to server " + idn + ", will retry in 5 sec.")
+            self.logger.warning("Could not connect to server " + idn + ", will retry in 5 sec.")
             time.sleep(5)
             idx += 1
         if not self.running:
-            logger.warning("No connection retries anymore due to exiting")
+            self.logger.warning("No connection retries anymore due to exiting")
         else:
-            logger.error("Connect retries to " + idn + " failed!")
+            self.logger.error("Connect retries to " + idn + " failed!")
 
     def remove_from_remaining_servers(self, name, remaining_servers):
         next_servers = []
@@ -310,7 +373,7 @@ class ConnectionWorker(Thread):
         return next_servers
 
     def run(self):
-        logger.info(self.idn + " thread starting !")
+        self.logger.info(self.idn + " thread starting !")
         while True and self.running:
             self.retry_connect()
             if not self.nntpobj:
@@ -328,7 +391,7 @@ class ConnectionWorker(Thread):
                 article = self.articlequeue.get()
                 self.articlequeue.task_done()
                 self.lock.release()
-                logger.warning(self.idn + ": got poison pill!")
+                self.logger.warning(self.idn + ": got poison pill!")
                 break
             _, _, _, _, _, _, remaining_servers = test_article
             # no servers left
@@ -353,7 +416,7 @@ class ConnectionWorker(Thread):
             # if server connection error - disconnect
             if status == -2:
                 # disconnect
-                logger.warning("Stopping server " + self.idn)
+                self.logger.warning("Stopping server " + self.idn)
                 try:
                     self.nntpobj.quit()
                 except Exception as e:
@@ -362,7 +425,7 @@ class ConnectionWorker(Thread):
                 # take next server
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
                 next_servers.append([self.name])    # add current server to end of list
-                logger.warning("Requeuing " + art_name + " on server " + self.idn)
+                self.logger.warning("Requeuing " + art_name + " on server " + self.idn)
                 # requeue
                 self.articlequeue.task_done()
                 self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
@@ -379,17 +442,18 @@ class ConnectionWorker(Thread):
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
                 self.articlequeue.task_done()
                 if not next_servers:
-                    logger.error("Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
+                    self.logger.error("Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
                     self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
                 else:
-                    logger.warning("Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
+                    self.logger.warning("Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-        logger.info(self.idn + " exited!")
+        self.logger.info(self.idn + " exited!")
 
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, pwdb, logger):
+    def __init__(self, cfg, dirs, pwdb, guiqueue, logger):
+        self.servers = None
         self.cfg = cfg
         self.pwdb = pwdb
         self.lock = threading.Lock()
@@ -405,10 +469,11 @@ class Downloader():
         self.threads = []
         self.dirs = dirs
         self.logger = logger
+        self.guiqueue = guiqueue
         self.mpp_pid = {"nzbparser": None, "decoder": None, "renamer": None, "verifier": None, "unrarer": None}
 
     def init_servers(self):
-        self.servers = Servers(self.cfg)
+        self.servers = Servers(self.cfg, self.logger)
         self.level_servers = self.servers.level_servers
         self.all_connections = self.servers.all_connections
 
@@ -432,7 +497,7 @@ class Downloader():
             if not os.path.isdir(self.rename_dir):
                 os.mkdir(self.rename_dir)
         except Exception as e:
-            logger.error(str(e) + " in creating dirs ...")
+            self.logger.error(str(e) + " in creating dirs ...")
 
     def article_producer(self, articles, articlequeue):
         for article in articles:
@@ -535,7 +600,7 @@ class Downloader():
                     self.articlequeue.put(q)
                     article_count += 1
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
-        logger.debug("Art. Count: " + str(article_count))
+        self.logger.debug("Art. Count: " + str(article_count))
         return files, infolist, bytescount0, article_count
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):
@@ -557,7 +622,7 @@ class Downloader():
                 if inf0 == "failed":
                     failed += 1
                     inf0 = empty_yenc_article
-                    logger.error(filename + "/" + art_name + ": failed!!")
+                    self.logger.error(filename + "/" + art_name + ": failed!!")
                 avgmiblist.append((time.time(), bytesdownloaded, download_server))
                 try:
                     infolist[filename][art_nr - 1] = inf0
@@ -570,12 +635,12 @@ class Downloader():
                     failed0 = False
                     if b"name=ginzi.txt" in infolist[filename][0]:
                         failed0 = True
-                        logger.error(filename + ": failed!!")
+                        self.logger.error(filename + ": failed!!")
                     inflist0 = infolist[filename][:]
                     self.mp_work_queue.put((inflist0, self.download_dir, filename, filetype))
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
                     infolist[filename] = None
-                    logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
+                    self.logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
             except KeyError:
                 pass
             except queue.Empty:
@@ -585,15 +650,14 @@ class Downloader():
     def make_allfilelist_inotify(self, timeout0):
         # immediatley get allfileslist
         if timeout0 and timeout0 <= -1:
-            logger.debug("--------------------")
             allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
             if nzbname:
-                logger.debug("Inotify: no timeout, got nzb " + nzbname + " immediately!")
+                self.logger.debug("Inotify: no timeout, got nzb " + nzbname + " immediately!")
                 return allfileslist, filetypecounter, nzbname
             else:
                 return None, None, None
         # setup inotify
-        logger.debug("Setting up inotify for timeout=" + str(timeout0))
+        self.logger.debug("Setting up inotify for timeout=" + str(timeout0))
         pwdb_inotify = inotify_simple.INotify()
         watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
         wd = pwdb_inotify.add_watch(self.dirs["main"], watch_flags)
@@ -601,16 +665,16 @@ class Downloader():
         timeout00 = timeout0
         while True:
             for event in pwdb_inotify.read(timeout=timeout00):
-                logger.debug("got notify event on " + str(event.name))
+                self.logger.debug("got notify event on " + str(event.name))
                 if event.name == u"ginzibix.db":
-                    logger.debug("Database updated, now checking for nzbname & data")
+                    self.logger.debug("Database updated, now checking for nzbname & data")
                     allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
                     if nzbname:
-                        logger.debug("new nzb found in db, queuing ...")
+                        self.logger.debug("new nzb found in db, queuing ...")
                         pwdb_inotify.rm_watch(wd)
                         return allfileslist, filetypecounter, nzbname
                     else:
-                        logger.debug("no new nzb found in db, continuing polling ...")
+                        self.logger.debug("no new nzb found in db, continuing polling ...")
             # if timeout == None: again blocking, else subtract already spent timeout
             if timeout00:
                 timeout00 = timeout00 - (time.time() - t0) * 1000
@@ -628,16 +692,20 @@ class Downloader():
         #    incomplete:                final directory before moving to complete
 
         # start nzb parser mpp
-        logger.debug("Starting nzbparser process ...")
+        self.logger.debug("Starting nzbparser process ...")
         self.mpp_nzbparser = mp.Process(target=lib.ParseNZB, args=(self.pwdb, self.dirs["nzb"], self.logger, ))
         self.mpp_nzbparser.start()
         self.mpp_pid["nzbparser"] = self.mpp_nzbparser.pid
 
         # start decoder mpp
-        logger.debug("Starting decoder process ...")
+        self.logger.debug("Starting decoder process ...")
         self.mpp_decoder = mp.Process(target=lib.decode_articles, args=(self.mp_work_queue, self.pwdb, self.logger, ))
         self.mpp_decoder.start()
         self.mpp_pid["decoder"] = self.mpp_decoder.pid
+
+        # gui server thread
+        # t_gui = GUI_server_thread(61132, self.t_guiqueue, self.logger)
+        # t_gui.start()
 
         self.sighandler = SigHandler(self.threads, self.pwdb, self.mp_work_queue, self.mpp_pid, self.logger)
         signal.signal(signal.SIGINT, self.sighandler.signalhandler)
@@ -650,7 +718,7 @@ class Downloader():
         delconnections = True
 
         inject_set0 = []
-
+ 
         while True and not self.sighandler.signal:
             if getnextnzb:
                 allfileslist = []
@@ -670,13 +738,25 @@ class Downloader():
                     for t, _ in self.threads:
                         t.bytesdownloaded = 0
                         t.last_timestamp = 0
-                self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
+                self.logger.debug("Populating guidata to inqueue")
+                try:
+                    if self.servers:
+                        serverconfig = self.servers.server_config
+                    else:
+                        serverconfig = None
+                    guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, serverconfig, CW_data(self.threads))
+                    # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
+                    self.logger.debug("Sending guidata to inqueue")
+                    self.guiqueue.put(guidata)
+                except Exception as e:
+                    self.logger.debug(str(e))
+
                 self.resultqueue.join()
                 self.articlequeue.join()
                 if self.mpp_pid["renamer"]:
                     try:
                         # to do: loop over downloaded and wait until empty
-                        logger.debug("Waiting for renamer.py clearing download dir")
+                        self.logger.debug("Waiting for renamer.py clearing download dir")
                         while True:
                             for _, _, fs in os.walk(self.download_dir):
                                 if not fs:
@@ -685,20 +765,20 @@ class Downloader():
                                 time.sleep(1)
                                 continue
                             break
-                        logger.debug("Download dir empty!")
+                        self.logger.debug("Download dir empty!")
                         os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
                     except Exception as e:
-                        logger.info(str(e))
-                logger.debug("looking for new NZBs ...")
+                        self.logger.info(str(e))
+                self.logger.debug("looking for new NZBs ...")
                 allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(-1)
                 # poll for 30 sec if no nzb immediately found
                 if not nzbname:
-                    logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
+                    self.logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
                     allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(30 * 1000)
                     if not nzbname:
                         if self.threads:
                             # if no success: close all connections and poll blocking
-                            logger.warning("Idle time > 30 sec, closing all server connections")
+                            self.logger.warning("Idle time > 30 sec, closing all server connections")
                             for t, _ in self.threads:
                                 t.stop()
                                 t.join()
@@ -706,16 +786,16 @@ class Downloader():
                             self.threads = []
                             del self.servers
                             delconnections = True
-                        logger.debug("Polling for new NZBs now in blocking mode!")
+                        self.logger.debug("Polling for new NZBs now in blocking mode!")
                         allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
                 if filetypecounter["par2"]["max"] > 0:
                     inject_set0 = ["par2"]
                 else:
                     inject_set0 = ["rar", "sfv", "nfo", "etc"]
-                logger.debug("Making dirs for NZB: " + str(nzbname))
+                self.logger.debug("Making dirs for NZB: " + str(nzbname))
                 self.make_dirs(nzbname)
                 # start renamer
-                logger.debug("Starting renamer process for NZB " + nzbname)
+                self.logger.debug("Starting renamer process for NZB " + nzbname)
                 self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
                 self.mpp_renamer.start()
                 self.mpp_pid["renamer"] = self.mpp_renamer.pid
@@ -724,13 +804,13 @@ class Downloader():
                     self.init_servers()
                     self.sighandler.servers = self.servers
                     for sn, scon, _, _ in self.all_connections:
-                        t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers)
+                        t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
                         self.threads.append((t, time.time()))
                         t.start()
                 else:
                     for t, _ in self.threads:
                         t.last_timestamp = time.time()
-                logger.info("Downloading articles for: " + self.nzb)
+                self.logger.info("Downloading articles for: " + self.nzb)
                 bytescount0 = self.getbytescount(allfileslist)
                 files, infolist, bytescount0, article_count = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                 getnextnzb = False
@@ -740,7 +820,7 @@ class Downloader():
                 try:
                     filename, full_filename, filetype, old_filename, old_filetype = self.mp_result_queue.get_nowait()
                     if old_filename != filename or old_filetype != filetype:
-                        logger.debug(old_filename + "/" + old_filetype + " changed to " + filename + " / " + filetype)
+                        self.logger.debug(old_filename + "/" + old_filetype + " changed to " + filename + " / " + filetype)
                         # update filetypecounter
                         filetypecounter[old_filetype]["filelist"].remove(old_filename)
                         filetypecounter[filetype]["filelist"].append(filename)
@@ -757,7 +837,7 @@ class Downloader():
                         filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
                     if (filetype == "par2" or filetype == "par2vol") and not p2:
                         p2 = lib.Par2File(full_filename)
-                        logger.info("Sending " + filename + "-p2 object to parverify_queue")
+                        self.logger.info("Sending " + filename + "-p2 object to parverify_queue")
                         # self.mp_parverify_outqueue.put(p2)
                     if inject_set0 == ["par2"] and (filetype == "par2" or filetypecounter["par2"]["max"] == 0):
                         inject_set0 = ["rar", "sfv", "nfo", "etc"]
@@ -776,7 +856,7 @@ class Downloader():
                     getnextnzb = False
                     break
             if getnextnzb:
-                logger.debug(nzbname + "- download complete!")
+                self.logger.debug(nzbname + "- download complete!")
                 delconnections = False
                 self.pwdb.db_nzb_update_status(nzbname, 2)
 
@@ -788,16 +868,18 @@ class Downloader():
             else:
                 article_health = 0
             if failed != 0:
-                logger.warning(str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
+                self.logger.warning(str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
                 if not loadpar2vols:
-                    logger.info("Queuing par2vols")
+                    self.logger.info("Queuing par2vols")
                     inject_set0 = ["par2vol"]
                     files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                     bytescount0 += bytescount00
                     article_count += article_count0
                     loadpar2vols = True
             # disply connection speeds in console
-            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
+            guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, self.servers.server_config, CW_data(self.threads))
+            self.guiqueue.put(guidata)
+            # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
 
             time.sleep(0.2)
 
@@ -816,19 +898,27 @@ class Downloader():
         return le_serv0
 
 
-def main():
+def main(guiqueue, logger):
     pwdb = lib.PWDB(logger)
 
     cfg = configparser.ConfigParser()
     cfg.read(dirs["config"] + "/ginzibix.config")
 
-    dl = Downloader(cfg, dirs, pwdb, logger)
+    dl = Downloader(cfg, dirs, pwdb, guiqueue, logger)
     dl.download_and_process()
 
 
 # -------------------- main --------------------
 
 if __name__ == '__main__':
+
+    # init logger
+    logger = logging.getLogger("ginzibix")
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler("/home/stephan/.ginzibix/logs/ginzibix.log", mode="w")
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
 
     progstr = "ginzibix 0.1-alpha, binary usenet downloader"
     print("Welcome to " + progstr)
@@ -838,7 +928,7 @@ if __name__ == '__main__':
     logger.info("starting " + progstr)
     logger.info("-" * 80)
 
-    main()
+    main(logger)
     sys.exit()
 
     logger.warning("### EXITED GINZIBIX ###")
