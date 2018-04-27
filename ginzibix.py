@@ -93,16 +93,25 @@ class Console_GUI_Thread(Thread):
     def run(self):
         self.running = True
         self.logger.debug(lpref + "starting gui client thread")
+        lastdata = time.time()
         while self.running:
             guidata = None
-            while True:
-                try:
-                    guidata = self.guiqueue.get_nowait()
-                    # self.guiqueue.task_done()
-                    break
-                except queue.Empty:
-                    pass
-                time.sleep(0.1)
+            # after no data for 30 sec -> switch to blocking self.guiqueue.get()
+            if time.time() - lastdata > 30:
+                self.logger.debug(lpref + "switching to blocking mode in guidata poller")
+                guidata = self.guiqueue.get()
+                lastdata = time.time()
+            else:
+                while True:
+                    try:
+                        guidata = self.guiqueue.get_nowait()
+                        lastdata = time.time()
+                        break
+                    except queue.Empty:
+                        if time.time() - lastdata > 30:
+                            guidata = None
+                            break
+                    time.sleep(0.1)
             if guidata:
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, server_config, threads, overall_size, already_downloaded_size = guidata
                 self.display_console_connection_data(bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health,
