@@ -93,13 +93,16 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
 
 def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, mp_result_queue, logger):
     if p2obj:
-        rarfileslist = p2obj.md5_16khash()
+        rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
         notrenamedfiles0 = notrenamedfiles[:]
         # rarfiles
         for a_name, a_md5 in notrenamedfiles0:
             pp = (a_name, a_md5)
             try:
                 r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
+                if not r_name:
+                    continue
+                # logger.debug(lpref + ">>>>>" + r_name + ">>>>>" + a_name)
                 if r_name != a_name:
                     shutil.copyfile(source_dir + a_name, dest_dir + r_name)
                 else:

@@ -18,7 +18,6 @@ import logging.handlers
 import psutil
 import re
 import lib
-import zmq
 
 userhome = expanduser("~")
 maindir = userhome + "/.ginzibix/"
@@ -220,66 +219,6 @@ class Servers():
         return sconf
 
 
-class GUI_server_thread(Thread):
-    def __init__(self, port, inqueue, logger):
-        Thread.__init__(self)
-        # self.daemon = True
-        self.port = str(port)
-        self.inqueue = inqueue
-        self.logger = logger
-        self.running = False
-
-    def run(self):
-        context = zmq.Context()
-        socket = context.socket(zmq.REP)
-        socket.RCVTIMEO = 2000
-        socket.bind("tcp://*:" + self.port)
-        self.running = True
-        while self.running:
-            req = None
-            try:
-                req = socket.recv_string()
-            except zmq.ZMQError:
-                pass
-            if req != "data please!":
-                time.sleep(0.1)
-                continue
-            resultguidata = None
-            self.logger.debug("Received client request")
-            while True:
-                try:
-                    resultguidata0 = self.inqueue.get_nowait()
-                    self.logger.debug("Received queue data!")
-                    self.inqueue.task_done()
-                    resultguidata = resultguidata0
-                except queue.Empty:
-                    break
-            if resultguidata:
-                self.logger.debug("Sending GUI data to client")
-                try:
-                    
-                    socket.send_pyobj(resultguidata)
-                except Exception as e:
-                    self.logger.warning("!!!! " + str(e))
-            else:
-                socket.send_pyobj(None)
-        self.logger.debug("Exiting gui_server_thread")
-
-
-class CW_data:
-    # todo CW_Data falsch --> evtl. auch display_console_connection_data adaptieren!!!!!!!
-    def __init__(self, threads):
-        for t, _ in threads:
-        self.connection = CW0.connection
-        self.servers = CW0.servers
-        self.nntpobj = CW0.nntpobj
-        self.name = CW0.name
-        self.conn_nr = CW0.name
-        self.idn = CW0.idn
-        self.bytesdownloaded = CW0.bytesdownloaded
-        self.last_timestamp = CW0.last_timestamp
-
-
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
     def __init__(self, lock, connection, articlequeue, resultqueue, servers, logger):
@@ -452,7 +391,7 @@ class ConnectionWorker(Thread):
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, pwdb, guiqueue, logger):
+    def __init__(self, cfg, dirs, pwdb, guiqueue, guimode, logger):
         self.servers = None
         self.cfg = cfg
         self.pwdb = pwdb
@@ -470,6 +409,7 @@ class Downloader():
         self.dirs = dirs
         self.logger = logger
         self.guiqueue = guiqueue
+        self.guimode = guimode
         self.mpp_pid = {"nzbparser": None, "decoder": None, "renamer": None, "verifier": None, "unrarer": None}
 
     def init_servers(self):
@@ -503,11 +443,13 @@ class Downloader():
         for article in articles:
             articlequeue.put(article)
 
-    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health):
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health,
+                                        overall_size, already_downloaded_size):
         avgmiblist = avgmiblist00
         max_mem_needed = 0
         bytescount0 = bytescount00
         bytescount0 += 0.00001
+        overall_size += 0.00001
         availmem0 = availmem00
         # get Mib downloaded
         if len(avgmiblist) > 50:
@@ -550,9 +492,10 @@ class Downloader():
             mbitsec_str = "{0:.1f}".format(mbitsec)
             print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
         print("-" * 60)
+        gbdown0 += already_downloaded_size
         gbdown0_str = "{0:.3f}".format(gbdown0)
-        print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
-              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + " " * 10)
+        print(gbdown0_str + " GiB (" + "{0:.1f}".format((gbdown0 / overall_size) * 100) + "%) of total "
+              + "{0:.2f}".format(overall_size) + " GiB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + " " * 10)
         for key, item in filetypecounter00.items():
             print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
         if nzbname:
@@ -650,12 +593,12 @@ class Downloader():
     def make_allfilelist_inotify(self, timeout0):
         # immediatley get allfileslist
         if timeout0 and timeout0 <= -1:
-            allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+            allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size = self.pwdb.make_allfilelist(self.dirs["incomplete"])
             if nzbname:
                 self.logger.debug("Inotify: no timeout, got nzb " + nzbname + " immediately!")
-                return allfileslist, filetypecounter, nzbname
+                return allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size
             else:
-                return None, None, None
+                return None, None, None, None, None
         # setup inotify
         self.logger.debug("Setting up inotify for timeout=" + str(timeout0))
         pwdb_inotify = inotify_simple.INotify()
@@ -668,11 +611,11 @@ class Downloader():
                 self.logger.debug("got notify event on " + str(event.name))
                 if event.name == u"ginzibix.db":
                     self.logger.debug("Database updated, now checking for nzbname & data")
-                    allfileslist, filetypecounter, nzbname = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+                    allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size = self.pwdb.make_allfilelist(self.dirs["incomplete"])
                     if nzbname:
                         self.logger.debug("new nzb found in db, queuing ...")
                         pwdb_inotify.rm_watch(wd)
-                        return allfileslist, filetypecounter, nzbname
+                        return allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size
                     else:
                         self.logger.debug("no new nzb found in db, continuing polling ...")
             # if timeout == None: again blocking, else subtract already spent timeout
@@ -681,7 +624,7 @@ class Downloader():
                 t0 = time.time()
                 if timeout00 <= 0:
                     pwdb_inotify.rm_watch(wd)
-                    return None, None, None
+                    return None, None, None, None, None
 
     # main download routine
     def download_and_process(self):
@@ -734,23 +677,29 @@ class Downloader():
                 bytescount0 = 0
                 filetypecounter = {}
                 article_health = 1
+                overall_size = 0
+                already_downloaded_size = 0
                 if self.threads:
                     for t, _ in self.threads:
                         t.bytesdownloaded = 0
                         t.last_timestamp = 0
-                self.logger.debug("Populating guidata to inqueue")
-                try:
-                    if self.servers:
-                        serverconfig = self.servers.server_config
-                    else:
-                        serverconfig = None
-                    guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, serverconfig, CW_data(self.threads))
-                    # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
-                    self.logger.debug("Sending guidata to inqueue")
-                    self.guiqueue.put(guidata)
-                except Exception as e:
-                    self.logger.debug(str(e))
-
+                # guimode console / server
+                if self.guimode == 1:
+                    try:
+                        if self.servers:
+                            serverconfig = self.servers.server_config
+                        else:
+                            serverconfig = None
+                        threadsgui = [(t.last_timestamp, t.bytesdownloaded, t.idn) for t, _ in self.threads]
+                        guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, serverconfig,
+                                   threadsgui, overall_size, already_downloaded_size)
+                        self.guiqueue.put(guidata)
+                    except Exception as e:
+                        self.logger.debug(str(e))
+                # guimode simple console / standalone
+                elif self.guimode == 0:
+                    self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                                         article_health, overall_size, already_downloaded_size)
                 self.resultqueue.join()
                 self.articlequeue.join()
                 if self.mpp_pid["renamer"]:
@@ -770,11 +719,11 @@ class Downloader():
                     except Exception as e:
                         self.logger.info(str(e))
                 self.logger.debug("looking for new NZBs ...")
-                allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(-1)
+                allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size = self.make_allfilelist_inotify(-1)
                 # poll for 30 sec if no nzb immediately found
                 if not nzbname:
                     self.logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
-                    allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(30 * 1000)
+                    allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size = self.make_allfilelist_inotify(30 * 1000)
                     if not nzbname:
                         if self.threads:
                             # if no success: close all connections and poll blocking
@@ -787,8 +736,8 @@ class Downloader():
                             del self.servers
                             delconnections = True
                         self.logger.debug("Polling for new NZBs now in blocking mode!")
-                        allfileslist, filetypecounter, nzbname = self.make_allfilelist_inotify(None)
-                if filetypecounter["par2"]["max"] > 0:
+                        allfileslist, filetypecounter, nzbname, overall_size, already_downloaded_size = self.make_allfilelist_inotify(None)
+                if filetypecounter["par2"]["max"] > 0 and filetypecounter["par2"]["max"] > filetypecounter["par2"]["counter"]:
                     inject_set0 = ["par2"]
                 else:
                     inject_set0 = ["rar", "sfv", "nfo", "etc"]
@@ -801,6 +750,7 @@ class Downloader():
                 self.mpp_pid["renamer"] = self.mpp_renamer.pid
                 self.sighandler.mpp_pid = self.mpp_pid
                 if delconnections:
+                    self.logger.debug("Starting download threads")
                     self.init_servers()
                     self.sighandler.servers = self.servers
                     for sn, scon, _, _ in self.all_connections:
@@ -876,10 +826,24 @@ class Downloader():
                     bytescount0 += bytescount00
                     article_count += article_count0
                     loadpar2vols = True
-            # disply connection speeds in console
-            guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, self.servers.server_config, CW_data(self.threads))
-            self.guiqueue.put(guidata)
-            # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health)
+
+            # guimode console / server
+            if self.guimode == 1:
+                try:
+                    if self.servers:
+                        serverconfig = self.servers.server_config
+                    else:
+                        serverconfig = None
+                    threadsgui = [(t.last_timestamp, t.bytesdownloaded, t.idn) for t, _ in self.threads]
+                    guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, serverconfig,
+                               threadsgui, overall_size, already_downloaded_size)
+                    self.guiqueue.put(guidata)
+                except Exception as e:
+                    self.logger.debug(str(e))
+            # guimode simple console / standalone
+            elif self.guimode == 0:
+                self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                                     article_health, overall_size, already_downloaded_size)
 
             time.sleep(0.2)
 
@@ -898,13 +862,13 @@ class Downloader():
         return le_serv0
 
 
-def main(guiqueue, logger):
-    pwdb = lib.PWDB(logger)
+def main(cfg, guiqueue, pwdb, guimode, logger):
+    # guimode = 0 ... simple console
+    #           1 ... curses / as server
+    #           2 ... gtk / as server
+    #           -1 .. no gui / daemon only
 
-    cfg = configparser.ConfigParser()
-    cfg.read(dirs["config"] + "/ginzibix.config")
-
-    dl = Downloader(cfg, dirs, pwdb, guiqueue, logger)
+    dl = Downloader(cfg, dirs, pwdb, guiqueue, guimode, logger)
     dl.download_and_process()
 
 
@@ -922,13 +886,20 @@ if __name__ == '__main__':
 
     progstr = "ginzibix 0.1-alpha, binary usenet downloader"
     print("Welcome to " + progstr)
+    print("Press Ctrl-C to quit")
     print("-" * 60)
 
     logger.info("-" * 80)
     logger.info("starting " + progstr)
     logger.info("-" * 80)
 
-    main(logger)
-    sys.exit()
+    pwdb = lib.PWDB(logger)
+
+    cfg = configparser.ConfigParser()
+    cfg.read(dirs["config"] + "/ginzibix.config")
+
+    main(cfg, None, pwdb, 0, logger)
 
     logger.warning("### EXITED GINZIBIX ###")
+
+    sys.exit()

@@ -264,7 +264,7 @@ class PWDB:
             nzb = self.NZB.select().where((self.NZB.status == 0) | (self.NZB.status == 1)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
-            return None, None, None
+            return None, None, None, None, None
         nzbname = nzb.name
         self.logger.info(lpref + nzbname + ", status: " + str(self.db_nzb_getstatus(nzbname)))
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
@@ -273,12 +273,17 @@ class PWDB:
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
         if not files:
             self.logger.info(lpref + "No files to download for NZB " + nzb.name)
-            return None, None, None
+            return None, None, None, None, None
         idx = 0
+        overall_size = 0
+        already_downloaded_size = 0
         for f0 in files:
+            articles = [articles0 for articles0 in f0.articles]
+            f0size = sum([a.size for a in articles])
+            overall_size += f0size
             filetypecounter[f0.ftype]["max"] += 1
             filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
-            self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status))
+            self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
             if f0.status not in [0, 1]:
                 # todo:
                 #    calc md5 hash
@@ -291,6 +296,7 @@ class PWDB:
                     filetypecounter[f0.ftype]["counter"] += 1
                     md5 = calc_file_md5hash(filename0)
                     filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
+                    already_downloaded_size += f0size
                     continue
                 else:
                     self.db_file_update_status(f0.orig_name, 0)
@@ -310,10 +316,13 @@ class PWDB:
             idx += 1
         if allfilelist:
             self.db_nzb_update_status(nzbname, 1)
-            return allfilelist, filetypecounter, nzbname
+            gbdivisor = (1024 * 1024 * 1024)
+            overall_size /= gbdivisor
+            already_downloaded_size /= gbdivisor
+            return allfilelist, filetypecounter, nzbname, overall_size, already_downloaded_size
         else:
             self.db_nzb_update_status(nzbname, 2)
-            return None, None, None
+            return None, None, None, None, None
 
 
 if __name__ == "__main__":

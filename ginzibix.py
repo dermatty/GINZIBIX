@@ -6,12 +6,14 @@ import time
 import psutil
 import sys
 from threading import Thread
-import zmq
+import lib
 import ginzi
 import logging
 import logging.handlers
 import multiprocessing as mp
 import queue
+import configparser
+from os.path import expanduser
 
 lpref = __name__ + " - "
 
@@ -24,11 +26,13 @@ class Console_GUI_Thread(Thread):
         self.logger = logger
         self.guiqueue = guiqueue
 
-    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, server_config, threads):
+    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, server_config, threads,
+                                        overall_size, already_downloaded_size):
         avgmiblist = avgmiblist00
         max_mem_needed = 0
         bytescount0 = bytescount00
         bytescount0 += 0.00001
+        overall_size += 0.00001
         availmem0 = availmem00
         # get Mib downloaded
         if len(avgmiblist) > 50:
@@ -62,18 +66,19 @@ class Console_GUI_Thread(Thread):
             print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
         gbdown0 = 0
         mbitsec0 = 0
-        for k, (t, last_timestamp) in enumerate(threads):
-            gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
+        for last_timestamp, bytesdownloaded, idn in threads:
+            gbdown = bytesdownloaded / (1024 * 1024 * 1024)
             gbdown0 += gbdown
             gbdown_str = "{0:.3f}".format(gbdown)
-            mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
+            mbitsec = (bytesdownloaded / (time.time() - last_timestamp)) / (1024 * 1024) * 8
             mbitsec0 += mbitsec
             mbitsec_str = "{0:.1f}".format(mbitsec)
-            print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
+            print(idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
         print("-" * 60)
+        gbdown0 += already_downloaded_size
         gbdown0_str = "{0:.3f}".format(gbdown0)
-        print("Total GB: " + gbdown0_str + " = " + "{0:.1f}".format((gbdown0 / bytescount0) * 100) + "% of total "
-              + "{0:.2f}".format(bytescount0) + "GB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + " " * 10)
+        print(gbdown0_str + " GiB (" + "{0:.1f}".format((gbdown0 / overall_size) * 100) + "%) of total "
+              + "{0:.2f}".format(overall_size) + " GiB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + " " * 10)
         for key, item in filetypecounter00.items():
             print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
         if nzbname:
@@ -99,9 +104,9 @@ class Console_GUI_Thread(Thread):
                     pass
                 time.sleep(0.1)
             if guidata:
-                bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, server_config, threads = guidata
+                bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, server_config, threads, overall_size, already_downloaded_size = guidata
                 self.display_console_connection_data(bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health,
-                                                     server_config, threads)
+                                                     server_config, threads, overall_size, already_downloaded_size)
             else:
                 self.logger.debug(lpref + "gui client received none data!")
             time.sleep(0.1)
@@ -131,13 +136,15 @@ if __name__ == "__main__":
     t_gui_client = Console_GUI_Thread(guiqueue, logger)
     t_gui_client.start()
 
-    mpp_ginziserver = mp.Process(target=ginzi.main, args=(guiqueue, logger, ))
+    pwdb = lib.PWDB(logger)
+
+    cfg = configparser.ConfigParser()
+    cfg.read(expanduser("~") + "/.ginzibix/config/ginzibix.config")
+
+    mpp_ginziserver = mp.Process(target=ginzi.main, args=(cfg, guiqueue, pwdb, 1, logger, ))
     mpp_ginziserver.start()
     mpp_ginziserver_pid = mpp_ginziserver.pid
 
     ch = input()
 
-    # t_gui_client.running = False
-    # t_gui_client.join()
     os.kill(mpp_ginziserver_pid, signal.SIGTERM)
-    

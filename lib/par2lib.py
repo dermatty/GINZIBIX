@@ -263,7 +263,7 @@ def calc_file_md5hash_16k(fn):
 def get_file_type(filename):
     if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
         filetype0 = "rar"
-    elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE):
+    elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE) or re.search(r"[.]nfo.txt$", filename, flags=re.IGNORECASE):
         filetype0 = "nfo"
     elif re.search(r"[.]sfv$", filename, flags=re.IGNORECASE):
         filetype0 = "sfv"
