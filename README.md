@@ -1,4 +1,4 @@
 # GINZIBIX
 
-Fast & lightweight binary newsreader for the Gnome Desktop
+Fast & ressource-hungry binary newsreader for the Gnome Desktop
 

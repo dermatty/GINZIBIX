@@ -31,7 +31,7 @@ def get_rar_files(directory):
     return rarlist
 
 
-def partial_unrar(unrarqueue, directory, unpack_dir, logger):
+def partial_unrar(directory, unpack_dir, logger):
     cwd0 = os.getcwd()
     try:
         os.chdir(directory)
@@ -106,4 +106,3 @@ def partial_unrar(unrarqueue, directory, unpack_dir, logger):
     # print("100% - done")
     logger.info("PARTIAL_UNRAR > " + str(status) + " " + statmsg)
     os.chdir(cwd0)
-    unrarqueue.put((status, statmsg))

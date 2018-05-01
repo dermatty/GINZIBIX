@@ -187,6 +187,37 @@ class PWDB:
             self.logger.warning(lpref + str(e))
             return None
 
+    def get_all_corrupt_rar_files(self):
+        try:
+            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar", self.FILE.parverify_state == -1,
+                                                self.FILE.renamed_name != "N/A")
+            return rarfiles
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def db_only_failed_or_ok_rars(self):
+        try:
+            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar")
+            rarstates = [r.parverify_state for r in rarfiles]
+            if (0 not in rarstates) and (-1 not in rarstates):
+                return True
+            return False
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def db_only_verified_rars(self):
+        try:
+            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar")
+            rarstates = [r.parverify_state for r in rarfiles]
+            if (0 not in rarstates):
+                return True
+            return False
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
     def get_renamed_p2(self, dir01):
         try:
             par2file0 = self.FILE.get(self.FILE.ftype == "par2")
@@ -196,6 +227,14 @@ class PWDB:
                 return p2
             else:
                 return None
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def db_get_renamed_par2(self):
+        try:
+            par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A")
+            return par2.renamed_name
         except Exception as e:
             self.logger.warning(lpref + str(e))
             return None

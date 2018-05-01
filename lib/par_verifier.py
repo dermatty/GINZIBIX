@@ -12,14 +12,13 @@ import inotify_simple
 lpref = __name__ + " "
 
 
-def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb):
+def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, p2=None):
     logger.info(lpref + "starting rar_verifier")
     p2 = pwdb.get_renamed_p2(renamed_dir)
 
     # a: verify all unverified files in "renamed"
     unverified_rarfiles = pwdb.get_all_renamed_rar_files()
     doloadpar2vols = False
-    corruptrars = []
     if not p2:
         logger.info(lpref + "no par2 file found")
     if unverified_rarfiles and p2:
@@ -33,7 +32,6 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             logger.info(lpref + "p2 md5: " + filename + " = " + str(md5match))
             if False in md5match:
                 logger.warning(lpref + "error in 'p2 md5' for file " + filename)
-                corruptrars.append(filename)
                 pwdb.db_file_update_parstatus(f0.orig_name, -1)
                 doloadpar2vols = True
             else:
@@ -54,12 +52,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             logger.info(lpref + "All renamed rars checked, exiting ...")
             break
         events = get_inotify_events(inotify)
-        if events:
-            logger.info(lpref + "got event!")
-            time.sleep(0.5)
-            s = "-"
-            allparstatus0 = [str(ap) for ap in allparstatus]
-            logger.debug(lpref + "parverify states: " + s.join(allparstatus0))
+        if events or 0 in allparstatus:
             if not p2:
                 p2 = pwdb.get_renamed_p2(renamed_dir)
             if p2:
@@ -73,7 +66,6 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0.renamed_name]
                         if False in md5match:
                             logger.warning(lpref + "error in 'p2 md5' for file " + f0.renamed_name)
-                            corruptrars.append(f0.renamed_name)
                             pwdb.db_file_update_parstatus(f0.orig_name, -1)
                             if not doloadpar2vols:
                                 doloadpar2vols = True
@@ -82,9 +74,26 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                             logger.info(lpref + "p2 md5' CORRECT for file " + f0.renamed_name + ", copying to " + verifiedrar_dir)
                             shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                             pwdb.db_file_update_parstatus(f0.orig_name, 1)
-            else:
-                # unrar test
-                pass
+        if pwdb.db_only_verified_rars():
+            break
+        time.sleep(1)
+
+    par2name = pwdb.db_get_renamed_par2()
+    corruptrars = pwdb.get_all_corrupt_rar_files()
+    if par2name and corruptrars:
+        logger.info(lpref + "par2vol files present, repairing ...")
+        res0 = multipartrar_repair(renamed_dir, par2name, logger)
+        if res0 == 1:
+            logger.info(lpref + "repair success")
+            # copy all no yet copied rars to verifiedrar_dir
+            for c in corruptrars:
+                logger.info(lpref + "copying " + c.renamed_name + " to verifiedrar_dir")
+                pwdb.db_file_update_parstatus(c.orig_name, 1)
+                shutil.copy(renamed_dir + c.renamed_name, verifiedrar_dir)
+        else:
+            logger.error(lpref + "repair failed!")
+            for c in corruptrars:
+                pwdb.db_file_update_parstatus(c.orig_name, -2)
 
 
 def get_inotify_events(inotify):

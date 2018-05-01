@@ -66,6 +66,15 @@ class SigHandler():
     def shutdown(self):
         f = open('/dev/null', 'w')
         sys.stdout = f
+        for key, item in self.mpp_pid.items():
+            self.logger.debug("MPP " + key + ": " + str(item))
+        # stop unrarer
+        if self.mpp_pid["unrarer"]:
+            self.logger.warning("signalhandler: terminating unrarer")
+            try:
+                os.kill(self.mpp_pid["unrarer"], signal.SIGKILL)
+            except Exception as e:
+                self.logger.debug(str(e))
         # stop rar_verifier
         if self.mpp_pid["verifier"]:
             self.logger.warning("signalhandler: terminating rar_verifier")
@@ -685,6 +694,7 @@ class Downloader():
                 infolist = {}
                 loadpar2vols = False
                 p2 = None
+                old_nzbname = nzbname
                 nzbname = None
                 article_failed = 0
                 availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
@@ -716,6 +726,7 @@ class Downloader():
                                                          article_health, overall_size, already_downloaded_size)
                 self.resultqueue.join()
                 self.articlequeue.join()
+                # join renamer
                 if self.mpp_pid["renamer"]:
                     try:
                         # to do: loop over downloaded and wait until empty
@@ -733,6 +744,7 @@ class Downloader():
                         self.mpp_pid["renamer"] = None
                     except Exception as e:
                         self.logger.info(str(e))
+                # join verifier
                 if self.mpp_pid["verifier"]:
                     self.logger.info("Waiting for par_verifier to complete")
                     try:
@@ -742,10 +754,23 @@ class Downloader():
                                 lp2v = self.mp_parverify_inqueue.get_nowait()
                             except queue.Empty:
                                 break
-                        mpp_verifier.join()
+                        self.mpp_verifier.join()
                     except Exception as e:
                         self.logger.warning(str(e))
                     self.mpp_pid["verifier"] = None
+                # join unrarer
+                if self.mpp_pid["unrarer"]:
+                    self.logger.info("Waiting for unrar to complete")
+                    self.mpp_unrarer.join()
+                    self.mpp_pid["unrarer"] = None
+                self.sighandler.mpp_pid = self.mpp_pid
+                # copy to complete
+                if old_nzbname:
+                    # copy _unpack0 to complete
+                    # copy _renamed0 (all except par2, par2vol and rar) to complete
+                    # delete incomplete
+                    pass
+                # wait for new nzbs to arrive
                 self.logger.debug("looking for new NZBs ...")
                 try:
                     allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 = self.make_allfilelist_inotify(-1)
@@ -771,6 +796,7 @@ class Downloader():
                             allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 = self.make_allfilelist_inotify(None)
                         except Exception as e:
                             self.logger.warning("!!! " + str(e))
+                # new nzb here, inject sets
                 if filetypecounter["par2"]["max"] > 0 and filetypecounter["par2"]["max"] > filetypecounter["par2"]["counter"]:
                     inject_set0 = ["par2"]
                 elif self.pwdb.db_nzb_loadpar2vols(nzbname):
@@ -787,13 +813,6 @@ class Downloader():
                 self.mpp_renamer = mp.Process(target=lib.renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
                 self.mpp_renamer.start()
                 self.mpp_pid["renamer"] = self.mpp_renamer.pid
-                # start rar_verifier
-                self.logger.debug("Starting rar_verifier process for NZB " + nzbname)
-                mpp_verifier = mp.Process(target=lib.par_verifier, args=(self.mp_parverify_inqueue,
-                                                                         self.rename_dir, self.verifiedrar_dir, self.main_dir, self.logger,
-                                                                         self.pwdb, ))
-                mpp_verifier.start()
-                self.mpp_pid["verifier"] = self.mpp_renamer.pid
                 self.sighandler.mpp_pid = self.mpp_pid
                 # start download threads
                 if delconnections:
@@ -857,6 +876,25 @@ class Downloader():
                     inject_set0 = ["par2vol"]
                     files, infolist, bytescount00 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                     bytescount0 += bytescount00
+
+            if filetypecounter["rar"]["max"] > 0 and not self.mpp_pid["unrarer"]:
+                # start unrarer
+                self.logger.debug("Starting unrarer process ...")
+                self.mpp_unrarer = mp.Process(target=lib.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir, self.logger, ))
+                self.mpp_unrarer.start()
+                self.mpp_pid["unrarer"] = self.mpp_unrarer.pid
+                self.sighandler.mpp_pid = self.mpp_pid
+
+            # if par2 available start par2verifier
+            if p2 and not self.mpp_pid["verifier"]:
+                self.logger.debug("Starting rar_verifier process for NZB " + nzbname)
+                self.mpp_verifier = mp.Process(target=lib.par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
+                                                                         self.main_dir, self.logger, self.pwdb, p2, ))
+                self.mpp_verifier.start()
+                self.mpp_pid["verifier"] = self.mpp_verifier.pid
+                self.sighandler.mpp_pid = self.mpp_pid
+
+            # if not p2 and #downloaded rars > 1/3 --> start parcopy: copy from renamed to verified
 
             # if all downloaded postprocess
             getnextnzb = True
