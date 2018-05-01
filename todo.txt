@@ -1,0 +1,6 @@
+# if no par2 / par2vols ---> copy to verified rar dirs straight away!!!
+# in ginz.py: logger pref !!!!
+# adapt output routine in ginzibix/main
+# in par_verifier: 
+     unrar t not necessary
+# call repairer if a file mit parstate == -1 exists -> in ginzi.main

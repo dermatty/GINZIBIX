@@ -7,9 +7,104 @@ import subprocess
 import re
 import time
 import pexpect
+import inotify_simple
+
+lpref = __name__ + " "
 
 
-def par_verifier(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_dir, logger, filetypecounter, p2=None):
+def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb):
+    logger.info(lpref + "starting rar_verifier")
+    p2 = pwdb.get_renamed_p2(renamed_dir)
+
+    # a: verify all unverified files in "renamed"
+    unverified_rarfiles = pwdb.get_all_renamed_rar_files()
+    doloadpar2vols = False
+    corruptrars = []
+    if not p2:
+        logger.info(lpref + "no par2 file found")
+    if unverified_rarfiles and p2:
+        logger.info(lpref + "verifying all unchecked rarfiles")
+        for u in unverified_rarfiles:
+            logger.debug(lpref + ">>>" + u.renamed_name)
+        for f0 in unverified_rarfiles:
+            filename = f0.renamed_name
+            md5 = calc_file_md5hash(renamed_dir + filename)
+            md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
+            logger.info(lpref + "p2 md5: " + filename + " = " + str(md5match))
+            if False in md5match:
+                logger.warning(lpref + "error in 'p2 md5' for file " + filename)
+                corruptrars.append(filename)
+                pwdb.db_file_update_parstatus(f0.orig_name, -1)
+                doloadpar2vols = True
+            else:
+                logger.info(lpref + "copying " + filename + " to " + verifiedrar_dir)
+                shutil.copy(renamed_dir + filename, verifiedrar_dir)
+                pwdb.db_file_update_parstatus(f0.orig_name, 1)
+    if doloadpar2vols:
+        mp_outqueue.put(doloadpar2vols)
+
+    # b: inotify renamed_dir
+    inotify = inotify_simple.INotify()
+    watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
+    inotify.add_watch(renamed_dir, watch_flags)
+
+    while True:
+        allparstatus = pwdb.db_file_getallparstatus(0)
+        if 0 not in allparstatus:
+            logger.info(lpref + "All renamed rars checked, exiting ...")
+            break
+        events = get_inotify_events(inotify)
+        if events:
+            logger.info(lpref + "got event!")
+            time.sleep(0.5)
+            s = "-"
+            allparstatus0 = [str(ap) for ap in allparstatus]
+            logger.debug(lpref + "parverify states: " + s.join(allparstatus0))
+            if not p2:
+                p2 = pwdb.get_renamed_p2(renamed_dir)
+            if p2:
+                for rar in glob.glob(renamed_dir + "*.rar"):
+                    rar0 = rar.split("/")[-1]
+                    f0 = pwdb.db_file_get_renamed(rar0)
+                    if not f0:
+                        continue
+                    if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name:
+                        md5 = calc_file_md5hash(renamed_dir + rar0)
+                        md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0.renamed_name]
+                        if False in md5match:
+                            logger.warning(lpref + "error in 'p2 md5' for file " + f0.renamed_name)
+                            corruptrars.append(f0.renamed_name)
+                            pwdb.db_file_update_parstatus(f0.orig_name, -1)
+                            if not doloadpar2vols:
+                                doloadpar2vols = True
+                                mp_outqueue.put(doloadpar2vols)
+                        else:
+                            logger.info(lpref + "p2 md5' CORRECT for file " + f0.renamed_name + ", copying to " + verifiedrar_dir)
+                            shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
+                            pwdb.db_file_update_parstatus(f0.orig_name, 1)
+            else:
+                # unrar test
+                pass
+
+
+def get_inotify_events(inotify):
+    events = []
+    for event in inotify.read(timeout=1):
+        is_created_file = False
+        str0 = event.name
+        flgs0 = []
+        for flg in inotify_simple.flags.from_mask(event.mask):
+            if "flags.CREATE" in str(flg) and "flags.ISDIR" not in str(flg):
+                flgs0.append(str(flg))
+                is_created_file = True
+        if not is_created_file:
+            continue
+        else:
+            events.append((str0, flgs0))
+    return events
+
+
+def par_verifier0(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_dir, logger, filetypecounter, p2=None):
     if not os.path.isdir(verifiedrar_dir):
         os.mkdir(verifiedrar_dir)
     maxrar = filetypecounter["rar"]["max"]
@@ -228,3 +323,4 @@ def multipartrar_repair(directory, parvolname, logger):
         exitstatus = 1
     os.chdir(cwd0)
     return exitstatus
+

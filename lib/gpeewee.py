@@ -1,13 +1,13 @@
-from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, IntegrityError, TimeField, OperationalError
+from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
 import os
 from os.path import expanduser
 import time
 import glob
 import re
 if __name__ == "__main__":
-    from par2lib import calc_file_md5hash
+    from par2lib import calc_file_md5hash, Par2File
 else:
-    from .par2lib import calc_file_md5hash
+    from .par2lib import calc_file_md5hash, Par2File
 
 
 '''file status:
@@ -39,6 +39,7 @@ class PWDB:
             priority = IntegerField(default=-1)
             timestamp = TimeField()
             status = IntegerField(default=0)
+            loadpar2vols = BooleanField(default=False)
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -109,6 +110,22 @@ class PWDB:
         query = self.NZB.delete().where(self.NZB.name == name)
         query.execute()
 
+    def db_nzb_loadpar2vols(self, name):
+        try:
+            nzb0 = self.NZB.get(self.NZB.name == name)
+            return nzb0.loadpar2vols
+        except Exception as e:
+            self.logger.warning(str(e))
+            return False
+
+    def db_nzb_update_loadpar2vols(self, name, lp2):
+        try:
+            nzb0 = self.NZB.get((self.NZB.name == name))
+            nzb0.loadpar2vols = lp2
+            nzb0.save()
+        except Exception as e:
+            self.logger.warning(str(e))
+
     def db_nzb_getsize(self, name):
         nzb0 = self.NZB.get(self.NZB.name == name)
         size = 0
@@ -146,6 +163,14 @@ class PWDB:
             return None
 
     # ---- self.FILE --------
+    def db_file_get_renamed(self, name):
+        try:
+            file0 = self.FILE.get(self.FILE.renamed_name == name)
+            return file0
+        except Exception as e:
+            self.logger.warning(lpref + "cannot match in db:" + name)
+            return None
+
     def db_file_getsize(self, name):
         file0 = self.FILE.get(self.FILE.orig_name == name)
         size = 0
@@ -153,12 +178,39 @@ class PWDB:
             size += a.size
         return size
 
+    def get_all_renamed_rar_files(self):
+        try:
+            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar", self.FILE.parverify_state == 0,
+                                                self.FILE.renamed_name != "N/A")
+            return rarfiles
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def get_renamed_p2(self, dir01):
+        try:
+            par2file0 = self.FILE.get(self.FILE.ftype == "par2")
+            if par2file0.renamed_name != "N/A":
+                self.logger.debug(lpref + "got par2 file: " + par2file0.renamed_name)
+                p2 = Par2File(dir01 + par2file0.renamed_name)
+                return p2
+            else:
+                return None
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
     def db_file_update_status(self, filename, newstatus):
         file0 = self.FILE.get((self.FILE.orig_name == filename))
         file0.status = newstatus
         file0.save()
         # query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
         # query.execute()
+
+    def db_file_update_parstatus(self, filename, newparstatus):
+        file0 = self.FILE.get((self.FILE.orig_name == filename))
+        file0.parverify_state = newparstatus
+        file0.save()
 
     def db_file_set_renamed_name(self, orig_name, renamed_name):
         file0 = self.FILE.get((self.FILE.orig_name == orig_name))
@@ -174,8 +226,25 @@ class PWDB:
         try:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.status
-        except:
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
             return None
+
+    def db_file_getparstatus(self, filename):
+        try:
+            query = self.FILE.get(self.FILE.renamed_name == filename)
+            return query.parverify_state
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def db_file_getallparstatus(self, state):
+        try:
+            filesparstatus = [f.parverify_state for f in self.FILE.select() if f.parverify_state == state and f.ftype == "rar"]
+            return filesparstatus
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return [-9999]
 
     def db_file_insert(self, name, nzb, nr_articles, age, ftype):
         try:
@@ -188,7 +257,7 @@ class PWDB:
     def db_file_getall(self):
         files = []
         for f in self.FILE.select():
-            files.append((f.orig_name, f.renamed_name, f.nzb, f.timestamp, f.status, f.parverify_state,
+            files.append((f.orig_name, f.renamed_name, f.ftype, f.nzb.name, f.timestamp, f.status, f.parverify_state,
                           f.unrared_state, f.age, f.nr_articles))
         return files
 
@@ -264,7 +333,7 @@ class PWDB:
             nzb = self.NZB.select().where((self.NZB.status == 0) | (self.NZB.status == 1)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
-            return None, None, None, None, None
+            return None, None, None, None, None, None, None
         nzbname = nzb.name
         self.logger.info(lpref + nzbname + ", status: " + str(self.db_nzb_getstatus(nzbname)))
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
@@ -273,14 +342,19 @@ class PWDB:
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
         if not files:
             self.logger.info(lpref + "No files to download for NZB " + nzb.name)
-            return None, None, None, None, None
+            return None, None, None, None, None, None, None
         idx = 0
         overall_size = 0
+        overall_size_wparvol = 0
         already_downloaded_size = 0
+        p2 = None
         for f0 in files:
             articles = [articles0 for articles0 in f0.articles]
             f0size = sum([a.size for a in articles])
-            overall_size += f0size
+            if f0.ftype == "par2vol":
+                overall_size_wparvol += f0size
+            else:
+                overall_size += f0size
             filetypecounter[f0.ftype]["max"] += 1
             filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
             self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
@@ -289,7 +363,9 @@ class PWDB:
                 #    calc md5 hash
                 #    filename0 is real path of file
                 filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir01)
-                if not file_already_exists:
+                if file_already_exists and f0.ftype == "par2":
+                    p2 = Par2File(dir01 + f0.renamed_name)
+                elif not file_already_exists:
                     filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
                 self.logger.info(lpref + filename0 + ", found on dir: " + str(file_already_exists))
                 if file_already_exists:
@@ -318,11 +394,13 @@ class PWDB:
             self.db_nzb_update_status(nzbname, 1)
             gbdivisor = (1024 * 1024 * 1024)
             overall_size /= gbdivisor
+            overall_size_wparvol /= gbdivisor
+            overall_size_wparvol += overall_size
             already_downloaded_size /= gbdivisor
-            return allfilelist, filetypecounter, nzbname, overall_size, already_downloaded_size
+            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
         else:
             self.db_nzb_update_status(nzbname, 2)
-            return None, None, None, None, None
+            return None, None, None, None, None, None, None
 
 
 if __name__ == "__main__":
