@@ -113,8 +113,9 @@ def ParseNZB(pwdb, nzbdir, logger):
                         # rename nzb here to ....processed
                         filedic, bytescount = decompose_nzb(nzb, logger)
                         if not filedic:
-                            logger.warning("Could not interpret nzb " + nzb0 + ", deleting from DB")
-                            pwdb.db_nzb_delete(nzb0)
+                            logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
+                            pwdb.db_nzb_update_status(nzb0, -2)         # status "cannot queue / -2"
+                            # pwdb.db_nzb_delete(nzb0)
                         else:
                             size_gb = bytescount / (1024 * 1024 * 1024)
                             infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
@@ -134,6 +135,7 @@ def ParseNZB(pwdb, nzbdir, logger):
                                         data.append((fn, newfile, size, no, time.time()))
                                 pwdb.db_article_insert_many(data)
                             logger.info(lpref + "Added NZB: " + infostr)
+                            pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
             isfirstrun = False
     logger.warning(lpref + "exiting")
     os.chdir(cwd0)

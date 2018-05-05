@@ -1,5 +1,6 @@
-# if no par2 / par2vols ---> copy to verified rar dirs straight away!!!
 # in ginz.py: logger pref !!!!
 # adapt output routine in ginzibix/main
-# unrarer
 # if not p2 and #downloaded rars > 1/3 --> start parcopy: copy from renamed to verified
+     - copy _unpack0 to complete
+     - copy _renamed0 (all except par2, par2vol and rar) to complete
+     - delete incomplete

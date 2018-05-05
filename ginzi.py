@@ -653,6 +653,85 @@ class Downloader():
                     pwdb_inotify.rm_watch(wd)
                     return None, None, None, None, None, None, None
 
+    # postprocessor
+    def postprocess_nzb(self, nzbname, downloaddata):
+        # guimode console / server
+        bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
+        if self.guimode == 1:
+            pass
+            '''try:
+                if self.servers:
+                    serverconfig = self.servers.server_config
+                else:
+                    serverconfig = None
+                threadsgui = [(t.last_timestamp, t.bytesdownloaded, t.idn) for t, _ in self.threads]
+                guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, serverconfig,
+                           threadsgui, overall_size, already_downloaded_size)
+                self.guiqueue.put(guidata)
+            except Exception as e:'''
+        elif self.guimode == 0:
+            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                                 article_health, overall_size, already_downloaded_size)
+        self.resultqueue.join()
+        self.articlequeue.join()
+        # join renamer
+        if self.mpp_pid["renamer"]:
+            try:
+                # to do: loop over downloaded and wait until empty
+                self.logger.debug("Waiting for renamer.py clearing download dir")
+                while True:
+                    for _, _, fs in os.walk(self.download_dir):
+                        if not fs:
+                            break
+                    else:
+                        time.sleep(1)
+                        continue
+                    break
+                self.logger.debug("Download dir empty!")
+                os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
+                self.mpp_pid["renamer"] = None
+            except Exception as e:
+                self.logger.info(str(e))
+        # join verifier
+        if self.mpp_pid["verifier"]:
+            self.logger.info("Waiting for par_verifier to complete")
+            try:
+                # clear queue
+                while True:
+                    try:
+                        lp2v = self.mp_parverify_inqueue.get_nowait()
+                    except queue.Empty:
+                        break
+                self.mpp_verifier.join()
+            except Exception as e:
+                self.logger.warning(str(e))
+            self.mpp_pid["verifier"] = None
+        # join unrarer
+        unrarerstarted = False
+        if self.mpp_pid["unrarer"]:
+            self.logger.info("Waiting for unrar to complete")
+            self.mpp_unrarer.join()
+            self.mpp_pid["unrarer"] = None
+            unrarerstarted = True
+        self.sighandler.mpp_pid = self.mpp_pid
+        # get status
+        finalrarstate = True
+        if unrarerstarted:
+            finalrarstate = (self.pwdb.db_nzb_getstatus(nzbname) == 3)
+        finalnonrarstate = self.pwdb.db_allnonrarfiles_getstate(nzbname)
+        # if finalrarstate: copy all rars to complete
+        # copy all other files (state > 0) ti complete
+        if finalrarstate and finalnonrarstate:
+            self.pwdb.db_nzb_update_status(nzbname, 3)
+            self.logger.info("Download & postprocess of NZB " + nzbname + " ok!")
+        else:
+            self.pwdb.db_nzb_update_status(nzbname, -1)
+            self.logger.info("Download & postprocess of NZB " + nzbname + " failed!")
+        # copy to complete
+        # copy _unpack0 to complete
+        # copy _renamed0 (all except par2, par2vol and rar) to complete
+        # delete incomplete
+
     # main download routine
     def download_and_process(self):
         # directories
@@ -682,7 +761,7 @@ class Downloader():
         self.mpp_decoder = None
         nzbname = None
         delconnections = True
-
+        article_failed = 0
         inject_set0 = []
  
         while True and not self.sighandler.signal:
@@ -694,9 +773,7 @@ class Downloader():
                 infolist = {}
                 loadpar2vols = False
                 p2 = None
-                old_nzbname = nzbname
                 nzbname = None
-                article_failed = 0
                 availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
                 bytescount0 = 0
                 filetypecounter = {}
@@ -707,69 +784,6 @@ class Downloader():
                     for t, _ in self.threads:
                         t.bytesdownloaded = 0
                         t.last_timestamp = 0
-                # guimode console / server
-                if self.guimode == 1:
-                    try:
-                        if self.servers:
-                            serverconfig = self.servers.server_config
-                        else:
-                            serverconfig = None
-                        threadsgui = [(t.last_timestamp, t.bytesdownloaded, t.idn) for t, _ in self.threads]
-                        guidata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, serverconfig,
-                                   threadsgui, overall_size, already_downloaded_size)
-                        self.guiqueue.put(guidata)
-                    except Exception as e:
-                        self.logger.debug(str(e))
-                # guimode simple console / standalone
-                elif self.guimode == 0:
-                    self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
-                                                         article_health, overall_size, already_downloaded_size)
-                self.resultqueue.join()
-                self.articlequeue.join()
-                # join renamer
-                if self.mpp_pid["renamer"]:
-                    try:
-                        # to do: loop over downloaded and wait until empty
-                        self.logger.debug("Waiting for renamer.py clearing download dir")
-                        while True:
-                            for _, _, fs in os.walk(self.download_dir):
-                                if not fs:
-                                    break
-                            else:
-                                time.sleep(1)
-                                continue
-                            break
-                        self.logger.debug("Download dir empty!")
-                        os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
-                        self.mpp_pid["renamer"] = None
-                    except Exception as e:
-                        self.logger.info(str(e))
-                # join verifier
-                if self.mpp_pid["verifier"]:
-                    self.logger.info("Waiting for par_verifier to complete")
-                    try:
-                        # clear queue
-                        while True:
-                            try:
-                                lp2v = self.mp_parverify_inqueue.get_nowait()
-                            except queue.Empty:
-                                break
-                        self.mpp_verifier.join()
-                    except Exception as e:
-                        self.logger.warning(str(e))
-                    self.mpp_pid["verifier"] = None
-                # join unrarer
-                if self.mpp_pid["unrarer"]:
-                    self.logger.info("Waiting for unrar to complete")
-                    self.mpp_unrarer.join()
-                    self.mpp_pid["unrarer"] = None
-                self.sighandler.mpp_pid = self.mpp_pid
-                # copy to complete
-                if old_nzbname:
-                    # copy _unpack0 to complete
-                    # copy _renamed0 (all except par2, par2vol and rar) to complete
-                    # delete incomplete
-                    pass
                 # wait for new nzbs to arrive
                 self.logger.debug("looking for new NZBs ...")
                 try:
@@ -827,9 +841,11 @@ class Downloader():
                     for t, _ in self.threads:
                         t.last_timestamp = time.time()
                 self.logger.info("Downloading articles for: " + self.nzb)
+                self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
                 bytescount0 = self.getbytescount(allfileslist)
                 files, infolist, bytescount0, article_count = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                 getnextnzb = False
+                article_failed = 0
 
             # get mp_result_queue (from article_decoder.py)
             while True:
@@ -879,35 +895,29 @@ class Downloader():
 
             if filetypecounter["rar"]["max"] > 0 and not self.mpp_pid["unrarer"]:
                 # start unrarer
+                do_unrar = True
                 self.logger.debug("Starting unrarer process ...")
-                self.mpp_unrarer = mp.Process(target=lib.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir, self.logger, ))
+                self.mpp_unrarer = mp.Process(target=lib.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir, self.pwdb, nzbname, self.logger, ))
                 self.mpp_unrarer.start()
                 self.mpp_pid["unrarer"] = self.mpp_unrarer.pid
                 self.sighandler.mpp_pid = self.mpp_pid
+            else:
+                do_unrar = False
 
-            # if par2 available start par2verifier
-            if p2 and not self.mpp_pid["verifier"]:
-                self.logger.debug("Starting rar_verifier process for NZB " + nzbname)
-                self.mpp_verifier = mp.Process(target=lib.par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
-                                                                         self.main_dir, self.logger, self.pwdb, p2, ))
-                self.mpp_verifier.start()
-                self.mpp_pid["verifier"] = self.mpp_verifier.pid
-                self.sighandler.mpp_pid = self.mpp_pid
-
-            # if not p2 and #downloaded rars > 1/3 --> start parcopy: copy from renamed to verified
-
-            # if all downloaded postprocess
-            getnextnzb = True
-            for filetype, item in filetypecounter.items():
-                if filetype == "par2vol" and not loadpar2vols:
-                    continue
-                if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
-                    getnextnzb = False
-                    break
-            if getnextnzb:
-                self.logger.debug(nzbname + "- download complete!")
-                delconnections = False
-                self.pwdb.db_nzb_update_status(nzbname, 2)
+            # if par2 available start par2verifier, else just copy rars unchecked!
+            if not self.mpp_pid["verifier"]:
+                pvmode = None
+                if p2:
+                    pvmode = "verify"
+                elif not p2 and filetypecounter["par2"]["max"] == 0:
+                    pvmode = "copy"
+                if pvmode:
+                    self.logger.debug("Starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
+                    self.mpp_verifier = mp.Process(target=lib.par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
+                                                                                  self.main_dir, self.logger, self.pwdb, pvmode, ))
+                    self.mpp_verifier.start()
+                    self.mpp_pid["verifier"] = self.mpp_verifier.pid
+                    self.sighandler.mpp_pid = self.mpp_pid
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
@@ -944,6 +954,23 @@ class Downloader():
             elif self.guimode == 0:
                 self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                                      article_health, overall_size, already_downloaded_size)
+
+            # if all downloaded postprocess
+            getnextnzb = True
+            for filetype, item in filetypecounter.items():
+                if filetype == "par2vol" and not loadpar2vols:
+                    continue
+                if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
+                    getnextnzb = False
+                    break
+            if getnextnzb:
+                # stat0 = self.pwdb.db_nzb_getstatus(nzbname)
+                self.logger.debug(nzbname + "- download complete!")
+                delconnections = False
+                # self.pwdb.db_nzb_update_status(nzbname, 3)    # status = postprocessing
+                downloaddata = (bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                overall_size, already_downloaded_size)
+                self.postprocess_nzb(nzbname, downloaddata)
 
             time.sleep(0.2)
 

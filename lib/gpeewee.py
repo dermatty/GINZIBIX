@@ -10,12 +10,6 @@ else:
     from .par2lib import calc_file_md5hash, Par2File
 
 
-'''file status:
-    0 .... not queued yet
-    1 ... downloading
-    2 ... done, ok
-    -1 ... done, errors'''
-
 lpref = __name__ + " - "
 
 
@@ -38,6 +32,14 @@ class PWDB:
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
             timestamp = TimeField()
+            '''nzb status:
+            0 .... not queued yet
+            1 ... queued
+            2 ... downloading
+            3 ... unrar ok
+            4 ... final ok
+            -1 ... done, errors
+            -2 ... cannot queue / parse'''
             status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
 
@@ -178,6 +180,15 @@ class PWDB:
             size += a.size
         return size
 
+    def db_allnonrarfiles_getstate(self, nzbname):
+        files0 = self.FILE.select().where(self.FILE.nzb.name == nzbname)
+        statusok = True
+        for f0 in files0:
+            if f0.ftype != "rar" and f0.status <= 0:
+                statusok = False
+                break
+        return statusok
+
     def get_all_renamed_rar_files(self):
         try:
             rarfiles = self.FILE.select().where(self.FILE.ftype == "rar", self.FILE.parverify_state == 0,
@@ -249,6 +260,11 @@ class PWDB:
     def db_file_update_parstatus(self, filename, newparstatus):
         file0 = self.FILE.get((self.FILE.orig_name == filename))
         file0.parverify_state = newparstatus
+        file0.save()
+
+    def db_file_update_nzbstatus(self, filename, newnzbstatus):
+        file0 = self.FILE.get((self.FILE.orig_name == filename))
+        file0.nzb.status = newnzbstatus
         file0.save()
 
     def db_file_set_renamed_name(self, orig_name, renamed_name):
@@ -369,7 +385,7 @@ class PWDB:
                            "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
         try:
-            nzb = self.NZB.select().where((self.NZB.status == 0) | (self.NZB.status == 1)).order_by(self.NZB.priority)[0]
+            nzb = self.NZB.select().where((self.NZB.status == 1)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
             return None, None, None, None, None, None, None

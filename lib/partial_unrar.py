@@ -31,7 +31,7 @@ def get_rar_files(directory):
     return rarlist
 
 
-def partial_unrar(directory, unpack_dir, logger):
+def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
     cwd0 = os.getcwd()
     try:
         os.chdir(directory)
@@ -106,3 +106,8 @@ def partial_unrar(directory, unpack_dir, logger):
     # print("100% - done")
     logger.info("PARTIAL_UNRAR > " + str(status) + " " + statmsg)
     os.chdir(cwd0)
+    if status == 0:
+        pwdb.db_nzb_update_status(nzbname, 3)
+    else:
+        pwdb.db_nzb_update_status(nzbname, -1)
+

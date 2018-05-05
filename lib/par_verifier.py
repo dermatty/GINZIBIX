@@ -12,19 +12,19 @@ import inotify_simple
 lpref = __name__ + " "
 
 
-def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, p2=None):
+def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, pvmode):
     logger.info(lpref + "starting rar_verifier")
-    p2 = pwdb.get_renamed_p2(renamed_dir)
+    
+    if pvmode == "verify":
+        p2 = pwdb.get_renamed_p2(renamed_dir)
 
     # a: verify all unverified files in "renamed"
     unverified_rarfiles = pwdb.get_all_renamed_rar_files()
     doloadpar2vols = False
-    if not p2:
+    if pvmode == "verify" and not p2:
         logger.info(lpref + "no par2 file found")
-    if unverified_rarfiles and p2:
+    if pvmode == "verify" and unverified_rarfiles and p2:
         logger.info(lpref + "verifying all unchecked rarfiles")
-        for u in unverified_rarfiles:
-            logger.debug(lpref + ">>>" + u.renamed_name)
         for f0 in unverified_rarfiles:
             filename = f0.renamed_name
             md5 = calc_file_md5hash(renamed_dir + filename)
@@ -38,6 +38,13 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                 logger.info(lpref + "copying " + filename + " to " + verifiedrar_dir)
                 shutil.copy(renamed_dir + filename, verifiedrar_dir)
                 pwdb.db_file_update_parstatus(f0.orig_name, 1)
+    if pvmode == "copy":
+        logger.info(lpref + "copying all rarfiles")
+        for f0 in unverified_rarfiles:
+            filename = f0.renamed_name
+            logger.info(lpref + "copying " + filename + " to " + verifiedrar_dir)
+            shutil.copy(renamed_dir + filename, verifiedrar_dir)
+            pwdb.db_file_update_parstatus(f0.orig_name, 1)
     if doloadpar2vols:
         mp_outqueue.put(doloadpar2vols)
 
@@ -53,15 +60,15 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             break
         events = get_inotify_events(inotify)
         if events or 0 in allparstatus:
-            if not p2:
+            if pvmode == "verify" and not p2:
                 p2 = pwdb.get_renamed_p2(renamed_dir)
-            if p2:
+            if pvmode == "verify" and p2:
                 for rar in glob.glob(renamed_dir + "*.rar"):
                     rar0 = rar.split("/")[-1]
                     f0 = pwdb.db_file_get_renamed(rar0)
                     if not f0:
                         continue
-                    if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name:
+                    if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
                         md5 = calc_file_md5hash(renamed_dir + rar0)
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0.renamed_name]
                         if False in md5match:
@@ -74,6 +81,15 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                             logger.info(lpref + "p2 md5' CORRECT for file " + f0.renamed_name + ", copying to " + verifiedrar_dir)
                             shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                             pwdb.db_file_update_parstatus(f0.orig_name, 1)
+            if pvmode == "copy":
+                rar0 = rar.split("/")[-1]
+                f0 = pwdb.db_file_get_renamed(rar0)
+                if not f0:
+                    continue
+                if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
+                    logger.info(lpref + f0.renamed_name + ": copying to " + verifiedrar_dir)
+                    shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
+                    pwdb.db_file_update_parstatus(f0.orig_name, 1)
         if pwdb.db_only_verified_rars():
             break
         time.sleep(1)
@@ -94,6 +110,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             logger.error(lpref + "repair failed!")
             for c in corruptrars:
                 pwdb.db_file_update_parstatus(c.orig_name, -2)
+                pwdb.db_file_update_nzbstatus(c.orig_name, -1)
 
 
 def get_inotify_events(inotify):
