@@ -125,6 +125,8 @@ def decode_articles(mp_work_queue0, pwdb, logger):
         try:
             pwdb.db_file_update_status(filename, pwdbstatus)
             logger.info(lpref + "Updated DB for " + filename + ", db.status=" + str(pwdbstatus))
+            # finalnonrarstate = pwdb.db_allnonrarfiles_getstate("Florida_project.nzb")
+            # logger.info(">>>" + str(finalnonrarstate))
             # s0 = pwdb.db_file_getstatus(filename)
             # logger.info("RETRIEVED " + filename + " status:" + str(s0))
         except Exception as e:

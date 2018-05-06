@@ -105,6 +105,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             for c in corruptrars:
                 logger.info(lpref + "copying " + c.renamed_name + " to verifiedrar_dir")
                 pwdb.db_file_update_parstatus(c.orig_name, 1)
+                pwdb.db_file_update_status(c.orig_name, 2)
                 shutil.copy(renamed_dir + c.renamed_name, verifiedrar_dir)
         else:
             logger.error(lpref + "repair failed!")

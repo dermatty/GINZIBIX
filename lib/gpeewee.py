@@ -120,13 +120,16 @@ class PWDB:
             self.logger.warning(str(e))
             return False
 
-    def db_nzb_update_loadpar2vols(self, name, lp2):
-        try:
-            nzb0 = self.NZB.get((self.NZB.name == name))
-            nzb0.loadpar2vols = lp2
-            nzb0.save()
-        except Exception as e:
-            self.logger.warning(str(e))
+    def db_nzb_update_loadpar2vols(self, name0, lp2):
+        query = self.NZB.update(loadpar2vols=lp2).where(self.NZB.name == name0)
+        query.execute()
+        '''with self.db.atomic():
+            try:
+                nzb0 = self.NZB.get((self.NZB.name == name))
+                nzb0.loadpar2vols = lp2
+                nzb0.save()
+            except Exception as e:
+                self.logger.warning(str(e))'''
 
     def db_nzb_getsize(self, name):
         nzb0 = self.NZB.get(self.NZB.name == name)
@@ -153,9 +156,12 @@ class PWDB:
         return nzbs
 
     def db_nzb_update_status(self, nzbname, newstatus):
-        nzb0 = self.NZB.get((self.NZB.name == nzbname))
-        nzb0.status = newstatus
-        nzb0.save()
+        query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
+        query.execute()
+        '''with self.db.atomic():
+            nzb0 = self.NZB.get((self.NZB.name == nzbname))
+            nzb0.status = newstatus
+            nzb0.save()'''
 
     def db_nzb_getstatus(self, nzbname):
         try:
@@ -181,18 +187,26 @@ class PWDB:
         return size
 
     def db_allnonrarfiles_getstate(self, nzbname):
-        files0 = self.FILE.select().where(self.FILE.nzb.name == nzbname)
+        files00 = self.FILE.select()
+        files0 = [f0 for f0 in files00 if f0.nzb.name == nzbname]
         statusok = True
         for f0 in files0:
-            if f0.ftype != "rar" and f0.status <= 0:
+            if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status <= 0:
+                self.logger.info("!!!! " + f0.orig_name + " / " + str(f0.status))
                 statusok = False
-                break
+                # break
         return statusok
+
+    def db_get_all_ok_nonrarfiles(self, nzbname):
+        # files0 = self.FILE.get(self.FILE.nzb.name == nzbname)
+        files0 = self.FILE.select()
+        res0 = [f0 for f0 in files0 if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status > 0 and f0.nzb.name == nzbname]
+        return res0
 
     def get_all_renamed_rar_files(self):
         try:
-            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar", self.FILE.parverify_state == 0,
-                                                self.FILE.renamed_name != "N/A")
+            files0 = self.FILE.select()
+            rarfiles = [f0 for f0 in files0 if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
             self.logger.warning(lpref + str(e))
@@ -200,8 +214,8 @@ class PWDB:
 
     def get_all_corrupt_rar_files(self):
         try:
-            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar", self.FILE.parverify_state == -1,
-                                                self.FILE.renamed_name != "N/A")
+            files0 = self.FILE.select()
+            rarfiles = [f0 for f0 in files0 if f0.ftype == "rar" and f0.parverify_state == -1 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
             self.logger.warning(lpref + str(e))
@@ -251,38 +265,48 @@ class PWDB:
             return None
 
     def db_file_update_status(self, filename, newstatus):
-        file0 = self.FILE.get((self.FILE.orig_name == filename))
-        file0.status = newstatus
-        file0.save()
-        # query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
-        # query.execute()
+        query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
+        query.execute()
+        ''' with self.db.atomic():
+            file0 = self.FILE.get((self.FILE.orig_name == filename))
+            file0.status = newstatus
+            file0.save()
+            if filename == "63fac4f2191957a9e956b885b3.nfo":
+                self.logger.info("#" * 30)'''
 
     def db_file_update_parstatus(self, filename, newparstatus):
-        file0 = self.FILE.get((self.FILE.orig_name == filename))
-        file0.parverify_state = newparstatus
-        file0.save()
+        query = self.FILE.update(parverify_state=newparstatus).where(self.FILE.orig_name == filename)
+        query.execute()
+        # file0 = self.FILE.get((self.FILE.orig_name == filename))
+        # file0.parverify_state = newparstatus
+        # file0.save()
 
-    def db_file_update_nzbstatus(self, filename, newnzbstatus):
-        file0 = self.FILE.get((self.FILE.orig_name == filename))
-        file0.nzb.status = newnzbstatus
-        file0.save()
+    def db_file_update_nzbstatus(self, filename0, newnzbstatus0):
+        with self.db.atomic():
+            file0 = self.FILE.get((self.FILE.orig_name == filename0))
+            file0.nzb.status = newnzbstatus0
+            file0.save()
 
-    def db_file_set_renamed_name(self, orig_name, renamed_name):
-        file0 = self.FILE.get((self.FILE.orig_name == orig_name))
-        file0.renamed_name = renamed_name
-        file0.save()
+    def db_file_set_renamed_name(self, orig_name0, renamed_name0):
+        query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
+        query.execute()
+        # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
+        # file0.renamed_name = renamed_name
+        # file0.save()
 
-    def db_file_set_file_type(self, orig_name, ftype):
-        file0 = self.FILE.get((self.FILE.orig_name == orig_name))
-        file0.ftype = ftype
-        file0.save()
+    def db_file_set_file_type(self, orig_name0, ftype0):
+        query = self.FILE.update(ftype=ftype0).where(self.FILE.orig_name == orig_name0)
+        query.execute()
+        # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
+        # file0.ftype = ftype
+        # file0.save()
 
     def db_file_getstatus(self, filename):
         try:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(lpref + "db_file_getstatus: " + str(e))
             return None
 
     def db_file_getparstatus(self, filename):
@@ -313,7 +337,7 @@ class PWDB:
         files = []
         for f in self.FILE.select():
             files.append((f.orig_name, f.renamed_name, f.ftype, f.nzb.name, f.timestamp, f.status, f.parverify_state,
-                          f.unrared_state, f.age, f.nr_articles))
+                          f.unrared_state, f.age, f.nr_articles, f.status))
         return files
 
     def db_file_deleteall(self):
@@ -345,10 +369,9 @@ class PWDB:
         while i < llen:
             data0 = data[i: min(i + chunksize, llen)]
             try:
-                with self.db.atomic():
-                    query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
-                                                                    self.ARTICLE.timestamp])
-                    query.execute()
+                query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
+                                                                self.ARTICLE.timestamp])
+                query.execute()
             except OperationalError:
                 chunksize = int(chunksize * 0.9)
                 continue
@@ -472,9 +495,14 @@ if __name__ == "__main__":
 
     pwdb = PWDB(logger)
 
+    nzbname = 'Florida_project.nzb'
+    aok = pwdb.db_get_all_ok_nonrarfiles(nzbname)
+    stat = pwdb.db_nzb_getstatus(nzbname)
+
+    print(aok)
     fall = pwdb.db_file_getall()
     for f in fall:
-        print(f)
+         print(f)
 
 ''''
 # ---- QUEUER -----------------------------------------------------------------

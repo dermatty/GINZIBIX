@@ -19,6 +19,7 @@ import psutil
 import re
 import lib
 import datetime
+import shutil
 
 userhome = expanduser("~")
 maindir = userhome + "/.ginzibix/"
@@ -456,6 +457,16 @@ class Downloader():
         except Exception as e:
             self.logger.error(str(e) + " in creating dirs ...")
 
+    def make_complete_dir(self):
+        self.complete_dir = self.dirs["complete"] + self.nzbdir
+        try:
+            if not os.path.isdir(self.complete_dir):
+                os.mkdir(self.complete_dir)
+            return True
+        except Exception as e:
+            self.logger.error(str(e) + " in creating dirs ...")
+            return False
+
     def article_producer(self, articles, articlequeue):
         for article in articles:
             articlequeue.put(article)
@@ -719,18 +730,48 @@ class Downloader():
         if unrarerstarted:
             finalrarstate = (self.pwdb.db_nzb_getstatus(nzbname) == 3)
         finalnonrarstate = self.pwdb.db_allnonrarfiles_getstate(nzbname)
-        # if finalrarstate: copy all rars to complete
-        # copy all other files (state > 0) ti complete
+        self.logger.info("Finalrarstate: " + str(finalrarstate) + " / Finalnonrarstate: " + str(finalnonrarstate))
         if finalrarstate and finalnonrarstate:
-            self.pwdb.db_nzb_update_status(nzbname, 3)
+            # self.pwdb.db_nzb_update_status(nzbname, 3)
             self.logger.info("Download & postprocess of NZB " + nzbname + " ok!")
         else:
-            self.pwdb.db_nzb_update_status(nzbname, -1)
+            # self.pwdb.db_nzb_update_status(nzbname, -1)
             self.logger.info("Download & postprocess of NZB " + nzbname + " failed!")
         # copy to complete
-        # copy _unpack0 to complete
-        # copy _renamed0 (all except par2, par2vol and rar) to complete
-        # delete incomplete
+        res0 = self.make_complete_dir()
+        if not res0:
+            self.logger.info("Cannot create complete_dir for " + nzbname + ", exiting ...")
+            return -1
+        postprocess_state = 1
+        nzbstatus = self.pwdb.db_nzb_getstatus(nzbname)
+        # copy all ok nonrarfiles to complete
+        alloknonrarfiles = self.pwdb.db_get_all_ok_nonrarfiles(nzbname)
+        self.logger.info("Copying successfull nonrarfiles to complete ...")
+        for a0 in alloknonrarfiles:
+            try:
+                shutil.copy(self.rename_dir + a0.renamed_name, self.complete_dir)
+                os.remove(self.rename_dir + a0.renamed_name)
+            except Exception as e:
+                logger.error(str(e) + ", cannot copy " + a0.renamed_name + " to complete_dir!")
+                postprocess_state = -1
+        # copy unrared dir to complete if ok
+        if nzbstatus == 3:
+            self.logger.info("Copying unpack_dir to complete ...")
+            ld0 = [l1 for l1 in os.listdir(self.unpack_dir) if os.path.isdir(self.unpack_dir + l1)]
+            for ld in ld0:
+                self.logger.debug("Copying " + self.unpack_dir + ld + " to " + self.complete_dir + ld)
+                shutil.copytree(self.unpack_dir + ld, self.complete_dir + ld)
+            ld0 = [l1 for l1 in os.listdir(self.unpack_dir) if not os.path.isdir(self.unpack_dir + l1)]
+            for ld in ld0:
+                self.logger.debug("Copying " + self.unpack_dir + ld + " to " + self.complete_dir + ld)
+                shutil.copytree(self.unpack_dir + ld, self.complete_dir + ld)
+            shutil.rmtree(self.unpack_dir, ignore_errors=True)
+            shutil.rmtree(self.verifiedrar_dir, ignore_errors=True)
+        shutil.rmtree(self.download_dir, ignore_errors=True)
+        # check if rename_dir only contains rar / par2 & par2vol, if yes delete dir0
+        # if rename_dir is empty --> delete incomplete
+
+        return postprocess_state
 
     # main download routine
     def download_and_process(self):
