@@ -4,6 +4,8 @@ import glob
 import os
 import pexpect
 
+lpref = __name__ + " - "
+
 
 def get_inotify_events(inotify):
     rar_events = []
@@ -55,8 +57,9 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
             rar_basislist = get_rar_files(directory)
             rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
 
+    pwdb.db_nzb_update_unrar_status(1)
     # first valid rar_sortedlist in place, start unrar!
-    logger.info("PARTIAL_UNRAR > executing 'unrar x -y -o+ -vp'")
+    logger.info(lpref + "executing 'unrar x -y -o+ -vp'")
     cmd = "unrar x -y -o+ -vp " + rar_sortedlist[0][1] + " " + unpack_dir
     child = pexpect.spawn(cmd)
     status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
@@ -74,23 +77,19 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
         if "error" in str0:
             gg = re.search(r"\S*[.]rar", str0, flags=re.IGNORECASE)
             if "packed data checksum" in str0:
-                statmsg = gg.group() + " : packed data checksum error (= corrupt rar!)"
+                logger.info(lpref + gg.group() + " : packed data checksum error (= corrupt rar!)")
                 status = -1
             elif "- checksum error" in str0:
-                statmsg = gg.group() + " : checksum error (= rar is missing!)"
+                logger.info(lpref + gg.group() + " : checksum error (= rar is missing!)")
                 status = -2
             else:
-                statmsg = gg.group() + " : unknown error"
+                logger.info(lpref + gg.group() + " : unknown error")
                 status = -3
             break
         if "All OK" in str0:
             statmsg = "All OK"
             status = 0
             break
-        # percstr = re.findall(r" [0-9]+%", str0)[-1]
-        # print(str0)
-        # print(str0)
-        # print("-" * 16)
         rarindex += 1
         if rarindex not in [nr for nr, _ in rar_sortedlist]:
             gotnextrar = False
@@ -103,11 +102,9 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
                     if rarindex in [nr for nr, _ in rar_sortedlist]:
                         gotnextrar = True
         child.sendline("C")
-    # print("100% - done")
-    logger.info("PARTIAL_UNRAR > " + str(status) + " " + statmsg)
+    logger.info(lpref + str(status) + " " + statmsg)
     os.chdir(cwd0)
     if status == 0:
-        pwdb.db_nzb_update_status(nzbname, 3)
+        pwdb.db_nzb_update_unrar_status(nzbname, 2)
     else:
-        pwdb.db_nzb_update_status(nzbname, -1)
-
+        pwdb.db_nzb_update_unrar_status(nzbname, -1)

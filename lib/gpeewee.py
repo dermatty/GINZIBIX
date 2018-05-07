@@ -32,22 +32,29 @@ class PWDB:
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
             timestamp = TimeField()
-            '''nzb status:
-            0 .... not queued yet
-            1 ... queued
-            2 ... downloading
-            3 ... unrar ok
-            4 ... final ok
-            -1 ... done, errors
-            -2 ... cannot queue / parse'''
+            # nzb status:
+            #    0 ... not queued yet
+            #    1 ... nzb processed / queued
+            #    2 ... downloading
+            #    3 ... postprocessing
+            #    4 ... final ok
+            #   -1 ... nzb processing failed
+            #   -2 ... download failed
+            #   -3 ... postproc failed
+            #   -4 ... finally failed
             status = IntegerField(default=0)
+            # unrar_status:
+            #    0 ... unrar not started / idle
+            #    1 ... unrar running
+            #    2 ... unrar done + success
+            #    -1 .. unrar done + failure
+            unrar_status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
 
         class FILE(BaseModel):
             orig_name = CharField()
             renamed_name = CharField(default="N/A")
             parverify_state = IntegerField(default=0)
-            unrared_state = IntegerField(default=0)
             nzb = ForeignKeyField(NZB, backref='files')
             nr_articles = IntegerField(default=0)
             age = IntegerField(default=0)
@@ -155,6 +162,10 @@ class PWDB:
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
 
+    def db_nzb_update_unrar_status(self, nzbname, newstatus):
+        query = self.NZB.update(unrar_status=newstatus).where(self.NZB.name == nzbname)
+        query.execute()
+
     def db_nzb_update_status(self, nzbname, newstatus):
         query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
         query.execute()
@@ -169,6 +180,14 @@ class PWDB:
             return query.status
         except:
             return None
+
+    def db_nzb_get_unrarstatus(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.unrar_status
+        except:
+            return None
+
 
     # ---- self.FILE --------
     def db_file_get_renamed(self, name):
@@ -337,7 +356,7 @@ class PWDB:
         files = []
         for f in self.FILE.select():
             files.append((f.orig_name, f.renamed_name, f.ftype, f.nzb.name, f.timestamp, f.status, f.parverify_state,
-                          f.unrared_state, f.age, f.nr_articles, f.status))
+                          f.age, f.nr_articles, f.status))
         return files
 
     def db_file_deleteall(self):
