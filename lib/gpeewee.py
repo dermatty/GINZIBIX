@@ -36,11 +36,11 @@ class PWDB:
             #    0 ... not queued yet
             #    1 ... nzb processed / queued
             #    2 ... downloading
-            #    3 ... postprocessing
+            #    3 ... postprocessing / unrar etc ok
             #    4 ... final ok
             #   -1 ... nzb processing failed
             #   -2 ... download failed
-            #   -3 ... postproc failed
+            #   -3 ... postproc / unrar etc failed
             #   -4 ... finally failed
             status = IntegerField(default=0)
             # unrar_status:
@@ -49,6 +49,12 @@ class PWDB:
             #    2 ... unrar done + success
             #    -1 .. unrar done + failure
             unrar_status = IntegerField(default=0)
+            # verify_status:
+            #    0 ... idle / not started
+            #    1 ... verifier running
+            #    2 ... verifier done + success
+            #    -1 .. verifier done + failure
+            verify_status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
 
         class FILE(BaseModel):
@@ -166,6 +172,10 @@ class PWDB:
         query = self.NZB.update(unrar_status=newstatus).where(self.NZB.name == nzbname)
         query.execute()
 
+    def db_nzb_update_verify_status(self, nzbname, newstatus):
+        query = self.NZB.update(verify_status=newstatus).where(self.NZB.name == nzbname)
+        query.execute()
+
     def db_nzb_update_status(self, nzbname, newstatus):
         query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
         query.execute()
@@ -185,6 +195,13 @@ class PWDB:
         try:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.unrar_status
+        except:
+            return None
+
+    def db_nzb_get_verifystatus(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.verify_status
         except:
             return None
 

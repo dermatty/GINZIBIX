@@ -357,25 +357,25 @@ class Downloader():
                 self.logger.warning(str(e))
             self.mpp_pid["verifier"] = None
         # join unrarer
-        unrarerstarted = False
         if self.mpp_pid["unrarer"]:
             self.logger.info("Waiting for unrar to complete")
             self.mpp_unrarer.join()
             self.mpp_pid["unrarer"] = None
-            unrarerstarted = True
         self.sighandler.mpp_pid = self.mpp_pid
         # get status
-        finalrarstate = True
-        if unrarerstarted:
-            finalrarstate = (self.pwdb.db_nzb_getstatus(nzbname) == 3)
+        finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
         finalnonrarstate = self.pwdb.db_allnonrarfiles_getstate(nzbname)
+        finalrarstate = (self.pwdb.db_nzb_get_unrarstatus(nzbname) in [0, 2])
         self.logger.info("Finalrarstate: " + str(finalrarstate) + " / Finalnonrarstate: " + str(finalnonrarstate))
-        if finalrarstate and finalnonrarstate:
-            # self.pwdb.db_nzb_update_status(nzbname, 3)
+        if finalrarstate and finalnonrarstate and finalverifierstate:
+            self.pwdb.db_nzb_update_status(nzbname, 3)
             self.logger.info("Download & postprocess of NZB " + nzbname + " ok!")
+            # call copy_to_complete(all files + delete this from incomplete)
         else:
-            # self.pwdb.db_nzb_update_status(nzbname, -1)
+            self.pwdb.db_nzb_update_status(nzbname, -3)
             self.logger.info("Download & postprocess of NZB " + nzbname + " failed!")
+            # call copy_to_complete(only good ones and keep failed files in incomplete)
+            return -1
         # copy to complete
         res0 = self.make_complete_dir()
         if not res0:
@@ -443,7 +443,7 @@ class Downloader():
         delconnections = True
         article_failed = 0
         inject_set0 = []
- 
+
         while True and not self.sighandler.signal:
             if getnextnzb:
                 allfileslist = []
@@ -594,7 +594,7 @@ class Downloader():
                 if pvmode:
                     self.logger.debug("Starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
                     self.mpp_verifier = mp.Process(target=lib.par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
-                                                                                  self.main_dir, self.logger, self.pwdb, pvmode, ))
+                                                                                  self.main_dir, self.logger, self.pwdb, nzbname, pvmode, ))
                     self.mpp_verifier.start()
                     self.mpp_pid["verifier"] = self.mpp_verifier.pid
                     self.sighandler.mpp_pid = self.mpp_pid

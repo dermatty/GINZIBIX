@@ -9,15 +9,16 @@ import time
 import pexpect
 import inotify_simple
 
-lpref = __name__ + " "
+lpref = __name__ + " - "
 
 
-def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, pvmode):
+def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, nzbname, pvmode):
     logger.info(lpref + "starting rar_verifier")
-    
+
     if pvmode == "verify":
         p2 = pwdb.get_renamed_p2(renamed_dir)
 
+    pwdb.db_nzb_update_verify_status(nzbname, 1)
     # a: verify all unverified files in "renamed"
     unverified_rarfiles = pwdb.get_all_renamed_rar_files()
     doloadpar2vols = False
@@ -101,6 +102,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
         res0 = multipartrar_repair(renamed_dir, par2name, logger)
         if res0 == 1:
             logger.info(lpref + "repair success")
+            pwdb.db_nzb_update_verify_status(nzbname, 2)
             # copy all no yet copied rars to verifiedrar_dir
             for c in corruptrars:
                 logger.info(lpref + "copying " + c.renamed_name + " to verifiedrar_dir")
@@ -109,9 +111,9 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                 shutil.copy(renamed_dir + c.renamed_name, verifiedrar_dir)
         else:
             logger.error(lpref + "repair failed!")
+            pwdb.db_nzb_update_verify_status(nzbname, -1)
             for c in corruptrars:
                 pwdb.db_file_update_parstatus(c.orig_name, -2)
-                pwdb.db_file_update_nzbstatus(c.orig_name, -1)
 
 
 def get_inotify_events(inotify):
@@ -314,7 +316,7 @@ def multipartrar_test(directory, rarname0, logger):
 def multipartrar_repair(directory, parvolname, logger):
     cwd0 = os.getcwd()
     os.chdir(directory)
-    logger.warning("MULTIRAR_REPAIR > checking if repair possible ...")
+    logger.warning(lpref + "checking if repair possible ...")
     ssh = subprocess.Popen(['par2verify', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
     sshres = ssh.stdout.readlines()
     repair_is_required = False
@@ -327,7 +329,7 @@ def multipartrar_repair(directory, parvolname, logger):
         if "Repair is possible" in ss0:
             repair_is_possible = True
     if repair_is_possible and repair_is_required:
-        logger.info("MULTIRAR_REPAIR > Repair is required and possible, performing par2repair ...")
+        logger.info(lpref + "repair is required and possible, performing par2repair ...")
         # repair
         ssh = subprocess.Popen(['par2repair', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
         sshres = ssh.stdout.readlines()
@@ -338,15 +340,15 @@ def multipartrar_repair(directory, parvolname, logger):
                 repair_complete = True
         if not repair_complete:
             exitstatus = -1
-            logger.error("MULTIRAR_REPAIR > Could not repair")
+            logger.error(lpref + "could not repair")
         else:
-            logger.info("MULTIRAR_REPAIR > Repair success!!")
+            logger.info(lpref + "repair success!!")
             exitstatus = 1
     elif repair_is_required and not repair_is_possible:
-        logger.error("MULTIRAR_REPAIR > Repair is required but not possible!")
+        logger.error(lpref + "repair is required but not possible!")
         exitstatus = -1
     elif not repair_is_required and not repair_is_possible:
-        logger.error("MULTIRAR_REPAIR > Repair is not required - all OK!")
+        logger.error(lpref + "repair is not required - all OK!")
         exitstatus = 1
     os.chdir(cwd0)
     return exitstatus

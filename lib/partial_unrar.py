@@ -57,7 +57,7 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
             rar_basislist = get_rar_files(directory)
             rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
 
-    pwdb.db_nzb_update_unrar_status(1)
+    pwdb.db_nzb_update_unrar_status(nzbname, 1)
     # first valid rar_sortedlist in place, start unrar!
     logger.info(lpref + "executing 'unrar x -y -o+ -vp'")
     cmd = "unrar x -y -o+ -vp " + rar_sortedlist[0][1] + " " + unpack_dir

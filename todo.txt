@@ -1,6 +1,9 @@
-# in ginz.py: logger pref !!!!
-# adapt output routine in ginzibix/main
-# if not p2 and #downloaded rars > 1/3 --> start parcopy: copy from renamed to verified
-     - copy _unpack0 to complete
-     - copy _renamed0 (all except par2, par2vol and rar) to complete
-     - delete incomplete
+# postprocess: copy_to_complete(all / only successfull+keep other in incomplete) - try except with shutil copytree
+# analyse states and track accordingly, z.b. downloadstate -2 --> stop, etc ...
+# download: irgendwann download unterbrechen wenn article_health < 95% or too many tries (see old ginzibix)
+# bei wiederaufnahme von processing: im richtigen Punkt according to nzb.status einsteigen!
+# gui in sep. module
+# pass states to gui
+# lpref also in ginzi.py
+# better distinction betw. info & debug in logger.
+# start download of new nzb during postprocess of old nzb ... !!?? sighandler global mit pid als dict ["nzbname"]["mpp_unrarer"] !!??
