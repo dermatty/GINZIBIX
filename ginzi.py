@@ -17,6 +17,7 @@ import re
 import lib
 import datetime
 import shutil
+import glob
 
 userhome = expanduser("~")
 maindir = userhome + "/.ginzibix/"
@@ -83,6 +84,8 @@ class Downloader():
         self.main_dir = self.dirs["incomplete"] + self.nzbdir
         self.rename_dir = self.dirs["incomplete"] + self.nzbdir + "_renamed0/"
         try:
+            if not os.path.isdir(self.dirs["incomplete"]):
+                os.mkdir(self.dirs["incomplete"])
             if not os.path.isdir(self.main_dir):
                 os.mkdir(self.main_dir)
             if not os.path.isdir(self.unpack_dir):
@@ -95,12 +98,28 @@ class Downloader():
                 os.mkdir(self.rename_dir)
         except Exception as e:
             self.logger.error(str(e) + " in creating dirs ...")
+            return -1
+        time.sleep(1)
+        return 1
 
     def make_complete_dir(self):
         self.complete_dir = self.dirs["complete"] + self.nzbdir
         try:
+            if not os.path.isdir(self.dirs["complete"]):
+                os.mkdir(self.dirs["complete"])
+        except Exception as e:
+            self.logger.error(str(e) + " in creating complete ...")
+            return False
+        if os.path.isdir(self.complete_dir):
+            try:
+                shutil.rmtree(self.complete_dir)
+            except Exception as e:
+                self.logger.error(str(e) + " in deleting complete_dir ...")
+                return False
+        try:
             if not os.path.isdir(self.complete_dir):
                 os.mkdir(self.complete_dir)
+            time.sleep(1)
             return True
         except Exception as e:
             self.logger.error(str(e) + " in creating dirs ...")
@@ -349,7 +368,7 @@ class Downloader():
                 # clear queue
                 while True:
                     try:
-                        lp2v = self.mp_parverify_inqueue.get_nowait()
+                        self.mp_parverify_inqueue.get_nowait()
                     except queue.Empty:
                         break
                 self.mpp_verifier.join()
@@ -369,48 +388,105 @@ class Downloader():
         self.logger.info("Finalrarstate: " + str(finalrarstate) + " / Finalnonrarstate: " + str(finalnonrarstate))
         if finalrarstate and finalnonrarstate and finalverifierstate:
             self.pwdb.db_nzb_update_status(nzbname, 3)
-            self.logger.info("Download & postprocess of NZB " + nzbname + " ok!")
-            # call copy_to_complete(all files + delete this from incomplete)
+            self.logger.info("Postprocess of NZB " + nzbname + " ok!")
         else:
             self.pwdb.db_nzb_update_status(nzbname, -3)
-            self.logger.info("Download & postprocess of NZB " + nzbname + " failed!")
-            # call copy_to_complete(only good ones and keep failed files in incomplete)
+            self.logger.info("Postprocess of NZB " + nzbname + " failed!")
             return -1
         # copy to complete
         res0 = self.make_complete_dir()
         if not res0:
+            self.pwdb.db_nzb_update_status(nzbname, -4)
             self.logger.info("Cannot create complete_dir for " + nzbname + ", exiting ...")
             return -1
-        postprocess_state = 1
-        nzbstatus = self.pwdb.db_nzb_getstatus(nzbname)
-        # copy all ok nonrarfiles to complete
-        alloknonrarfiles = self.pwdb.db_get_all_ok_nonrarfiles(nzbname)
-        self.logger.info("Copying successfull nonrarfiles to complete ...")
-        for a0 in alloknonrarfiles:
+        # move all non-rar/par2/par2vol files from renamed to complete
+        for f00 in glob.glob(self.rename_dir + "*.*"):
+            self.logger.debug("Renamed_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
+            if os.path.isdir(f00):
+                self.logger.debug(f00 + "is a directory, skipping")
+                continue
+            f0 = f00.split("/")[-1]
+            file0 = pwdb.db_file_get_renamed(f0)
+            if not file0:
+                gg = re.search(r"[0-9]+[.]rar[.]+[0-9]", f0, flags=re.IGNORECASE)
+                if gg:
+                    try:
+                        os.remove(f00)
+                        self.logger.debug("Removed rar.x file " + f0)
+                    except Exception as e:
+                        self.pwdb.db_nzb_update_status(nzbname, -4)
+                        self.logger.warning(str(e) + ": cannot remove corrupt rar file!")
+                else:    # if unknown file (not in db) move to complete anyway
+                    try:
+                        shutil.move(f00, self.complete_dir)
+                    except Exception as e:
+                        self.logger.warning(str(e) + ": cannot move unknown file to complete!")
+                continue
+            if file0.ftype in ["rar", "par2", "par2vol"]:
+                try:
+                    os.remove(f00)
+                    self.logger.debug("Removed rar/par2 file " + f0)
+                except Exception as e:
+                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.logger.warning(str(e) + ": cannot remove rar/par2 file!")
+            else:
+                try:
+                    shutil.move(f00, self.complete_dir)
+                    self.logger.debug("Moved non-rar/non-par2 file " + f0 + " to complete")
+                except Exception as e:
+                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.logger.warning(str(e) + ": cannot move non-rar/non-par2 file " + f00 + "!")
+        # remove download_dir
+        try:
+            shutil.rmtree(self.download_dir)
+        except Exception as e:
+            self.pwdb.db_nzb_update_status(nzbname, -4)
+            self.logger.warning(str(e) + ": cannot remove download_dir!")
+        # move content of _unrar dir to complete
+        for f00 in glob.glob(self.unpack_dir + "*.*"):
+            self.logger.debug("Unpack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
+            if not os.path.isdir(f00):
+                try:
+                    shutil.move(f00, self.complete_dir)
+                except Exception as e:
+                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.logger.warning(str(e) + ": cannot move unrared file to complete dir!")
+            else:
+                d0 = f00.split("/")[-1]
+                if os.path.isdir(self.complete_dir + d0):
+                    try:
+                        shutil.rmtree(self.complete_dir + d0)
+                    except Exception as e:
+                        self.pwdb.db_nzb_update_status(nzbname, -4)
+                        self.logger.warning(str(e) + ": cannot remove unrared dir in complete!")
+                try:
+                    shutil.copytree(f00, self.complete_dir + d0)
+                except Exception as e:
+                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.logger.warning(str(e) + ": cannot move non-rar/non-par2 file!")
+        # remove unpack_dir
+        if self.pwdb.db_nzb_getstatus(nzbname) != 4:
             try:
-                shutil.copy(self.rename_dir + a0.renamed_name, self.complete_dir)
-                os.remove(self.rename_dir + a0.renamed_name)
+                shutil.rmtree(self.unpack_dir)
+                shutil.rmtree(self.verifiedrar_dir)
             except Exception as e:
-                logger.error(str(e) + ", cannot copy " + a0.renamed_name + " to complete_dir!")
-                postprocess_state = -1
-        # copy unrared dir to complete if ok
-        if nzbstatus == 3:
-            self.logger.info("Copying unpack_dir to complete ...")
-            ld0 = [l1 for l1 in os.listdir(self.unpack_dir) if os.path.isdir(self.unpack_dir + l1)]
-            for ld in ld0:
-                self.logger.debug("Copying " + self.unpack_dir + ld + " to " + self.complete_dir + ld)
-                shutil.copytree(self.unpack_dir + ld, self.complete_dir + ld)
-            ld0 = [l1 for l1 in os.listdir(self.unpack_dir) if not os.path.isdir(self.unpack_dir + l1)]
-            for ld in ld0:
-                self.logger.debug("Copying " + self.unpack_dir + ld + " to " + self.complete_dir + ld)
-                shutil.copytree(self.unpack_dir + ld, self.complete_dir + ld)
-            shutil.rmtree(self.unpack_dir, ignore_errors=True)
-            shutil.rmtree(self.verifiedrar_dir, ignore_errors=True)
-        shutil.rmtree(self.download_dir, ignore_errors=True)
-        # check if rename_dir only contains rar / par2 & par2vol, if yes delete dir0
-        # if rename_dir is empty --> delete incomplete
-
-        return postprocess_state
+                self.pwdb.db_nzb_update_status(nzbname, -4)
+                self.logger.warning(str(e) + ": cannot remove unpack_dir / verifiedrar_dir")
+        # remove incomplete_dir
+        if self.pwdb.db_nzb_getstatus(nzbname) != 4:
+            try:
+                shutil.rmtree(self.main_dir)
+                self.pwdb.db_nzb_update_status(nzbname, 4)
+            except Exception as e:
+                self.pwdb.db_nzb_update_status(nzbname, -4)
+                self.logger.warning(str(e) + ": cannot remove incomplete_dir!")
+        # finalize
+        if self.pwdb.db_nzb_getstatus(nzbname) == -4:
+            self.logger.info("Copy/Move of NZB " + nzbname + " failed!")
+            return -1
+        else:
+            self.logger.info("Copy/Move of NZB " + nzbname + " success!")
+            return 1
 
     # main download routine
     def download_and_process(self):

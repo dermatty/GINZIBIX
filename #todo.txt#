@@ -1,0 +1,9 @@
+# if a connection fails, something happens with bytesdownloaded0 oder so ...
+# analyse states and track accordingly, z.b. downloadstate -2 --> stop, etc ...
+# download: irgendwann download unterbrechen wenn article_health < 95% or too many tries (see old ginzibix)
+# bei wiederaufnahme von processing: im richtigen Punkt according to nzb.status einsteigen!
+# gui in sep. module
+# pass states to gui
+# lpref also in ginzi.py
+# better distinction betw. info & debug in logger.
+# start download of new nzb during postprocess of old nzb ... !!?? sighandler global mit pid als dict ["nzbname"]["mpp_unrarer"] !!??
