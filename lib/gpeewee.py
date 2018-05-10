@@ -222,6 +222,13 @@ class PWDB:
             size += a.size
         return size
 
+    def db_file_getsize_renamed(self, name):
+        file0 = self.FILE.get(self.FILE.renamed_name == name)
+        size = 0
+        for a in file0.articles:
+            size += a.size
+        return size
+
     def db_allnonrarfiles_getstate(self, nzbname):
         files00 = self.FILE.select()
         files0 = [f0 for f0 in files00 if f0.nzb.name == nzbname]

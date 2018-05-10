@@ -98,7 +98,7 @@ def ParseNZB(pwdb, nzbdir, logger):
             if isfirstrun:
                 logger.debug(lpref + "scanning nzb dir ...")
             else:
-                logger.debug(lpref + "got nzb event")
+                logger.debug(lpref + "got event in nzb_dir")
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
                 if pwdb.db_nzb_exists(nzb0):

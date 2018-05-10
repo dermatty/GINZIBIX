@@ -64,6 +64,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             if pvmode == "verify" and not p2:
                 p2 = pwdb.get_renamed_p2(renamed_dir)
             if pvmode == "verify" and p2:
+                # logger.debug("-----------------------------------------------------")
                 for rar in glob.glob(renamed_dir + "*.rar"):
                     rar0 = rar.split("/")[-1]
                     f0 = pwdb.db_file_get_renamed(rar0)
