@@ -1,4 +1,4 @@
-# postprocess: copy_to_complete(all / only successfull+keep other in incomplete) - try except with shutil copytree
+# if pw protected: test pw + unrar in postprocess
 # analyse states and track accordingly, z.b. downloadstate -2 --> stop, etc ...
 # download: irgendwann download unterbrechen wenn article_health < 95% or too many tries (see old ginzibix)
 # bei wiederaufnahme von processing: im richtigen Punkt according to nzb.status einsteigen!

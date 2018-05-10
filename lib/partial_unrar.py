@@ -34,38 +34,32 @@ def get_rar_files(directory):
     return rarlist
 
 
-def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
-    logger.debug(lpref + "dir: " + directory + " / unpack: " + unpack_dir)
+def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger, password):
+    # logger.debug(lpref + "dir: " + directory + " / unpack: " + unpack_dir)
     cwd0 = os.getcwd()
     try:
         os.chdir(directory)
     except FileNotFoundError:
         os.mkdir(directory)
-    # init inotify
-    inotify = inotify_simple.INotify()
-    watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
-    inotify.add_watch(directory, watch_flags)
 
     # get already present rar files
-    eventslist = []
-    rar_basislist = get_rar_files(directory)
-    rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
-
-    # wait for first file to arrive before starting unrar if no rar files present
-    while not rar_sortedlist or rar_sortedlist[0][0] != 1:
-        events = get_inotify_events(inotify)
-        if events not in eventslist:
-            eventslist.append(events)
-            rar_basislist = get_rar_files(directory)
-            rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
+    while True:
+        rar_basislist = get_rar_files(directory)
+        rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
+        if rar_sortedlist and rar_sortedlist[0][0] == 1:
+            logger.debug(lpref + "1st rar appeared: " + str(rar_sortedlist))
+            break
+        time.sleep(1)
 
     pwdb.db_nzb_update_unrar_status(nzbname, 1)
     # first valid rar_sortedlist in place, start unrar!
-    logger.debug(lpref + "executing 'unrar x -y -o+ -vp '" + rar_sortedlist[0][1] + "' '" + unpack_dir + "'")
-    cmd = "unrar x -y -o+ -vp '" + directory + rar_sortedlist[0][1] + "' '" + unpack_dir + "'"
+    pwdstr = ""
+    if password:
+        pwdstr = "-p" + password
+    logger.debug(lpref + "executing 'unrar x -y -o+ -vp " + pwdstr + " '" + rar_sortedlist[0][1] + "' '" + unpack_dir + "'")
+    cmd = "unrar x -y -o+ -vp " + pwdstr + " '" + directory + rar_sortedlist[0][1] + "' '" + unpack_dir + "'"
     child = pexpect.spawn(cmd)
     status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
-    rarindex = 1
     while True:
         str0 = ""
         while True:
@@ -76,7 +70,7 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
                 break
             if str0[-6:] == "[Q]uit":
                 break
-        logger.debug(lpref + str0)
+        # logger.debug(lpref + str0)
         gg = re.search(r"\S*[.]rar", str0, flags=re.IGNORECASE)
         if "error" in str0:
             if "packed data checksum" in str0:
@@ -121,22 +115,6 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger):
                         logger.warning(lpref + str(e))
         time.sleep(1)   # achtung hack!
         child.sendline("C")
-        '''rarindex += 1
-        if rarindex not in [nr for nr, _ in rar_sortedlist]:
-            gotnextrar = False
-            while not gotnextrar:
-                events = get_inotify_events(inotify)
-                if events not in eventslist:
-                    eventslist.append(events)
-                    rar_basislist = get_rar_files(directory)
-                    rar_sortedlist = sorted(rar_basislist, key=lambda nr: nr[0])
-                    if rarindex in [nr for nr, _ in rar_sortedlist]:
-                        gotnextrar = True
-                        time.sleep(0.5)
-                        logger.debug(str(rarindex) + " / " + str(rar_sortedlist))
-                    else:
-                        time.sleep(0.5)'''
-        # child.sendline("C")
     logger.info(lpref + str(status) + " " + statmsg)
     os.chdir(cwd0)
     if status == 0:

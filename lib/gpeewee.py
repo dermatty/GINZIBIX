@@ -56,6 +56,8 @@ class PWDB:
             #    -1 .. verifier done + failure
             verify_status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
+            is_pw = BooleanField(default=False)
+            password = CharField(default="N/A")
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -168,6 +170,30 @@ class PWDB:
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
 
+    def db_nzb_set_password(self, nzbname, pw):
+        query = self.NZB.update(password=pw).where(self.NZB.name == nzbname)
+        query.execute()
+
+    def db_nzb_get_password(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.password
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def db_nzb_set_ispw(self, nzbname, ispw):
+        query = self.NZB.update(is_pw=ispw).where(self.NZB.name == nzbname)
+        query.execute()
+
+    def db_nzb_get_ispw(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.is_pw
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
         query = self.NZB.update(unrar_status=newstatus).where(self.NZB.name == nzbname)
         query.execute()
@@ -188,23 +214,25 @@ class PWDB:
         try:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.status
-        except:
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
             return None
 
     def db_nzb_get_unrarstatus(self, nzbname):
         try:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.unrar_status
-        except:
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
             return None
 
     def db_nzb_get_verifystatus(self, nzbname):
         try:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.verify_status
-        except:
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
             return None
-
 
     # ---- self.FILE --------
     def db_file_get_renamed(self, name):

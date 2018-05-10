@@ -69,6 +69,11 @@ class Downloader():
         self.guiqueue = guiqueue
         self.guimode = guimode
         self.mpp_pid = {"nzbparser": None, "decoder": None, "renamer": None, "verifier": None, "unrarer": None}
+        try:
+            self.pw_file = self.cfg["FOLDERS"]["PW_FILE"]
+        except Exception as e:
+            self.logger.warning(str(e) + ": no pw file provided!")
+            self.pw_file = None
 
     def init_servers(self):
         self.servers = lib.Servers(self.cfg, self.logger)
@@ -649,16 +654,27 @@ class Downloader():
                     files, infolist, bytescount00 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                     bytescount0 += bytescount00
 
-            if filetypecounter["rar"]["max"] > 0 and not self.mpp_pid["unrarer"]:
+            if filetypecounter["rar"]["max"] > 0 and filetypecounter["rar"]["counter"] > 1 and not self.pwdb.db_nzb_get_ispw(nzbname) and not self.mpp_pid["unrarer"]:
                 # start unrarer
-                do_unrar = True
-                self.logger.debug("Starting unrarer process ...")
-                self.mpp_unrarer = mp.Process(target=lib.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir, self.pwdb, nzbname, self.logger, ))
+                self.logger.info("Testing rar archive if pw protected")
+                is_pwp = lib.is_rar_password_protected(self.verifiedrar_dir, self.logger)
+                if is_pwp in [0, 2]:
+                    self.logger.info("Cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
+                    self.pwdb.db_nzb_update_status(nzbname, -2)  # status download failed
+                    getnextnzb = True
+                    delconnections = False
+                    continue
+                if is_pwp == 1:
+                    # if pw protected -> postpone password test + unrar
+                    self.pwdb.db_nzb_set_ispw(nzbname, True)
+                    self.logger.info("rar archive is pw protected, postponing unrar to postprocess ...")
+                else:
+                    # if not pw protected -> normal unrar
+                    self.mpp_unrarer = mp.Process(target=lib.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                                  self.pwdb, nzbname, self.logger, None, ))
                 self.mpp_unrarer.start()
                 self.mpp_pid["unrarer"] = self.mpp_unrarer.pid
                 self.sighandler.mpp_pid = self.mpp_pid
-            else:
-                do_unrar = False
 
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.mpp_pid["verifier"]:

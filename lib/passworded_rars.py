@@ -4,17 +4,33 @@ import re
 import logging
 import logging.handlers
 import sys
+import glob
 
 lpref = __name__ + " - "
 
 
-def is_rar_password_protected(directory, rarname0, logger):
+def get_sorted_rar_list(directory):
+    rarlist = []
+    for rarf in glob.glob("*.rar"):
+        gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
+        rarlist.append((int(gg.group().split(".")[0]), rarf))
+    rar_sortedlist = []
+    if rarlist:
+        rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
+    return rar_sortedlist
+
+
+def is_rar_password_protected(directory, logger):
     # return value:
     #    1 ... is pw protected
     #    0 ... is not a rar file
     #    -1 .. is not pw protected
-    #    -2 .. other error
+    #    -2 .. no rars in dir!
     cwd0 = os.getcwd()
+    rars = get_sorted_rar_list(directory)
+    if not rars:
+        return -2
+    rarname0 = rars[0][1]
     rarname = rarname0.split("/")[-1]
     os.chdir(directory)
     logger.info(lpref + "checking if rar is passworded")
@@ -38,7 +54,11 @@ def is_rar_password_protected(directory, rarname0, logger):
         return -1
 
 
-def get_password(directory, pw_file, rarname0, nzbname0, logger):
+def get_password(directory, pw_file, nzbname0, logger):
+    rars = get_sorted_rar_list(directory)
+    if not rars:
+        return None
+    rarname0 = rars[0][1]
     rarname = rarname0.split("/")[-1]
     nzbname = nzbname0.split(".nzb")[0]
     # PW file format:

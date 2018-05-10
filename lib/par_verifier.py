@@ -115,6 +115,8 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             pwdb.db_nzb_update_verify_status(nzbname, -1)
             for c in corruptrars:
                 pwdb.db_file_update_parstatus(c.orig_name, -2)
+    else:
+        pwdb.db_nzb_update_verify_status(nzbname, 2)
 
 
 def get_inotify_events(inotify):
