@@ -11,7 +11,7 @@ lpref = __name__ + " - "
 
 def get_sorted_rar_list(directory):
     rarlist = []
-    for rarf in glob.glob("*.rar"):
+    for rarf in glob.glob(directory + "*.rar"):
         gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
         rarlist.append((int(gg.group().split(".")[0]), rarf))
     rar_sortedlist = []
@@ -27,6 +27,8 @@ def is_rar_password_protected(directory, logger):
     #    -1 .. is not pw protected
     #    -2 .. no rars in dir!
     cwd0 = os.getcwd()
+    if directory[-1] != "/":
+        directory += "/"
     rars = get_sorted_rar_list(directory)
     if not rars:
         return -2
@@ -55,6 +57,8 @@ def is_rar_password_protected(directory, logger):
 
 
 def get_password(directory, pw_file, nzbname0, logger):
+    if directory[-1] != "/":
+        directory += "/"
     rars = get_sorted_rar_list(directory)
     if not rars:
         return None
@@ -67,8 +71,12 @@ def get_password(directory, pw_file, nzbname0, logger):
     #      pw
     #  b)  filename1 <:::> pw1
     #      filename2 <:::> pw2
-    with open(pw_file, "r") as f0:
-        pw_list = f0.readlines()
+    try:
+        with open(pw_file, "r") as f0:
+            pw_list = f0.readlines()
+    except Exception as e:
+        logger.warning(str(e) + ": cannot open/read pw file")
+        return None
 
     cwd0 = os.getcwd()
     os.chdir(directory)
@@ -124,23 +132,23 @@ if __name__ == "__main__":
 
     # test if password protected
     directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_unpack0"
-    rarname0 = "0OriJpkzUSAYmK.part1.rar"
-    ipw = is_rar_password_protected(directory, rarname0, logger)
+    ipw = is_rar_password_protected(directory, logger)
     if ipw == 1:
-        print(rarname0 + " is pw protected!")
+        print("is pw protected!")
     elif ipw == -1:
-        print(rarname0 + " is NOT pw protected!")
+        print("is NOT pw protected!")
     elif ipw == 0:
-        print(rarname0 + " is not a rar file!")
+        print("is not a rar file!")
+
+    print(ipw)
 
     if ipw != 1:
         sys.exit()
     # try passwords
     directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_verifiedrars0"
     pw_file = "/home/stephan/.ginzibix/PW_2"
-    rarname0 = "0OriJpkzUSAYmK.part1.rar"
     nzbname0 = "therainS01E01.nzb"
-    pw = get_password(directory, pw_file, rarname0, nzbname0, logger)
+    pw = get_password(directory, pw_file, nzbname0, logger)
     print("Password: " + str(pw))
 
     # test if password protected

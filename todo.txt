@@ -1,4 +1,4 @@
-# if pw protected: test pw + unrar in postprocess
+# if 2 nzb hintereinander gestartet -> par_Verifier startet nicht!
 # analyse states and track accordingly, z.b. downloadstate -2 --> stop, etc ...
 # download: irgendwann download unterbrechen wenn article_health < 95% or too many tries (see old ginzibix)
 # bei wiederaufnahme von processing: im richtigen Punkt according to nzb.status einsteigen!
