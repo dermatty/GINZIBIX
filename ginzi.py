@@ -410,13 +410,21 @@ class Downloader():
             self.mpp_unrarer.start()
             self.mpp_pid["unrarer"] = self.mpp_unrarer.pid
             self.sighandler.mpp_pid = self.mpp_pid
+        finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
         # join unrarer
         if self.mpp_pid["unrarer"]:
-            self.logger.info("Waiting for unrar to complete")
-            self.mpp_unrarer.join()
+            if finalverifierstate:
+                self.logger.info("Waiting for unrar to complete")
+                self.mpp_unrarer.join()
+            else:
+                self.logger.info("Repair/unrar not possible, killing unrarer!")
+                try:
+                    os.kill(self.mpp_pid["unrarer"], signal.SIGKILL)
+                except Exception as e:
+                    self.logger.debug(str(e))
             self.mpp_pid["unrarer"] = None
-        self.sighandler.mpp_pid = self.mpp_pid
-        self.logger.debug("Unrarer completed")
+            self.sighandler.mpp_pid = self.mpp_pid
+            self.logger.debug("Unrarer stopped!")
         # get status
         finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
         finalnonrarstate = self.pwdb.db_allnonrarfiles_getstate(nzbname)
@@ -682,8 +690,9 @@ class Downloader():
                     overall_size = overall_size_wparvol
                     self.logger.info("Queuing par2vols")
                     inject_set0 = ["par2vol"]
-                    files, infolist, bytescount00 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+                    files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                     bytescount0 += bytescount00
+                    article_count += article_count0
 
             if filetypecounter["rar"]["counter"] >= 1 and not self.pwdb.db_nzb_get_ispw(nzbname) and not self.mpp_pid["unrarer"]:
                 # testing if pw protected
