@@ -245,6 +245,7 @@ class Downloader():
                 level_servers = self.get_level_servers(age)
                 files[filename] = (nr_articles, age, filetype, False, True)
                 infolist[filename] = [None] * nr_articles
+                self.pwdb.db_file_update_status(filename, 1)   # status do downloading
                 for i, art0 in enumerate(file_articles):
                     if i == 0:
                         continue

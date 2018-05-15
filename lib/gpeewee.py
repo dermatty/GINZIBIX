@@ -1,9 +1,11 @@
 from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
 import os
+import shutil
 from os.path import expanduser
 import time
 import glob
 import re
+
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
 else:
@@ -11,6 +13,10 @@ else:
 
 
 lpref = __name__ + " - "
+
+
+def lists_are_equal(list1, list2):
+    return set(list1) == set(list2) and len(list1) == len(list2)
 
 
 class PWDB:
@@ -68,6 +74,12 @@ class PWDB:
             age = IntegerField(default=0)
             ftype = CharField()
             timestamp = TimeField()
+            # file status:
+            #   0 ... idle
+            #   1 ... queued
+            #   2 ... download success
+            #   -1 .. download error
+            # db_file_update_status(filename, 1)
             status = IntegerField(default=0)
 
         class ARTICLE(BaseModel):
@@ -467,6 +479,9 @@ class PWDB:
                 break
         return dir0 + file0.orig_name, file_already_exists
 
+
+
+
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
     #      to download threads
@@ -479,6 +494,98 @@ class PWDB:
                            "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
         try:
+            nzb = self.NZB.select().where((self.NZB.status in [1, 2, 3])).order_by(self.NZB.priority)[0]
+        except Exception as e:
+            self.logger.info(lpref + str(e) + ": no NZBs to queue")
+            return None, None, None, None, None, None, None
+        nzbname = nzb.name
+        nzbstatus = self.db_nzb_getstatus(nzbname)
+        nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
+        incompletedir = dir0 + nzbdir
+        dir00 = dir0 + nzbdir + "_downloaded0/"
+        dir01 = dir0 + nzbdir + "_renamed0/"
+        # state "queued"
+        if nzbstatus == 1:
+            files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
+            if not files:
+                self.logger.info(lpref + "No files to download for NZB " + nzb.name)
+                self.db_nzb_update_status(nzbname, -1)     # download failed as no files present
+                return None, None, None, None, None, None, None
+            # if queued and incomplete dir exists -> delete, because of inconsistent state!
+            try:
+                if os.path.isdir(incompletedir):
+                    self.logger.info(lpref + "Removing incomplete_dir")
+                    shutil.rmtree(incompletedir)
+            except Exception as e:
+                self.logger.error(lpref + str(e) + ": error in removing incomplete_dir")
+                self.db_nzb_update_status(nzbname, -1)     # download failed as no files present
+                return None, None, None, None, None, None, None
+            # set all files to status "queued" / 0
+            for f0 in files:
+                self.db_file_update_status(f0.orig_name, 0)
+            # loop through files and make allfileslist
+            idx = 0
+            overall_size = 0
+            overall_size_wparvol = 0
+            already_downloaded_size = 0
+            p2 = None
+            for f0 in files:
+                articles = [articles0 for articles0 in f0.articles]
+                f0size = sum([a.size for a in articles])
+                if f0.ftype == "par2vol":
+                    overall_size_wparvol += f0size
+                else:
+                    overall_size += f0size
+                filetypecounter[f0.ftype]["max"] += 1
+                filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
+                self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
+                allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
+                articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
+                for a in articles:
+                    allok = True
+                    if len(allfilelist[idx]) > 2:
+                        for i1, art in enumerate(allfilelist[idx]):
+                            if i1 > 1:
+                                nr1, fn1, _ = art
+                                if nr1 == a.number:
+                                    allok = False
+                                    break
+                    if allok:
+                        allfilelist[idx].append((a.number, a.name, a.size))
+                idx += 1
+            if allfilelist:
+                self.db_nzb_update_status(nzbname, 1)
+                gbdivisor = (1024 * 1024 * 1024)
+                overall_size /= gbdivisor
+                overall_size_wparvol /= gbdivisor
+                overall_size_wparvol += overall_size
+                already_downloaded_size /= gbdivisor
+                return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+            else:
+                self.db_nzb_update_status(nzbname, -1)
+                return None, None, None, None, None, None, None
+
+        # state "downloading"
+        elif nzbstatus == 2:
+            dir_downloaded = dir0 + nzbdir + "_downloaded0/"
+            dir_renamed = dir0 + nzbdir + "_renamed0/"
+            dir_unpack = dir0 + nzbdir + "_unpack0/"
+            dir_verified = dir0 + nzbdir + "_verifiedrars0/"
+            files = [files0 for files0 in nzb.files]
+
+            # check consistency: verified
+            verified_files = [f0.renamed_name for f0 in files if f0.parverify_state == 1]
+            rars_in_verified_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_verified + "*")]
+            if not lists_are_equal(verified_files, rars_in_verified_dir):
+                self.logger.warning(lpref + "inconsistency in verified rars, resetting")
+                self.reset_nzb(nzbname)
+
+        # state "postprocessing"
+        else:
+            pass
+
+        # --------------------------------------------------------------------------------------
+        '''try:
             nzb = self.NZB.select().where((self.NZB.status == 1)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
@@ -492,6 +599,7 @@ class PWDB:
         if not files:
             self.logger.info(lpref + "No files to download for NZB " + nzb.name)
             return None, None, None, None, None, None, None
+        
         idx = 0
         overall_size = 0
         overall_size_wparvol = 0
@@ -549,7 +657,7 @@ class PWDB:
             return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
         else:
             self.db_nzb_update_status(nzbname, 2)
-            return None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None'''
 
 
 if __name__ == "__main__":
@@ -573,38 +681,5 @@ if __name__ == "__main__":
     print(aok)
     fall = pwdb.db_file_getall()
     for f in fall:
-         print(f)
+        print(f)
 
-''''
-# ---- QUEUER -----------------------------------------------------------------
-
-def db_queue_files(max_cache):
-    # get articles right now processed
-    articlesrunning = [article for article in ARTICLE.select().where(ARTICLE.status == 0)]
-    artrun_size = sum([article.size for article in articlesrunning])
-    if artrun_size >= max_cache:
-        return None
-    # get not finalized nzb
-    nzbs = [nzb for nzb in NZB.select().where(NZB.status in [0, 1]).order_by(NZB.priority)]
-    if not nzbs:
-        return None
-    # now, get all not yet downloaded files for these NZBs
-    files = [files0 for files0 in nzbs.files if files0.status in [0, 1]]
-    if not files:
-        return None
-    # finally, all not downloaded articles
-    articles = [articles0 for articles0 in files.articles if articles0.status == 0]
-    if not articles:
-        return None
-    newarticles = []
-    size0 = artrun_size
-    i = 0
-    while size0 < max_cache and i < len(articles):
-        newarticles.append((articles[i].name, articles[i].fileentry.orig_name, articles[i].fileentry.nzb.name))
-        size0 += articles[i].size
-        i += 1
-    # todo:
-    #       check if nzbpriority is preserved
-    #       move par2 files(articles that belong to par2files) to the beginning of newarticles
-    #                  i.e. oben files = [files0 ] .... par2s vorziehen
-return newarticles'''
