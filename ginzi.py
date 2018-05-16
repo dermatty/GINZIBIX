@@ -305,7 +305,8 @@ class Downloader():
     def make_allfilelist_inotify(self, timeout0):
         # immediatley get allfileslist
         if timeout0 and timeout0 <= -1:
-            allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+            allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                = self.pwdb.make_allfilelist(self.dirs["incomplete"], self.dirs["nzb"])
             if nzbname:
                 self.logger.debug("Inotify: no timeout, got nzb " + nzbname + " immediately!")
                 return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
@@ -323,7 +324,8 @@ class Downloader():
                 self.logger.debug("got notify event on " + str(event.name))
                 if event.name == u"ginzibix.db":
                     self.logger.debug("Database updated, now checking for nzbname & data")
-                    allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 = self.pwdb.make_allfilelist(self.dirs["incomplete"])
+                    allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                        = self.pwdb.make_allfilelist(self.dirs["incomplete"], self.dirs["nzb"])
                     if nzbname:
                         self.logger.debug("new nzb found in db, queuing ...")
                         pwdb_inotify.rm_watch(wd)

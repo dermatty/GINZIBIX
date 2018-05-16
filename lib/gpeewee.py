@@ -135,9 +135,15 @@ class PWDB:
             self.logger.warning(lpref + name0 + ": " + str(e))
         return new_nzb
 
-    def db_nzb_delete(self, name):
-        query = self.NZB.delete().where(self.NZB.name == name)
-        query.execute()
+    def db_nzb_delete(self, nzbname):
+        files = self.FILE.select().where(self.FILE.nzb.name == nzbname)
+        for f0 in files:
+            query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry.orig_name == f0.orig_name)
+            query_articles.execute()
+        query_files = self.FILE.delete().where(self.FILE.nzb.name == nzbname)
+        query_files.execute()
+        query_nzb = self.NZB.delete().where(self.NZB.name == nzbname)
+        query_nzb.execute()
 
     def db_nzb_loadpar2vols(self, name):
         try:
@@ -479,13 +485,26 @@ class PWDB:
                 break
         return dir0 + file0.orig_name, file_already_exists
 
+    def nzb_reset(self, nzbname, incompletedir, nzbdir):
+        # delete nzb + files + articles in db
+        self.db_nzb_delete(nzbname)
+        # delete incomplete_dir
+        self.logger.warning(lpref + "inconsistency in verified rars, deleting incomplete_dir")
+        try:
+            if os.path.isdir(incompletedir):
+                self.logger.info(lpref + "Removing incomplete_dir")
+                shutil.rmtree(incompletedir)
+        except Exception as e:
+            self.logger.error(lpref + str(e) + ": error in removing incomplete_dir")
+        # rename nzbfile in order to provoque re-read by nzb-parser
+        oldnzb = nzbdir + nzbname
+        newnzb = nzbdir + nzbname + "(1)"
+        try:
+            os.rename(oldnzb, newnzb)
+        except Exception as e:
+            self.logger.error(lpref + str(e) + ": error in renaming nzb")
 
-
-
-    # ---- make_allfilelist -------
-    #      makes a file/articles list out of top-prio nzb, ready for beeing queued
-    #      to download threads
-    def make_allfilelist(self, dir0):
+    def create_allfile_list(self, nzb, dir0):
         allfilelist = []
         filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
@@ -493,6 +512,75 @@ class PWDB:
                            "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
+        nzbname = nzb.name
+        nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
+        dir00 = dir0 + nzbdir + "_downloaded0/"
+        dir01 = dir0 + nzbdir + "_renamed0/"
+        files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
+        if not files:
+            self.logger.info(lpref + "No files to download for NZB " + nzb.name)
+            return None, None, None, None, None, None, None
+        idx = 0
+        overall_size = 0
+        overall_size_wparvol = 0
+        already_downloaded_size = 0
+        p2 = None
+        for f0 in files:
+            articles = [articles0 for articles0 in f0.articles]
+            f0size = sum([a.size for a in articles])
+            if f0.ftype == "par2vol":
+                overall_size_wparvol += f0size
+            else:
+                overall_size += f0size
+            filetypecounter[f0.ftype]["max"] += 1
+            filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
+            self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
+            if f0.status == 2:
+                # file already downloaded
+                filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir01)
+                if file_already_exists and f0.ftype == "par2":
+                    p2 = Par2File(dir01 + f0.renamed_name)
+                elif not file_already_exists:
+                    filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
+                self.logger.info(lpref + filename0 + ", found on dir: " + str(file_already_exists))
+                if file_already_exists:
+                    filetypecounter[f0.ftype]["counter"] += 1
+                    md5 = calc_file_md5hash(filename0)
+                    filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
+                    already_downloaded_size += f0size
+                    continue
+                else:
+                    self.db_file_update_status(f0.orig_name, 0)
+            allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
+            articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
+            for a in articles:
+                allok = True
+                if len(allfilelist[idx]) > 2:
+                    for i1, art in enumerate(allfilelist[idx]):
+                        if i1 > 1:
+                            nr1, fn1, _ = art
+                            if nr1 == a.number:
+                                allok = False
+                                break
+                if allok:
+                    allfilelist[idx].append((a.number, a.name, a.size))
+            idx += 1
+        if allfilelist:
+            self.db_nzb_update_status(nzbname, 1)
+            gbdivisor = (1024 * 1024 * 1024)
+            overall_size /= gbdivisor
+            overall_size_wparvol /= gbdivisor
+            overall_size_wparvol += overall_size
+            already_downloaded_size /= gbdivisor
+            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+        else:
+            self.db_nzb_update_status(nzbname, 2)
+            return None, None, None, None, None, None, None
+
+    # ---- make_allfilelist -------
+    #      makes a file/articles list out of top-prio nzb, ready for beeing queued
+    #      to download threads
+    def make_allfilelist(self, dir0, nzbdir):
         try:
             nzb = self.NZB.select().where((self.NZB.status in [1, 2, 3])).order_by(self.NZB.priority)[0]
         except Exception as e:
@@ -502,8 +590,6 @@ class PWDB:
         nzbstatus = self.db_nzb_getstatus(nzbname)
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
         incompletedir = dir0 + nzbdir
-        dir00 = dir0 + nzbdir + "_downloaded0/"
-        dir01 = dir0 + nzbdir + "_renamed0/"
         # state "queued"
         if nzbstatus == 1:
             files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
@@ -524,61 +610,28 @@ class PWDB:
             for f0 in files:
                 self.db_file_update_status(f0.orig_name, 0)
             # loop through files and make allfileslist
-            idx = 0
-            overall_size = 0
-            overall_size_wparvol = 0
-            already_downloaded_size = 0
-            p2 = None
-            for f0 in files:
-                articles = [articles0 for articles0 in f0.articles]
-                f0size = sum([a.size for a in articles])
-                if f0.ftype == "par2vol":
-                    overall_size_wparvol += f0size
-                else:
-                    overall_size += f0size
-                filetypecounter[f0.ftype]["max"] += 1
-                filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
-                self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
-                allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
-                articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
-                for a in articles:
-                    allok = True
-                    if len(allfilelist[idx]) > 2:
-                        for i1, art in enumerate(allfilelist[idx]):
-                            if i1 > 1:
-                                nr1, fn1, _ = art
-                                if nr1 == a.number:
-                                    allok = False
-                                    break
-                    if allok:
-                        allfilelist[idx].append((a.number, a.name, a.size))
-                idx += 1
-            if allfilelist:
-                self.db_nzb_update_status(nzbname, 1)
-                gbdivisor = (1024 * 1024 * 1024)
-                overall_size /= gbdivisor
-                overall_size_wparvol /= gbdivisor
-                overall_size_wparvol += overall_size
-                already_downloaded_size /= gbdivisor
-                return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
-            else:
-                self.db_nzb_update_status(nzbname, -1)
-                return None, None, None, None, None, None, None
+            return self.create_allfile_list(nzb, incompletedir)
 
         # state "downloading"
         elif nzbstatus == 2:
-            dir_downloaded = dir0 + nzbdir + "_downloaded0/"
             dir_renamed = dir0 + nzbdir + "_renamed0/"
-            dir_unpack = dir0 + nzbdir + "_unpack0/"
             dir_verified = dir0 + nzbdir + "_verifiedrars0/"
             files = [files0 for files0 in nzb.files]
 
             # check consistency: verified
+            self.logger.debug(lpref + "checking verified_rars consistency")
             verified_files = [f0.renamed_name for f0 in files if f0.parverify_state == 1]
             rars_in_verified_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_verified + "*")]
             if not lists_are_equal(verified_files, rars_in_verified_dir):
-                self.logger.warning(lpref + "inconsistency in verified rars, resetting")
-                self.reset_nzb(nzbname)
+                self.logger.warning(lpref + "inconsistency in verified rars, deleting nzb in db")
+                self.nzb_reset(nzbname, incompletedir, nzbdir)
+                return None, None, None, None, None, None, None
+            # check consistency: renamed
+            self.logger.debug(lpref + "verified_dir consistent, checking renamed_dir")
+            renamed_files = [f0.renamed_name for f0 in files if f0.renamed_name != "N/A"]
+            files_in_renamed_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_renamed + "*")]
+            # todo: vergleichen, aber reparierte rars berücksichtigen
+            return self.create_allfile_list(nzb, incompletedir)
 
         # state "postprocessing"
         else:
