@@ -342,6 +342,7 @@ class Downloader():
 
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
+        # self.sighandler.shutdown()
         # guimode console / server
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
         if self.guimode == 1:
