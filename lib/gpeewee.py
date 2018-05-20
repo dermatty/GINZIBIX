@@ -626,10 +626,11 @@ class PWDB:
             # loop through files and make allfileslist
             return self.create_allfile_list(nzb, incompletedir)
 
-        # state "downloading"
-        elif nzbstatus == 2:
+        # state "downloading" / "postprocessing"
+        elif nzbstatus in [2, 3]:
             dir_renamed = dir0 + nzbdir + "_renamed0/"
             dir_verified = dir0 + nzbdir + "_verifiedrars0/"
+            dir_downloaded = dir0 + nzbdir + "_downloaded0/"
             files = [files0 for files0 in nzb.files]
 
             # check consistency: verified
@@ -646,14 +647,44 @@ class PWDB:
             files_in_renamed_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_renamed + "*")]
             files_in_renamed_dir = [f0 for f0 in files_in_renamed_dir if f0[-6:-2] != ".rar."]
             if not lists_are_equal(renamed_files, files_in_renamed_dir):
-                self.logger.warning(lpref + "inconsistency in renamed_dir, deleting nzb in db")
+                self.logger.warning(lpref + "inconsistency in renamed_dir, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
                 return None, None, None, None, None, None, None
-            return self.create_allfile_list(nzb, incompletedir)
-
-        # state "postprocessing"
-        else:
-            pass
+            # check if all downloaded files exist in _renamed or _downloaded0
+            self.logger.debug(lpref + "renamed_dir consistent, checking if all downloaded files exist")
+            files_in_downloaded_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_downloaded + "*")]
+            inconsistent = False
+            for f0 in files:
+                if f0.status == 2:
+                    if f0.orig_name not in files_in_downloaded_dir and f0.renamed_name not in files_in_renamed_dir:
+                        inconsistent = True
+                        break
+            if inconsistent:
+                self.logger.warning(lpref + "inconsistency in downloaded files, deleting nzb in db/filesystem")
+                self.nzb_reset(nzbname, incompletedir, nzbdir)
+                return None, None, None, None, None, None, None
+            allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                = self.create_allfile_list(nzb, incompletedir)
+            if nzbstatus == 2:
+                return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+            # if postprocessing: check if all files are downloaded
+            # if loadpar2vols == True: check if complete
+            if self.db_nzb_loadpar2vols(nzbname):
+                if filetypecounter["par2vol"]["max"] > filetypecounter["par2vol"]["counter"]:
+                    self.logger.warning(lpref + "not all par2vol downloaded, deleting nzb in db/filesystem")
+                    self.nzb_reset(nzbname, incompletedir, nzbdir)
+                    return None, None, None, None, None, None, None
+            # check all other filetypes if complete
+            inconsistent = False
+            for fset in ["par2", "rar", "sfv", "nfo", "etc"]:
+                if filetypecounter[fset]["max"] > filetypecounter[fset]["counter"]:
+                    inconsistent = True
+                    break
+            if inconsistent:
+                self.logger.warning(lpref + "not all files downloaded although in postproc. state, deleting nzb in db/filesystem")
+                self.nzb_reset(nzbname, incompletedir, nzbdir)
+                return None, None, None, None, None, None, None
+            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
 
         # --------------------------------------------------------------------------------------
         '''try:

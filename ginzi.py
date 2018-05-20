@@ -597,7 +597,8 @@ class Downloader():
                 # poll for 30 sec if no nzb immediately found
                 if not nzbname:
                     self.logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
-                    allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 = self.make_allfilelist_inotify(30 * 1000)
+                    allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                        = self.make_allfilelist_inotify(30 * 1000)
                     if not nzbname:
                         if self.threads:
                             # if no success: close all connections and poll blocking
@@ -611,7 +612,8 @@ class Downloader():
                             delconnections = True
                         self.logger.debug("Polling for new NZBs now in blocking mode!")
                         try:
-                            allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 = self.make_allfilelist_inotify(None)
+                            allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                                = self.make_allfilelist_inotify(None)
                         except Exception as e:
                             self.logger.warning("!!! " + str(e))
                 # new nzb here, inject sets
@@ -691,6 +693,7 @@ class Downloader():
                     except queue.Empty:
                         break
                 if loadpar2vols:
+                    self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
                     overall_size = overall_size_wparvol
                     self.logger.info("Queuing par2vols")
                     inject_set0 = ["par2vol"]
