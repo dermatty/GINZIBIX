@@ -332,9 +332,13 @@ class PWDB:
             self.logger.warning(lpref + str(e))
             return None
 
-    def get_renamed_p2(self, dir01):
+    def get_renamed_p2(self, dir01, nzbname):
         try:
-            par2file0 = self.FILE.get(self.FILE.ftype == "par2")
+            par2file0list = [nf for nf in self.NZB.get(self.NZB.name == nzbname).files if nf.ftype == "par2"]
+            if par2file0list:
+                par2file0 = par2file0list[0]
+            else:
+                raise("multiple par2 files appeared!")
             if par2file0.renamed_name != "N/A":
                 self.logger.debug(lpref + "got par2 file: " + par2file0.renamed_name)
                 p2 = Par2File(dir01 + par2file0.renamed_name)
@@ -342,15 +346,21 @@ class PWDB:
             else:
                 return None
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            print("Exception - " + str(e))
+            self.logger.warning(lpref + "get_renamed_p2: " + str(e))
             return None
 
-    def db_get_renamed_par2(self):
+    def db_get_renamed_par2(self, nzbname):
         try:
-            par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A")
+            par2list = [nf for nf in self.NZB.get(self.NZB.name == nzbname).files if nf.ftype == "par2" and nf.renamed_name != "N/A"]
+            if par2list:
+                par2 = par2list[0]
+            else:
+                raise("multiple par2 files appeared!")
+            # par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A", self.FILE.nzb.name == nzbname)
             return par2.renamed_name
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(lpref + "db_get_renamed_par2 " + str(e))
             return None
 
     def db_file_update_status(self, filename, newstatus):
@@ -596,10 +606,12 @@ class PWDB:
     #      to download threads
     def make_allfilelist(self, dir0, nzbdir):
         try:
-            nzb = self.NZB.select().where((self.NZB.status in [1, 2, 3])).order_by(self.NZB.priority)[0]
+            nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
+                                          | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
             return None, None, None, None, None, None, None
+        self.logger.info(lpref + "analyzing NZB: " + nzb.name + " with status: " + str(nzb.status))
         nzbname = nzb.name
         nzbstatus = self.db_nzb_getstatus(nzbname)
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
@@ -624,6 +636,7 @@ class PWDB:
             for f0 in files:
                 self.db_file_update_status(f0.orig_name, 0)
             # loop through files and make allfileslist
+            self.logger.info(lpref + "All, ok. Created allfilelist")
             return self.create_allfile_list(nzb, incompletedir)
 
         # state "downloading" / "postprocessing"
@@ -776,12 +789,15 @@ if __name__ == "__main__":
 
     pwdb = PWDB(logger)
 
-    nzbname = 'Florida_project.nzb'
+    nzbname = 'Burg.Schreckenstein.2.nzb'
     aok = pwdb.db_get_all_ok_nonrarfiles(nzbname)
     stat = pwdb.db_nzb_getstatus(nzbname)
 
     print(aok)
+    print("orig_name, renamed_name, ftype, nzb.name, timestamp, status, parverify_state, f.age, f.nr_articles, f.status")
     fall = pwdb.db_file_getall()
     for f in fall:
         print(f)
 
+    pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Burg.Schreckenstein.2/_renamed0/", nzbname)
+    print(pp2)

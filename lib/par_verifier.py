@@ -14,9 +14,9 @@ lpref = __name__ + " - "
 
 def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, nzbname, pvmode):
     logger.info(lpref + "starting rar_verifier")
-
+    logger.debug(lpref + "dirs: " + renamed_dir + " / " + verifiedrar_dir)
     if pvmode == "verify":
-        p2 = pwdb.get_renamed_p2(renamed_dir)
+        p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
 
     pwdb.db_nzb_update_verify_status(nzbname, 1)
     # a: verify all unverified files in "renamed"
@@ -62,7 +62,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
         events = get_inotify_events(inotify)
         if events or 0 in allparstatus:
             if pvmode == "verify" and not p2:
-                p2 = pwdb.get_renamed_p2(renamed_dir)
+                p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
             if pvmode == "verify" and p2:
                 # logger.debug("-----------------------------------------------------")
                 for rar in glob.glob(renamed_dir + "*.rar"):
@@ -96,7 +96,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             break
         time.sleep(1)
 
-    par2name = pwdb.db_get_renamed_par2()
+    par2name = pwdb.db_get_renamed_par2(nzbname)
     corruptrars = pwdb.get_all_corrupt_rar_files()
     if par2name and corruptrars:
         logger.info(lpref + "par2vol files present, repairing ...")
