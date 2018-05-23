@@ -32,7 +32,7 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 fh.setFormatter(formatter)
 
 t0 = time.time()
-for n in range(0, 100):
+for n in range(0, 3):
     logger.info("servas ")
 print(time.time() - t0)
 
@@ -41,6 +41,8 @@ print(msg0[ll].nzbname, msg0[ll].timestamp, msg0[ll].message)
 
 for m in msg0:
     print(m.nzbname, m.timestamp, m.message)
-# logger.removeHandler(nzbhandler)
 
-# logger.info("servas")
+pwdb.db_msg_removeall(nzbname)
+logger.removeHandler(nzbhandler)
+
+logger.info("servas00")

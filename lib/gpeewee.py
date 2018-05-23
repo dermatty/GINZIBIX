@@ -151,6 +151,13 @@ class PWDB:
             self.logger.warning(lpref + str(e))
             return None, None
 
+    def db_msg_removeall(self, nzbname0):
+        try:
+            query = self.MSG.delete().where(self.MSG.nzbname == nzbname0)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+
     # ---- self.NZB --------
     def db_nzb_insert(self, name0):
         try:

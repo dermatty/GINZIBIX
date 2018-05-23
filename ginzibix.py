@@ -47,6 +47,18 @@ fh.setFormatter(formatter)
 logger.addHandler(fh)'''
 
 
+# logginghandler for storing msgs in db
+class NZBHandler(logging.Handler):
+    def __init__(self, arg0, pwdb):
+        logging.Handler.__init__(self)
+        self.nzbname = arg0
+        self.pwdb = pwdb
+
+    def emit(self, record):
+        # record.message is the log message
+        self.pwdb.db_msg_insert(self.nzbname, record.message, record.levelname)
+
+
 # Handles download of a NZB file
 class Downloader():
     def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp_pid, logger):
@@ -207,7 +219,10 @@ class Downloader():
         else:
             print("Eta: - (done!)" + " " * 40)
         print()
-        for _ in range(len(self.ct.threads) + 7):
+        msg0, ll = self.pwdb.db_msg_get(nzbname)
+        if msg0:
+            print(msg0[ll].message[:60])
+        for _ in range(len(self.ct.threads) + 8):
             sys.stdout.write("\033[F")
 
     def getbytescount(self, filelist):
@@ -808,17 +823,31 @@ def main(cfg, pwdb, logger):
     signal.signal(signal.SIGINT, sighandler.signalhandler)
     signal.signal(signal.SIGTERM, sighandler.signalhandler)
 
+    logging.handlers.NZBHandler = NZBHandler
+
     dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp_pid, logger)
     while True:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = get_next_nzb(pwdb, dirs, ct, logger)
         ct.reset_timestamps_bdl()
+
+        # setup db logging handler for NZB
+        nzbhandler = logging.handlers.NZBHandler(nzbname, pwdb)
+        logger.addHandler(nzbhandler)
+        nzbhandler.setLevel(logging.INFO)
+
+        # download nzb
         nzbname, downloaddata = dl.download(allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2)
+
+        # if download success, postprocess
         stat0 = pwdb.db_nzb_getstatus(nzbname)
         if stat0 > 0:
             dl.postprocess_nzb(nzbname, downloaddata)
-        # dl.sighandler.shutdown()
-        # break
+
+        # delete NZB / db logging handler
+        pwdb.db_msg_removeall(nzbname)
+        logger.removeHandler(nzbhandler)
+        del nzbhandler
 
 
 # -------------------- main --------------------
