@@ -9,7 +9,7 @@ lpref = __name__ + " - "
 class ConnectionWorker(Thread):
     def __init__(self, lock, connection, articlequeue, resultqueue, servers, logger):
         Thread.__init__(self)
-        # self.daemon = True
+        self.daemon = True
         self.logger = logger
         self.connection = connection
         self.articlequeue = articlequeue

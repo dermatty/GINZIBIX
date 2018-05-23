@@ -34,6 +34,12 @@ class PWDB:
             class Meta:
                 database = self.db
 
+        class MSG(BaseModel):
+            nzbname = CharField()
+            timestamp = TimeField()
+            message = CharField()
+            level = CharField()
+
         class NZB(BaseModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
@@ -114,13 +120,36 @@ class PWDB:
             db.close()
             return low
 
+        self.MSG = MSG
         self.NZB = NZB
         self.FILE = FILE
         self.ARTICLE = ARTICLE
-        self.tablelist = [self.NZB, self.FILE, self.ARTICLE]
+        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG]
         self.db.connect()
         self.db.create_tables(self.tablelist)
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
+
+    # ---- self.MSG --------
+    def db_msg_insert(self, nzbname0, msg0, level0, maxitems=10):
+        new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
+        toomuchdata = True
+        while toomuchdata:
+            allmsg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
+            if len(allmsg) > maxitems:
+                mints = allmsg[0].timestamp
+                query = self.MSG.delete().where(self.MSG.nzbname == nzbname0 and self.MSG.timestamp == mints)
+                query.execute()
+            else:
+                toomuchdata = False
+        return new_msg
+
+    def db_msg_get(self, nzbname0):
+        try:
+            msg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
+            return msg, len(msg) - 1
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None, None
 
     # ---- self.NZB --------
     def db_nzb_insert(self, name0):
