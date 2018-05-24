@@ -48,8 +48,8 @@ class PWDB:
             #    0 ... not queued yet
             #    1 ... nzb processed / queued
             #    2 ... downloading
-            #    3 ... postprocessing / unrar etc ok
-            #    4 ... final ok
+            #    3 ... download ok / postprocessing
+            #    4 ... postprocessing ok, all ok
             #   -1 ... nzb processing failed
             #   -2 ... download failed
             #   -3 ... postproc / unrar etc failed
@@ -131,7 +131,11 @@ class PWDB:
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=10):
-        new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
+        try:
+            new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
+        except Exception as e:
+            self.logger.warning(lpref + "db_msg_insert: " + str(e))
+            return None
         toomuchdata = True
         while toomuchdata:
             allmsg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
@@ -145,10 +149,11 @@ class PWDB:
 
     def db_msg_get(self, nzbname0):
         try:
-            msg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
+            with self.db.atomic():
+                msg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
             return msg, len(msg) - 1
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(lpref + "db_msg_get: " + str(e))
             return None, None
 
     def db_msg_removeall(self, nzbname0):
@@ -156,7 +161,7 @@ class PWDB:
             query = self.MSG.delete().where(self.MSG.nzbname == nzbname0)
             query.execute()
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(lpref + "db_msg_removeall: " + str(e))
 
     # ---- self.NZB --------
     def db_nzb_insert(self, name0):

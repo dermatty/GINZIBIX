@@ -43,7 +43,7 @@ class ConnectionWorker(Thread):
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
                 # if resp_h[:3] != "221" or resp[:3] != "222":
-                self.logger.warning(lpref + "Could not find " + article_name + "on " + self.idn + ", return status = 0")
+                self.logger.warning(lpref + "Could not find " + article_name + " on " + self.idn + ", return status = 0")
                 status = 0
                 info0 = None
             else:
@@ -76,6 +76,7 @@ class ConnectionWorker(Thread):
                 self.logger.info(lpref + "Server " + idn + " connected!")
                 self.last_timestamp = time.time()
                 self.bytesdownloaded = 0
+                time.sleep(1)
                 return
             self.logger.warning(lpref + "Could not connect to server " + idn + ", will retry in 5 sec.")
             time.sleep(5)
@@ -99,6 +100,7 @@ class ConnectionWorker(Thread):
 
     def run(self):
         self.logger.info(lpref + self.idn + " thread starting !")
+        timeout = 5
         while True and self.running:
             self.retry_connect()
             if not self.nntpobj:
@@ -154,7 +156,10 @@ class ConnectionWorker(Thread):
                 # requeue
                 self.articlequeue.task_done()
                 self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-                time.sleep(10)
+                time.sleep(timeout)
+                timeout += 3
+                if timeout > 30:
+                    timeout = 5
                 continue
             # if download successfull - put to resultqueue
             if status == 1:
