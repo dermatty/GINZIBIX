@@ -453,6 +453,7 @@ class Downloader():
             self.logger.warning(str(e) + ": cannot remove download_dir!")
         # move content of unpack dir to complete
         self.logger.debug("Moving unpack_dir: " + self.unpack_dir)
+        return
         for f00 in glob.glob(self.unpack_dir + "*"):
             self.logger.debug("Unpack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
             if not os.path.isdir(f00):
