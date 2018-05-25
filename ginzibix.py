@@ -10,7 +10,6 @@ import logging
 import logging.handlers
 import lib
 import queue
-import threading
 
 userhome = expanduser("~")
 maindir = userhome + "/.ginzibix/"
@@ -31,41 +30,21 @@ subdirs = {
 }
 
 
-class ConnectionThreads:
-    def __init__(self, cfg, articlequeue, resultqueue, logger):
-        self.cfg = cfg
+class SigHandler_Ginzibix:
+    def __init__(self, mpp_main, pwdb, logger):
+        self.mpp_main = mpp_main
+        self.pwdb = pwdb
         self.logger = logger
-        self.threads = []
-        self.lock = threading.Lock()
-        self.articlequeue = articlequeue
-        self.resultqueue = resultqueue
-        self.servers = None
 
-    def init_servers(self):
-        self.servers = lib.Servers(self.cfg, self.logger)
-        self.level_servers = self.servers.level_servers
-        self.all_connections = self.servers.all_connections
-
-    def start_threads(self):
-        if not self.threads:
-            self.logger.debug("Starting download threads")
-            self.init_servers()
-            for sn, scon, _, _ in self.all_connections:
-                t = lib.ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
-                self.threads.append((t, time.time()))
-                t.start()
-        else:
-            self.logger.debug("Threads already started")
-
-    def reset_timestamps(self):
-        for t, _ in self.threads:
-            t.last_timestamp = time.time()
-
-    def reset_timestamps_bdl(self):
-        if self.threads:
-            for t, _ in self.threads:
-                t.bytesdownloaded = 0
-                t.last_timestamp = 0
+    def sighandler_ginzibix(self, a, b):
+        # wait until main is joined
+        if self.mpp_main.pid:
+            mpp_main.join()
+        # stop pwdb
+        self.logger.warning("signalhandler: closing pewee.db")
+        self.pwdb.db_close()
+        self.logger.info("Ginzibix terminated!")
+        sys.exit()
 
 
 # -------------------- main --------------------
@@ -91,13 +70,11 @@ if __name__ == '__main__':
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
     mp_work_queue = mp.Queue()
-    ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
-    mpp_pid = {"nzbparser": None, "decoder": None, "renamer": None, "verifier": None, "unrarer": None}
-    sighandler = lib.SigHandler(ct.threads, pwdb, mp_work_queue, mpp_pid, logger)
-    signal.signal(signal.SIGINT, sighandler.signalhandler)
-    signal.signal(signal.SIGTERM, sighandler.signalhandler)
+    sh = SigHandler_Ginzibix(None, pwdb, logger)
+    signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
+    signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
     progstr = "ginzibix 0.1-alpha, binary usenet downloader"
     print("Welcome to " + progstr)
@@ -109,9 +86,9 @@ if __name__ == '__main__':
     logger.info("-" * 80)
 
     # start main mp
-    mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, sighandler, ct, mpp_pid, mp_work_queue, logger, ))
+    mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, logger, ))
     mpp_main.start()
-    mpp_main_pid = mpp_main.pid
+    sh.mpp_main = mpp_main
 
     while True:
         time.sleep(1)

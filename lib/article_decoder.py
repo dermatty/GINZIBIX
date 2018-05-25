@@ -1,11 +1,26 @@
 import re
 import yenc
 import os
+import sys
+import signal
 
 lpref = __name__ + " - "
 
 
+class SigHandler_Decoder:
+    def __init__(self, logger):
+        self.logger = logger
+
+    def sighandler(self, a, b):
+        self.logger.info(lpref + "terminated!")
+        sys.exit()
+
+
 def decode_articles(mp_work_queue0, pwdb, logger):
+    sh = SigHandler_Decoder(logger)
+    signal.signal(signal.SIGINT, sh.sighandler)
+    signal.signal(signal.SIGTERM, sh.sighandler)
+
     logger.info(lpref + "Started decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
@@ -25,7 +40,6 @@ def decode_articles(mp_work_queue0, pwdb, logger):
         for info in infolist:
             headerok = False
             trailerok = False
-            partfound = False
             trail_crc = None
             head_crc = None
             bytes0 = bytearray()

@@ -7,6 +7,6 @@ from .gpeewee import PWDB
 from .article_decoder import decode_articles
 from .connections import ConnectionWorker
 from .server import Servers
-from .sighandler import SigHandler
+# from .sighandler import SigHandler
 from .passworded_rars import is_rar_password_protected, get_password
 from .main import ginzi_main

@@ -4,8 +4,19 @@ import glob
 from .par2lib import Par2File, calc_file_md5hash_16k, check_for_par_filetype, get_file_type
 from random import randint
 import inotify_simple
+import signal
+import sys
 
 lpref = __name__ + " - "
+
+
+class SigHandler_Renamer:
+    def __init__(self, logger):
+        self.logger = logger
+
+    def sighandler_renamer(self, a, b):
+        self.logger.info(lpref + "terminated!")
+        sys.exit()
 
 
 def get_not_yet_renamed_files(source_dir):
@@ -148,6 +159,10 @@ def get_inotify_events(inotify):
 
 # renamer with inotify
 def renamer(source_dir, dest_dir, pwdb, mp_result_queue, logger):
+    sh = SigHandler_Renamer(logger)
+    signal.signal(signal.SIGINT, sh.sighandler_renamer)
+    signal.signal(signal.SIGTERM, sh.sighandler_renamer)
+
     if source_dir[-1] != "/":
         source_dir += "/"
     if dest_dir[-1] != "/":

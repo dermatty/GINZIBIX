@@ -5,8 +5,21 @@ import os
 import pexpect
 import time
 import subprocess
+import sys
+import signal
 
 lpref = __name__ + " - "
+
+
+class SigHandler_Unrar:
+    def __init__(self, wd, logger):
+        self.wd = wd
+        self.logger = logger
+
+    def sighandler_unrar(self, a, b):
+        os.chdir(self.wd)
+        self.logger.info(lpref + "terminated!")
+        sys.exit()
 
 
 def get_inotify_events(inotify):
@@ -38,6 +51,10 @@ def get_rar_files(directory):
 def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger, password):
     # logger.debug(lpref + "dir: " + directory + " / unpack: " + unpack_dir)
     cwd0 = os.getcwd()
+    sh = SigHandler_Unrar(cwd0, logger)
+    signal.signal(signal.SIGINT, sh.sighandler_unrar)
+    signal.signal(signal.SIGTERM, sh.sighandler_unrar)
+
     try:
         os.chdir(directory)
     except FileNotFoundError:

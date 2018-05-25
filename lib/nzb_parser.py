@@ -5,9 +5,19 @@ import time
 from .par2lib import get_file_type
 import inotify_simple
 from lxml import etree
-
+import sys
+import signal
 
 lpref = __name__ + " - "
+
+
+class SigHandler_Parser:
+    def __init__(self, logger):
+        self.logger = logger
+
+    def sighandler(self, a, b):
+        self.logger.info(lpref + "terminated!")
+        sys.exit()
 
 
 def decompose_nzb(nzb, logger):
@@ -83,6 +93,10 @@ def get_inotify_events(inotify):
 
 
 def ParseNZB(pwdb, nzbdir, logger):
+    sh = SigHandler_Parser(logger)
+    signal.signal(signal.SIGINT, sh.sighandler)
+    signal.signal(signal.SIGTERM, sh.sighandler)
+
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
 

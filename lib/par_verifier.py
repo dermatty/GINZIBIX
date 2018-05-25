@@ -8,11 +8,26 @@ import re
 import time
 import pexpect
 import inotify_simple
+import signal
+import sys
 
 lpref = __name__ + " - "
 
 
+class SigHandler_Verifier:
+    def __init__(self, logger):
+        self.logger = logger
+
+    def sighandler_verifier(self, a, b):
+        self.logger.info(lpref + "terminated!")
+        sys.exit()
+
+
 def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, nzbname, pvmode):
+    sh = SigHandler_Verifier(logger)
+    signal.signal(signal.SIGINT, sh.sighandler_verifier)
+    signal.signal(signal.SIGTERM, sh.sighandler_verifier)
+
     logger.info(lpref + "starting rar_verifier")
     logger.debug(lpref + "dirs: " + renamed_dir + " / " + verifiedrar_dir)
     if pvmode == "verify":

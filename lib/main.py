@@ -12,7 +12,7 @@ import logging
 import logging.handlers
 import psutil
 import re
-# import lib
+import threading
 import datetime
 import shutil
 import glob
@@ -23,6 +23,8 @@ from .partial_unrar import partial_unrar
 from .nzb_parser import ParseNZB
 from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected, get_password
+from .connections import ConnectionWorker
+from .server import Servers
 
 userhome = expanduser("~")
 maindir = userhome + "/.ginzibix/"
@@ -43,14 +45,97 @@ subdirs = {
 }
 _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
 
-# init logger
-'''logger = logging.getLogger("ginzibix")
-logger.setLevel(logging.DEBUG)
-fh = logging.FileHandler(dirs["logs"] + "ginzibix.log", mode="w")
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-fh.setFormatter(formatter)
-logger.addHandler(fh)'''
 
+class SigHandler_Main:
+
+    def __init__(self, mpp, ct, mp_work_queue, logger):
+        self.logger = logger
+        self.servers = ct.servers
+        self.threads = ct.threads
+        self.mpp = mpp
+        self.mp_work_queue = mp_work_queue
+
+    def shutdown(self):
+        f = open('/dev/null', 'w')
+        sys.stdout = f
+        for key, item in self.mpp.items():
+            if item:
+                item_pid = str(item.pid)
+            else:
+                item_pid = "-"
+            self.logger.debug("MPP " + key + ", pid = " + item_pid)
+        # stop unrarer
+        mpid = None
+        if self.mpp["unrarer"]:
+            mpid = self.mpp["unrarer"].pid
+        if mpid:
+            # if self.mpp["unrarer"].pid:
+            self.logger.warning("signalhandler: terminating unrarer")
+            try:
+                os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
+                self.mpp["unrarer"].join()
+            except Exception as e:
+                self.logger.debug(str(e))
+        # stop rar_verifier
+        mpid = None
+        if self.mpp["verifier"]:
+            mpid = self.mpp["verifier"].pid
+        if mpid:
+            self.logger.warning("signalhandler: terminating rar_verifier")
+            try:
+                os.kill(self.mpp["verifier"].pid, signal.SIGKILL)
+                self.mpp["verifier"].join()
+            except Exception as e:
+                self.logger.debug(str(e))
+        # stop mpp_renamer
+        mpid = None
+        if self.mpp["renamer"]:
+            mpid = self.mpp["renamer"].pid
+        if mpid:
+            self.logger.warning("signalhandler: terminating renamer")
+            try:
+                os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
+                self.mpp["renamer"].join()
+            except Exception as e:
+                self.logger.debug(str(e))
+        # stop nzbparser
+        mpid = None
+        if self.mpp["nzbparser"]:
+            mpid = self.mpp["nzbparser"].pid
+        if mpid:
+            self.logger.warning("signalhandler: terminating nzb_parser")
+            try:
+                os.kill(self.mpp["nzbparser"].pid, signal.SIGKILL)
+                self.mpp["nzbparser"].join()
+            except Exception as e:
+                self.logger.debug(str(e))
+        # stop article decoder
+        mpid = None
+        if self.mpp["decoder"]:
+            mpid = self.mpp["decoder"].pid
+        if mpid:
+            self.logger.warning("signalhandler: terminating article_decoder")
+            self.mp_work_queue.put(None)
+            time.sleep(1)
+            try:
+                os.kill(self.mpp["decoder"].pid, signal.SIGKILL)
+                self.mpp["decoder"].join()
+            except Exception as e:
+                self.logger.debug(str(e))
+        # threads + servers
+        self.logger.warning("signalhandler: stopping download threads")
+        for t, _ in self.threads:
+            t.stop()
+            t.join()
+        if self.servers:
+            self.logger.warning("signalhandler: closing all server connections")
+            self.servers.close_all_connections()
+        self.logger.warning("signalhandler: exiting")
+        sys.exit()
+
+    def sighandler(self, a, b):
+        self.shutdown()
+        
 
 # logginghandler for storing msgs in db
 class NZBHandler(logging.Handler):
@@ -66,7 +151,7 @@ class NZBHandler(logging.Handler):
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp_pid, logger):
+    def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp, logger):
         self.cfg = cfg
         self.pwdb = pwdb
         self.articlequeue = ct.articlequeue
@@ -82,7 +167,7 @@ class Downloader():
         self.dirs = dirs
         self.logger = logger
         self.sighandler = sighandler
-        self.mpp_pid = mpp_pid
+        self.mpp = mpp
         try:
             self.pw_file = self.dirs["main"] + self.cfg["FOLDERS"]["PW_FILE"]
             self.logger.debug("Password file is: " + self.pw_file)
@@ -323,7 +408,7 @@ class Downloader():
         self.resultqueue.join()
         self.articlequeue.join()
         # join renamer
-        if self.mpp_pid["renamer"]:
+        if self.mpp["renamer"]:
             try:
                 # to do: loop over downloaded and wait until empty
                 self.logger.debug("Waiting for renamer.py clearing download dir")
@@ -336,12 +421,12 @@ class Downloader():
                         continue
                     break
                 self.logger.debug("Download dir empty!")
-                os.kill(self.mpp_pid["renamer"], signal.SIGKILL)
-                self.mpp_pid["renamer"] = None
+                os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
+                self.mpp["renamer"] = None
             except Exception as e:
                 self.logger.info(str(e))
         # join verifier
-        if self.mpp_pid["verifier"]:
+        if self.mpp["verifier"]:
             self.logger.info("Waiting for par_verifier to complete")
             try:
                 # clear queue
@@ -350,10 +435,10 @@ class Downloader():
                         self.mp_parverify_inqueue.get_nowait()
                     except queue.Empty:
                         break
-                self.mpp_verifier.join()
+                self.mpp["verifier"].join()
             except Exception as e:
                 self.logger.warning(str(e))
-            self.mpp_pid["verifier"] = None
+            self.mpp["verifier"] = None
         # if pw protected -> get pw and start unrarer
         ispw = self.pwdb.db_nzb_get_ispw(nzbname)
         if ispw:
@@ -372,22 +457,22 @@ class Downloader():
             self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
                                                                       self.pwdb, nzbname, self.logger, pw, ))
             self.mpp_unrarer.start()
-            self.mpp_pid["unrarer"] = self.mpp_unrarer.pid
-            self.sighandler.mpp_pid = self.mpp_pid
+            self.mpp["unrarer"] = self.mpp_unrarer
+            self.sighandler.mpp = self.mpp
         finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
         # join unrarer
-        if self.mpp_pid["unrarer"]:
+        if self.mpp["unrarer"]:
             if finalverifierstate:
                 self.logger.info("Waiting for unrar to complete")
-                self.mpp_unrarer.join()
+                self.mpp["unrarer"].join()
             else:
                 self.logger.info("Repair/unrar not possible, killing unrarer!")
                 try:
-                    os.kill(self.mpp_pid["unrarer"], signal.SIGKILL)
+                    os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
                 except Exception as e:
                     self.logger.debug(str(e))
-            self.mpp_pid["unrarer"] = None
-            self.sighandler.mpp_pid = self.mpp_pid
+            self.mpp["unrarer"] = None
+            self.sighandler.mpp = self.mpp
             self.logger.debug("Unrarer stopped!")
         # get status
         finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
@@ -453,7 +538,6 @@ class Downloader():
             self.logger.warning(str(e) + ": cannot remove download_dir!")
         # move content of unpack dir to complete
         self.logger.debug("Moving unpack_dir: " + self.unpack_dir)
-        return
         for f00 in glob.glob(self.unpack_dir + "*"):
             self.logger.debug("Unpack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
             if not os.path.isdir(f00):
@@ -476,7 +560,7 @@ class Downloader():
                     self.pwdb.db_nzb_update_status(nzbname, -4)
                     self.logger.warning(str(e) + ": cannot move non-rar/non-par2 file!")
         # remove unpack_dir
-        if self.pwdb.db_nzb_getstatus(nzbname) != 4:
+        if self.pwdb.db_nzb_getstatus(nzbname) != -4:
             try:
                 shutil.rmtree(self.unpack_dir)
                 shutil.rmtree(self.verifiedrar_dir)
@@ -484,10 +568,9 @@ class Downloader():
                 self.pwdb.db_nzb_update_status(nzbname, -4)
                 self.logger.warning(str(e) + ": cannot remove unpack_dir / verifiedrar_dir")
         # remove incomplete_dir
-        if self.pwdb.db_nzb_getstatus(nzbname) != 4:
+        if self.pwdb.db_nzb_getstatus(nzbname) != -4:
             try:
                 shutil.rmtree(self.main_dir)
-                self.pwdb.db_nzb_update_status(nzbname, 4)
             except Exception as e:
                 self.pwdb.db_nzb_update_status(nzbname, -4)
                 self.logger.warning(str(e) + ": cannot remove incomplete_dir!")
@@ -497,6 +580,7 @@ class Downloader():
             return -1
         else:
             self.logger.info("Copy/Move of NZB " + nzbname + " success!")
+            self.pwdb.db_nzb_update_status(nzbname, 4)
             return 1
 
     # main download routine
@@ -536,8 +620,8 @@ class Downloader():
         self.logger.debug("Starting renamer process for NZB " + nzbname)
         self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
         self.mpp_renamer.start()
-        self.mpp_pid["renamer"] = self.mpp_renamer.pid
-        self.sighandler.mpp_pid = self.mpp_pid
+        self.mpp["renamer"] = self.mpp_renamer
+        self.sighandler.mpp = self.mpp
         # start download threads
         if not self.ct.threads:
             self.ct.start_threads()
@@ -551,7 +635,7 @@ class Downloader():
         getnextnzb = False
         article_failed = 0
 
-        while True and not self.sighandler.signal:
+        while True:
 
             # get mp_result_queue (from article_decoder.py)
             while True:
@@ -601,7 +685,7 @@ class Downloader():
                     bytescount0 += bytescount00
                     article_count += article_count0
 
-            if filetypecounter["rar"]["counter"] >= 1 and not self.pwdb.db_nzb_get_ispw(nzbname) and not self.mpp_pid["unrarer"]:
+            if filetypecounter["rar"]["counter"] >= 1 and not self.pwdb.db_nzb_get_ispw(nzbname) and not self.mpp["unrarer"]:
                 # testing if pw protected
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
                 # if no rar files in verified_rardir: skip as we cannot test for password
@@ -624,12 +708,12 @@ class Downloader():
                         self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
                                                                                   self.pwdb, nzbname, self.logger, None, ))
                         self.mpp_unrarer.start()
-                        self.mpp_pid["unrarer"] = self.mpp_unrarer.pid
-                        self.sighandler.mpp_pid = self.mpp_pid
+                        self.mpp["unrarer"] = self.mpp_unrarer
+                        self.sighandler.mpp = self.mpp
                 else:
                     self.logger.debug("No rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
             # if par2 available start par2verifier, else just copy rars unchecked!
-            if not self.mpp_pid["verifier"]:
+            if not self.mpp["verifier"]:
                 pvmode = None
                 if p2:
                     pvmode = "verify"
@@ -640,8 +724,8 @@ class Downloader():
                     self.mpp_verifier = mp.Process(target=par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
                                                                               self.main_dir, self.logger, self.pwdb, nzbname, pvmode, ))
                     self.mpp_verifier.start()
-                    self.mpp_pid["verifier"] = self.mpp_verifier.pid
-                    self.sighandler.mpp_pid = self.mpp_pid
+                    self.mpp["verifier"] = self.mpp_verifier
+                    self.sighandler.mpp = self.mpp
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
@@ -766,25 +850,73 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
                 return None, None, None, None, None, None, None
 
 
-def ginzi_main(cfg, pwdb, sighandler, ct, mpp_pid, mp_work_queue, logger):
+class ConnectionThreads:
+    def __init__(self, cfg, articlequeue, resultqueue, logger):
+        self.cfg = cfg
+        self.logger = logger
+        self.threads = []
+        self.lock = threading.Lock()
+        self.articlequeue = articlequeue
+        self.resultqueue = resultqueue
+        self.servers = None
+
+    def init_servers(self):
+        self.servers = Servers(self.cfg, self.logger)
+        self.level_servers = self.servers.level_servers
+        self.all_connections = self.servers.all_connections
+
+    def start_threads(self):
+        if not self.threads:
+            self.logger.debug("Starting download threads")
+            self.init_servers()
+            for sn, scon, _, _ in self.all_connections:
+                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
+                self.threads.append((t, time.time()))
+                t.start()
+        else:
+            self.logger.debug("Threads already started")
+
+    def reset_timestamps(self):
+        for t, _ in self.threads:
+            t.last_timestamp = time.time()
+
+    def reset_timestamps_bdl(self):
+        if self.threads:
+            for t, _ in self.threads:
+                t.bytesdownloaded = 0
+                t.last_timestamp = 0
+
+
+def ginzi_main(cfg, pwdb, logger):
+
+    articlequeue = queue.LifoQueue()
+    resultqueue = queue.Queue()
+    mp_work_queue = mp.Queue()
+    ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
+
+    # init sighandler
+    mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None}
+    sh = SigHandler_Main(mpp, ct, mp_work_queue, logger)
+    signal.signal(signal.SIGINT, sh.sighandler)
+    signal.signal(signal.SIGTERM, sh.sighandler)
 
     # start nzb parser mpp
     logger.debug("Starting nzbparser process ...")
     mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
     mpp_nzbparser.start()
-    mpp_pid["nzbparser"] = mpp_nzbparser.pid
+    mpp["nzbparser"] = mpp_nzbparser
 
     # start decoder mpp
     logger.debug("Starting decoder process ...")
     mpp_decoder = mp.Process(target=decode_articles, args=(mp_work_queue, pwdb, logger, ))
     mpp_decoder.start()
-    mpp_pid["decoder"] = mpp_decoder.pid
+    mpp["decoder"] = mpp_decoder
 
-    sighandler.mpp_pid = mpp_pid
+    sh.mpp = mpp
 
     logging.handlers.NZBHandler = NZBHandler
 
-    dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp_pid, logger)
+    dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, logger)
     while True:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = get_next_nzb(pwdb, dirs, ct, logger)
