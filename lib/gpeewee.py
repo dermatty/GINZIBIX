@@ -148,13 +148,15 @@ class PWDB:
         return new_msg
 
     def db_msg_get(self, nzbname0):
+        msglist = []
         try:
             with self.db.atomic():
-                msg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
-            return msg, len(msg) - 1
+                msg0 = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
+                msglist = [msg.message for msg in msg0]
+            return msglist
         except Exception as e:
             self.logger.warning(lpref + "db_msg_get: " + str(e))
-            return None, None
+            return None
 
     def db_msg_removeall(self, nzbname0):
         try:

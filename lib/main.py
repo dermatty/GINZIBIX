@@ -13,9 +13,11 @@ import logging.handlers
 import psutil
 import re
 import threading
+from threading import Thread
 import datetime
 import shutil
 import glob
+import zmq
 from .renamer import renamer
 from .par_verifier import par_verifier
 from .par2lib import Par2File
@@ -149,9 +151,70 @@ class NZBHandler(logging.Handler):
         self.pwdb.db_msg_insert(self.nzbname, record.message, record.levelname)
 
 
+class GUI_Connector(Thread):
+    def __init__(self, pwdb, lock, logger, port="36601"):
+        Thread.__init__(self)
+        self.daemon = True
+        self.pwdb = pwdb
+        self.port = port
+        self.data = None
+        self.nzbname = None
+        self.pwdb_msg = (None, None)
+        self.logger = logger
+        self.lock = lock
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.REP)
+        self.socket.bind("tcp://*:" + self.port)
+        self.threads = []
+        self.server_config = None
+
+    def set_data(self, data, threads, server_config):
+        with self.lock:
+            bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
+            self.data = data
+            self.nzbname = nzbname
+            self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
+            self.server_config = server_config
+            self.threads = []
+            for k, (t, last_timestamp) in enumerate(threads):
+                    self.threads.append((t.bytesdownloaded, t.last_timestamp, t.idn))
+
+    def get_data(self):
+        ret0 = ("NOOK", None, None, None)
+        with self.lock:
+            try:
+                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads)
+                # self.logger.debug("GUI_Connector: " + str(ret0))
+            except Exception as e:
+                self.logger.error("GUI_Connector: " + str(e))
+        return ret0
+
+    def run(self):
+        while True:
+            try:
+                msg = self.socket.recv_string()
+            except Exception as e:
+                self.logger.error("GUI_Connector: " + str(e))
+                try:
+                    self.socket.send_pyobj(("NOOK", None, None, None))
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+            if msg != "REQ":
+                try:
+                    self.socket.send_pyobj(("NOOK", None, None, None))
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+                continue
+            ret0 = self.get_data()
+            try:
+                self.socket.send_pyobj(ret0)
+            except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+
+
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp, logger):
+    def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp, guiconnector, logger):
         self.cfg = cfg
         self.pwdb = pwdb
         self.articlequeue = ct.articlequeue
@@ -168,6 +231,7 @@ class Downloader():
         self.logger = logger
         self.sighandler = sighandler
         self.mpp = mpp
+        self.guiconnector = guiconnector
         try:
             self.pw_file = self.dirs["main"] + self.cfg["FOLDERS"]["PW_FILE"]
             self.logger.debug("Password file is: " + self.pw_file)
@@ -402,9 +466,10 @@ class Downloader():
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
         # self.sighandler.shutdown()
+        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config)
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
-        self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
-                                             article_health, overall_size, already_downloaded_size)
+        # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+        #                                      article_health, overall_size, already_downloaded_size)
         self.resultqueue.join()
         self.articlequeue.join()
         # join renamer
@@ -745,9 +810,14 @@ class Downloader():
                     overall_size = overall_size_wparvol
                     loadpar2vols = True
 
-            self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
-                                                 article_health, overall_size, already_downloaded_size)
-
+            # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+            #                                      article_health, overall_size, already_downloaded_size)
+            try:
+                self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                            article_health, overall_size, already_downloaded_size), self.ct.threads, self.ct.servers.server_config)
+            except Exception as e:
+                self.logger.info("set data error " + str(e))
+            
             # if all downloaded postprocess
             getnextnzb = True
             for filetype, item in filetypecounter.items():
@@ -889,9 +959,9 @@ class ConnectionThreads:
 
 def ginzi_main(cfg, pwdb, logger):
 
+    mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
-    mp_work_queue = mp.Queue()
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
@@ -916,7 +986,13 @@ def ginzi_main(cfg, pwdb, logger):
 
     logging.handlers.NZBHandler = NZBHandler
 
-    dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, logger)
+    logger.debug("Starting guiconnector process ...")
+    lock = threading.Lock()
+    guiconnector = GUI_Connector(pwdb, lock, logger, port="36601")
+    guiconnector.start()
+    logger.debug("guiconnector process started!")
+
+    dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     while True:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = get_next_nzb(pwdb, dirs, ct, logger)
