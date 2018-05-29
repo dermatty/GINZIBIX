@@ -2,7 +2,7 @@ from threading import Thread
 import nntplib
 import time
 
-lpref = __name__ + " - "
+lpref = __name__.split("lib.")[-1] + " - "
 
 
 # This is the thread worker per connection to NNTP server
@@ -22,6 +22,7 @@ class ConnectionWorker(Thread):
         self.idn = self.name + " #" + str(self.conn_nr)
         self.bytesdownloaded = 0
         self.last_timestamp = 0
+        self.mode = "download"
 
     def stop(self):
         self.running = False
@@ -35,15 +36,26 @@ class ConnectionWorker(Thread):
         sn, _ = self.connection
         bytesdownloaded = 0
         server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
+        if self.mode == "sanitycheck":
+            try:
+                resp, number, message_id = self.nntpobj.stat(article_name)
+                if article_name != message_id:
+                    status = -1
+                else:
+                    status = 1
+            except Exception as e:
+                self.logger.error(lpref + str(e) + self.idn + " for article " + article_name)
+                status = -1
+            return status, 0, 0
         if retention < article_age * 0.95:
-            self.logger.warning(lpref + "Retention on " + server_name + " not sufficient for article " + article_name + ", return status = -1")
+            self.logger.warning(lpref + "Retention on " + server_name + " not sufficient for article " + article_name)
             return -1, None
         try:
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
                 # if resp_h[:3] != "221" or resp[:3] != "222":
-                self.logger.warning(lpref + "Could not find " + article_name + " on " + self.idn + ", return status = 0")
+                self.logger.warning(lpref + "Could not find " + article_name + " on " + self.idn)
                 status = 0
                 info0 = None
             else:
@@ -51,14 +63,14 @@ class ConnectionWorker(Thread):
                 info0 = [inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
         except nntplib.NNTPTemporaryError:
-            self.logger.warning(lpref + "Could not find " + article_name + "on " + self.idn + ", return status = 0")
+            self.logger.warning(lpref + "Could not find " + article_name + " on " + self.idn)
             status = 0
             info0 = None
         except KeyboardInterrupt:
             status = -3
             info0 = None
         except Exception as e:
-            self.logger.error(lpref + str(e) + self.idn + " for article " + article_name + ", return status = -2")
+            self.logger.error(lpref + str(e) + self.idn + " for article " + article_name)
             status = -2
             info0 = None
         return status, bytesdownloaded, info0
@@ -97,7 +109,7 @@ class ConnectionWorker(Thread):
             if addserver:
                 next_servers.append(addserver)
         return next_servers
-
+                            
     def run(self):
         self.logger.info(lpref + self.idn + " thread starting !")
         timeout = 5
@@ -177,4 +189,4 @@ class ConnectionWorker(Thread):
                 else:
                     self.logger.warning(lpref + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-        self.logger.info(lpref + self.idn + " exited!")
+        self.logger.debug(lpref + self.idn + " exited!")

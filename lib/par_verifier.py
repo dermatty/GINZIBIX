@@ -11,7 +11,7 @@ import inotify_simple
 import signal
 import sys
 
-lpref = __name__ + " - "
+lpref = __name__.split("lib.")[-1] + " - "
 
 
 class SigHandler_Verifier:
@@ -28,8 +28,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     signal.signal(signal.SIGINT, sh.sighandler_verifier)
     signal.signal(signal.SIGTERM, sh.sighandler_verifier)
 
-    logger.info(lpref + "starting rar_verifier")
-    logger.debug(lpref + "dirs: " + renamed_dir + " / " + verifiedrar_dir)
+    logger.info(lpref + "starting par_verifier")
     if pvmode == "verify":
         p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
 
@@ -38,27 +37,28 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     unverified_rarfiles = pwdb.get_all_renamed_rar_files()
     doloadpar2vols = False
     if pvmode == "verify" and not p2:
-        logger.info(lpref + "no par2 file found")
+        logger.debug(lpref + "no par2 file found")
     if pvmode == "verify" and unverified_rarfiles and p2:
-        logger.info(lpref + "verifying all unchecked rarfiles")
+        logger.debug(lpref + "verifying all unchecked rarfiles")
         for f0 in unverified_rarfiles:
             filename = f0.renamed_name
+            f_short = filename.split("/")[-1]
             md5 = calc_file_md5hash(renamed_dir + filename)
             md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
-            logger.info(lpref + "p2 md5: " + filename + " = " + str(md5match))
             if False in md5match:
-                logger.warning(lpref + "error in 'p2 md5' for file " + filename)
+                logger.warning(lpref + "error in md5 hash match for file " + f_short)
                 pwdb.db_file_update_parstatus(f0.orig_name, -1)
                 doloadpar2vols = True
             else:
-                logger.info(lpref + "copying " + filename + " to " + verifiedrar_dir)
+                logger.info(lpref + f_short + "md5 hash match ok, copying to verified_rar dir")
                 shutil.copy(renamed_dir + filename, verifiedrar_dir)
                 pwdb.db_file_update_parstatus(f0.orig_name, 1)
     if pvmode == "copy":
         logger.info(lpref + "copying all rarfiles")
         for f0 in unverified_rarfiles:
             filename = f0.renamed_name
-            logger.info(lpref + "copying " + filename + " to " + verifiedrar_dir)
+            f_short = filename.split("/")[-1]
+            logger.debug(lpref + "copying " + f_short + " to verified_rar dir")
             shutil.copy(renamed_dir + filename, verifiedrar_dir)
             pwdb.db_file_update_parstatus(f0.orig_name, 1)
     if doloadpar2vols:
@@ -72,30 +72,30 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     while True:
         allparstatus = pwdb.db_file_getallparstatus(0)
         if 0 not in allparstatus:
-            logger.info(lpref + "All renamed rars checked, exiting ...")
+            logger.info(lpref + "all renamed rars checked, exiting par_verifier")
             break
         events = get_inotify_events(inotify)
         if events or 0 in allparstatus:
             if pvmode == "verify" and not p2:
                 p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
             if pvmode == "verify" and p2:
-                # logger.debug("-----------------------------------------------------")
                 for rar in glob.glob(renamed_dir + "*.rar"):
                     rar0 = rar.split("/")[-1]
                     f0 = pwdb.db_file_get_renamed(rar0)
                     if not f0:
                         continue
                     if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
+                        f_short = f0.renamed_name.split("/")[-1]
                         md5 = calc_file_md5hash(renamed_dir + rar0)
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0.renamed_name]
                         if False in md5match:
-                            logger.warning(lpref + "error in 'p2 md5' for file " + f0.renamed_name)
+                            logger.warning(lpref + "error in md5 hash match for file " + f_short)
                             pwdb.db_file_update_parstatus(f0.orig_name, -1)
                             if not doloadpar2vols:
                                 doloadpar2vols = True
                                 mp_outqueue.put(doloadpar2vols)
                         else:
-                            logger.info(lpref + "p2 md5' CORRECT for file " + f0.renamed_name + ", copying to " + verifiedrar_dir)
+                            logger.info(lpref + f_short + "md5 hash match ok, copying to verified_rar dir")
                             shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                             pwdb.db_file_update_parstatus(f0.orig_name, 1)
             if pvmode == "copy":
@@ -104,7 +104,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                 if not f0:
                     continue
                 if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
-                    logger.info(lpref + f0.renamed_name + ": copying to " + verifiedrar_dir)
+                    logger.debug(lpref + "copying " + f0.renamed_name.split("/")[-1] + " to verified_rar dir")
                     shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                     pwdb.db_file_update_parstatus(f0.orig_name, 1)
         if pwdb.db_only_verified_rars():
@@ -131,6 +131,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             for c in corruptrars:
                 pwdb.db_file_update_parstatus(c.orig_name, -2)
     else:
+        logger.warning(lpref + "some rars are corrupt but cannot repair (no par2 files)")
         pwdb.db_nzb_update_verify_status(nzbname, 2)
 
 
@@ -334,7 +335,7 @@ def multipartrar_test(directory, rarname0, logger):
 def multipartrar_repair(directory, parvolname, logger):
     cwd0 = os.getcwd()
     os.chdir(directory)
-    logger.warning(lpref + "checking if repair possible ...")
+    logger.info(lpref + "checking if repair possible")
     ssh = subprocess.Popen(['par2verify', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
     sshres = ssh.stdout.readlines()
     repair_is_required = False
@@ -347,7 +348,7 @@ def multipartrar_repair(directory, parvolname, logger):
         if "Repair is possible" in ss0:
             repair_is_possible = True
     if repair_is_possible and repair_is_required:
-        logger.info(lpref + "repair is required and possible, performing par2repair ...")
+        logger.info(lpref + "repair is required and possible, performing par2repair")
         # repair
         ssh = subprocess.Popen(['par2repair', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
         sshres = ssh.stdout.readlines()

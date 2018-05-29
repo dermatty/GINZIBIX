@@ -4,7 +4,7 @@ import os
 import sys
 import signal
 
-lpref = __name__ + " - "
+lpref = __name__.split("lib.")[-1] + " - "
 
 
 class SigHandler_Decoder:
@@ -21,7 +21,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
-    logger.info(lpref + "Started decoder process")
+    logger.info(lpref + "starting decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
     while True:
@@ -30,7 +30,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
         except KeyboardInterrupt:
             return
         if not res0:
-            logger.info(lpref + "Exiting decoder process!")
+            logger.info(lpref + "exiting decoder process!")
             break
         infolist, save_dir, filename, filetype = res0
         del bytes0
@@ -87,7 +87,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                     logger.warning(lpref + str(e) + ": " + filename)
                     bytes0 = bytes00
             if not headerok or not trailerok:  # or not partfound or partnr > 1:
-                logger.warning(lpref + filename + ": wrong yenc structure detected")
+                logger.warning(lpref + ": wrong yenc structure detected in file " + filename)
                 statusmsg = "yenc_structure_error"
                 status = 0
             _, decodedcrc32, decoded = yenc.decode(bytes0)
@@ -121,7 +121,6 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                 f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
-            logger.info(lpref + filename + " decoded and saved!")
             # calc hash for rars
             if filetype == "rar":
                 md5 = 0  # calc_file_md5hash(save_dir + filename)
@@ -130,7 +129,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                 # logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
-            logger.error(lpref + str(e) + ": " + filename)
+            logger.error(lpref + str(e) + " in file " + filename)
             status = -4
         logger.info(lpref + filename + " decoded with status " + str(status) + " / " + statusmsg)
         pwdbstatus = 2
@@ -138,7 +137,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
             pwdbstatus = -1
         try:
             pwdb.db_file_update_status(filename, pwdbstatus)
-            logger.info(lpref + "Updated DB for " + filename + ", db.status=" + str(pwdbstatus))
+            logger.debug(lpref + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
             # finalnonrarstate = pwdb.db_allnonrarfiles_getstate("Florida_project.nzb")
             # logger.info(">>>" + str(finalnonrarstate))
             # s0 = pwdb.db_file_getstatus(filename)

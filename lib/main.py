@@ -4,7 +4,6 @@ import time
 import sys
 import os
 import queue
-from os.path import expanduser
 import signal
 import inotify_simple
 import multiprocessing as mp
@@ -14,7 +13,6 @@ import psutil
 import re
 import threading
 from threading import Thread
-import datetime
 import shutil
 import glob
 import zmq
@@ -27,33 +25,22 @@ from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected, get_password
 from .connections import ConnectionWorker
 from .server import Servers
+import inspect
 
-userhome = expanduser("~")
-maindir = userhome + "/.ginzibix/"
-dirs = {
-    "userhome": userhome,
-    "main": maindir,
-    "config": maindir + "config/",
-    "nzb": maindir + "nzb/",
-    "complete": maindir + "complete/",
-    "incomplete": maindir + "incomplete/",
-    "logs": maindir + "logs/"
-}
-subdirs = {
-    "download": "_downloaded0",
-    "renamed": "_renamed0",
-    "unpacked": "_unpack0",
-    "verififiedrar": "_verifiedrars0"
-}
+lpref = __name__.split("lib.")[-1] + " - "
+
 _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
+
+
+def whoami():
+    return str(inspect.getouterframes(inspect.currentframe())[1].function)
 
 
 class SigHandler_Main:
 
     def __init__(self, mpp, ct, mp_work_queue, logger):
         self.logger = logger
-        self.servers = ct.servers
-        self.threads = ct.threads
+        self.ct = ct
         self.mpp = mpp
         self.mp_work_queue = mp_work_queue
 
@@ -125,19 +112,23 @@ class SigHandler_Main:
             except Exception as e:
                 self.logger.debug(str(e))
         # threads + servers
-        self.logger.warning("signalhandler: stopping download threads")
-        for t, _ in self.threads:
-            t.stop()
-            t.join()
-        if self.servers:
-            self.logger.warning("signalhandler: closing all server connections")
-            self.servers.close_all_connections()
+        if self.ct.threads:
+            self.logger.warning("signalhandler: stopping download threads")
+            for t, _ in self.ct.threads:
+                t.stop()
+                t.join()
+        try:
+            if self.ct.servers:
+                self.logger.warning("signalhandler: closing all server connections")
+                self.servers.close_all_connections()
+        except:
+            pass
         self.logger.warning("signalhandler: exiting")
         sys.exit()
 
     def sighandler(self, a, b):
         self.shutdown()
-        
+
 
 # logginghandler for storing msgs in db
 class NZBHandler(logging.Handler):
@@ -297,87 +288,6 @@ class Downloader():
         except Exception as e:
             self.logger.error(str(e) + " in creating dirs ...")
             return False
-
-    def article_producer(self, articles, articlequeue):
-        for article in articles:
-            articlequeue.put(article)
-
-    def display_console_connection_data(self, bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health,
-                                        overall_size, already_downloaded_size):
-        avgmiblist = avgmiblist00
-        max_mem_needed = 0
-        bytescount0 = bytescount00
-        bytescount0 += 0.00001
-        overall_size += 0.00001
-        availmem0 = availmem00
-        # get Mib downloaded
-        if len(avgmiblist) > 50:
-            del avgmiblist[0]
-        if len(avgmiblist) > 10:
-            avgmib_dic = {}
-            for (server_name, _, _, _, _, _, _, _, _) in self.ct.servers.server_config:
-                bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
-                if len(bytescountlist) > 2:
-                    avgmib_db = sum(bytescountlist)
-                    avgmib_mint = min([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
-                    avgmib_maxt = max([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
-                    # print(avgmib_maxt, avgmib_mint)
-                    avgmib_dic[server_name] = (avgmib_db / (avgmib_maxt - avgmib_mint)) / (1024 * 1024) * 8
-                else:
-                    avgmib_dic[server_name] = 0
-            for server_name, avgmib in avgmib_dic.items():
-                mem_needed = ((psutil.virtual_memory()[0] - psutil.virtual_memory()[1]) - availmem0) / (1024 * 1024 * 1024)
-                if mem_needed > max_mem_needed:
-                    max_mem_needed = mem_needed
-        # set in all threads servers alive timestamps
-        # check if server is longer off > 120 sec, if yes, kill thread & stop server
-        if nzbname:
-            print("--> Downloading " + nzbname)
-        else:
-            print("--> Downloading paused!" + " " * 30)
-        try:
-            print("MBit/sec.: " + str([sn + ": " + str(int(av)) + "  " for sn, av in avgmib_dic.items()]) + " max. mem_needed: "
-                  + "{0:.3f}".format(max_mem_needed) + " GB                 ")
-        except UnboundLocalError:
-            print("MBit/sec.: --- max. mem_needed: " + str(max_mem_needed) + " GB                ")
-        gbdown0 = 0
-        mbitsec0 = 0
-        for k, (t, last_timestamp) in enumerate(self.ct.threads):
-            gbdown = t.bytesdownloaded / (1024 * 1024 * 1024)
-            gbdown0 += gbdown
-            gbdown_str = "{0:.3f}".format(gbdown)
-            mbitsec = (t.bytesdownloaded / (time.time() - t.last_timestamp)) / (1024 * 1024) * 8
-            mbitsec0 += mbitsec
-            mbitsec_str = "{0:.1f}".format(mbitsec)
-            print(t.idn + ": Total - " + gbdown_str + " GB" + " | MBit/sec. - " + mbitsec_str + "                        ")
-        print("-" * 60)
-        gbdown0 += already_downloaded_size
-        gbdown0_str = "{0:.3f}".format(gbdown0)
-        perc0 = gbdown0 / overall_size
-        if perc0 > 1:
-            perc00 = 1
-        else:
-            perc00 = perc0
-        print(gbdown0_str + " GiB (" + "{0:.1f}".format(perc00 * 100) + "%) of total "
-              + "{0:.2f}".format(overall_size) + " GiB | MBit/sec. - " + "{0:.1f}".format(mbitsec0) + " " * 10)
-        for key, item in filetypecounter00.items():
-            print(key + ": " + str(item["counter"]) + "/" + str(item["max"]) + ", ", end="")
-        if nzbname:
-            trailing_spaces = " " * 10
-        else:
-            trailing_spaces = " " * 70
-        print("Health: {0:.4f}".format(article_health * 100) + "%" + trailing_spaces)
-        if mbitsec0 > 0 and perc0 < 1:
-            eta = ((overall_size - gbdown0) * 1024)/(mbitsec0 / 8)
-            print("Eta: " + str(datetime.timedelta(seconds=int(eta))) + " " * 30)
-        else:
-            print("Eta: - (done!)" + " " * 40)
-        print()
-        msg0, ll = self.pwdb.db_msg_get(nzbname)
-        if msg0:
-            print(msg0[ll].message[:60])
-        for _ in range(len(self.ct.threads) + 8):
-            sys.stdout.write("\033[F")
 
     def getbytescount(self, filelist):
         # generate all articles and files
@@ -648,17 +558,46 @@ class Downloader():
             self.pwdb.db_nzb_update_status(nzbname, 4)
             return 1
 
+    # do sanitycheck on nzb (excluding articles for par2vols)
+    def do_sanity_check(self, allfileslist, files, infolist, bytescount0):
+        self.logger.info(lpref + "performing sanity check")
+        for t, _ in self.ct.threads:
+            t.mode = "sanitycheck"
+        sanity_injects = ["rar", "sfv", "nfo", "etc", "par2"]
+        files, infolist, bytescount0, article_count = self.inject_articles(sanity_injects, allfileslist, files, infolist, bytescount0)
+        artsize0 = self.articlequeue.qsize()
+        self.logger.info(lpref + "Checking sanity on " + str(artsize0) + " articles")
+        self.articlequeue.join()
+        nr_articles = 0
+        nr_ok_articles = 0
+        while True:
+            try:
+                resultarticle = self.resultqueue.get_nowait()
+                self.resultqueue.task_done()
+                nr_articles += 1
+                _, _, _, _, _, _, _, status = resultarticle
+                if status != "failed":
+                    nr_ok_articles += 1
+            except queue.Empty:
+                break
+        self.resultqueue.join()
+        if nr_articles == 0:
+            a_health = 0
+        else:
+            a_health = nr_ok_articles / (nr_articles)
+        self.logger.info(lpref + "article health: {0:.4f}".format(a_health * 100) + "%")
+        for t, _ in self.ct.threads:
+            t.mode = "download"
+        return a_health
+
     # main download routine
     def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2):
-        # directories
-        #    incomplete/_downloaded0:   all files go straight to here after download
-        #    incomplete/_verifiedrar0:  downloaded & verfied rars, ready to unrar
-        #    incomplete/_unpack0:       unpacked verified rars
-        #    incomplete:                final directory before moving to complete
+        self.logger.info(lpref + "downloading " + nzbname)
 
+        # init variables
+        self.logger.debug(lpref + "download: init variables")
         self.mpp_renamer = None
         self.mpp_decoder = None
-
         article_failed = 0
         inject_set0 = []
         avgmiblist = []
@@ -670,6 +609,14 @@ class Downloader():
         bytescount0 = 0
         article_health = 1
         self.ct.reset_timestamps()
+        if self.pwdb.db_nzb_getstatus(nzbname) > 2:
+            self.logger.info(nzbname + "- download complete!")
+            return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                              overall_size, already_downloaded_size))
+        self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
+
+        # which set of filetypes should I download
+        self.logger.debug(lpref + "download: define inject set")
         if filetypecounter["par2"]["max"] > 0 and filetypecounter["par2"]["max"] > filetypecounter["par2"]["counter"]:
             inject_set0 = ["par2"]
         elif self.pwdb.db_nzb_loadpar2vols(nzbname):
@@ -677,37 +624,67 @@ class Downloader():
             loadpar2vols = True
         else:
             inject_set0 = ["rar", "sfv", "nfo", "etc"]
-        self.logger.info("Overall_Size: " + str(overall_size) + ", incl. par2vols: " + str(overall_size_wparvol))
+        self.logger.info(lpref + "Overall_Size: " + str(overall_size) + ", incl. par2vols: " + str(overall_size_wparvol))
+
         # make dirs
-        self.logger.debug("Making dirs for NZB: " + str(nzbname))
+        self.logger.debug(lpref + "creating dirs")
         self.make_dirs(nzbname)
+
         # start renamer
-        self.logger.debug("Starting renamer process for NZB " + nzbname)
+        self.logger.debug(lpref + "starting renamer process for NZB ")
         self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
         self.mpp_renamer.start()
         self.mpp["renamer"] = self.mpp_renamer
         self.sighandler.mpp = self.mpp
+
         # start download threads
+        self.logger.debug(lpref + "starting download threads")
         if not self.ct.threads:
             self.ct.start_threads()
             self.sighandler.servers = self.ct.servers
-        else:
-            self.ct.reset_timestamps()
-        self.logger.info("Downloading articles for: " + self.nzb)
-        self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
+
         bytescount0 = self.getbytescount(allfileslist)
+
+        # sanity check
+        inject_set_sanity = []
+        if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.db_nzb_loadpar2vols(nzbname):
+            sanity0 = self.do_sanity_check(allfileslist, files, infolist, bytescount0)
+            if sanity0 < 1:
+                self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
+                overall_size = overall_size_wparvol
+                self.logger.info(lpref + "queuing par2vols")
+                inject_set_sanity = ["par2vol"]
+
+        # inject articles and GO!
         files, infolist, bytescount0, article_count = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
+
+        # inject par2vols because of sanity check
+        if inject_set_sanity:
+            files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set_sanity, allfileslist, files, infolist, bytescount0)
+            bytescount0 += bytescount00
+            article_count += article_count0
+
         getnextnzb = False
         article_failed = 0
 
+        # reset bytesdownloaded
+        self.ct.reset_timestamps()
+
+        # download loop until articles downloaded
         while True:
 
-            # get mp_result_queue (from article_decoder.py)
+            if getnextnzb:
+                self.logger.info(nzbname + "- download complete!")
+                self.pwdb.db_nzb_update_status(nzbname, 3)
+                break
+
+            # get mp_result_queue (renamer.py)
             while True:
                 try:
                     filename, full_filename, filetype, old_filename, old_filetype = self.mp_result_queue.get_nowait()
+                    # have files been renamed ?
                     if old_filename != filename or old_filetype != filetype:
-                        self.logger.debug(old_filename + "/" + old_filetype + " changed to " + filename + " / " + filetype)
+                        self.logger.info(lpref + old_filename + "/" + old_filetype + " changed to " + filename + " / " + filetype)
                         # update filetypecounter
                         filetypecounter[old_filetype]["filelist"].remove(old_filename)
                         filetypecounter[filetype]["filelist"].append(filename)
@@ -720,13 +697,14 @@ class Downloader():
                             if o_orig_name == old_filename:
                                 allfileslist[i][0] = (filename, o_age, o_type, o_nr_articles)
                     else:
+                        self.logger.debug(lpref + "moved " + filename + " to renamed dir")
                         filetypecounter[filetype]["counter"] += 1
                         filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
                     if (filetype == "par2" or filetype == "par2vol") and not p2:
                         p2 = Par2File(full_filename)
-                        self.logger.info("Sending " + filename + "-p2 object to parverify_queue")
-                        # self.mp_parverify_outqueue.put(p2)
+                        self.logger.info(lpref + "found first par2 file")
                     if inject_set0 == ["par2"] and (filetype == "par2" or filetypecounter["par2"]["max"] == 0):
+                        self.logger.debug(lpref + "injecting rars etc.")
                         inject_set0 = ["rar", "sfv", "nfo", "etc"]
                         files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                         bytescount0 += bytescount00
@@ -744,7 +722,7 @@ class Downloader():
                 if loadpar2vols:
                     self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
                     overall_size = overall_size_wparvol
-                    self.logger.info("Queuing par2vols")
+                    self.logger.info(lpref + "queuing par2vols")
                     inject_set0 = ["par2vol"]
                     files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                     bytescount0 += bytescount00
@@ -755,20 +733,20 @@ class Downloader():
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
                 # if no rar files in verified_rardir: skip as we cannot test for password
                 if rf:
-                    self.logger.info("First verified rar file appeared, testing if pw protected")
+                    self.logger.info(lpref + "first verified rar file appeared, testing if pw protected")
                     is_pwp = is_rar_password_protected(self.verifiedrar_dir, self.logger)
                     if is_pwp in [0, -2]:
-                        self.logger.info("Cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
+                        self.logger.warning(lpref + "cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
                         self.pwdb.db_nzb_update_status(nzbname, -2)  # status download failed
                         getnextnzb = True
                         continue
                     if is_pwp == 1:
                         # if pw protected -> postpone password test + unrar
                         self.pwdb.db_nzb_set_ispw(nzbname, True)
-                        self.logger.info("rar archive is pw protected, postponing unrar to postprocess ...")
+                        self.logger.info(lpref + "rar archive is pw protected, postponing unrar to postprocess ...")
                     else:
                         # if not pw protected -> normal unrar
-                        self.logger.info("rar archive is not pw protected, starting unrarer ...")
+                        self.logger.info(lpref + "rar archive is not pw protected, starting unrarer ...")
                         self.pwdb.db_nzb_set_ispw(nzbname, False)
                         self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
                                                                                   self.pwdb, nzbname, self.logger, None, ))
@@ -776,7 +754,8 @@ class Downloader():
                         self.mpp["unrarer"] = self.mpp_unrarer
                         self.sighandler.mpp = self.mpp
                 else:
-                    self.logger.debug("No rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
+                    self.logger.debug(lpref + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
+            
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.mpp["verifier"]:
                 pvmode = None
@@ -785,7 +764,7 @@ class Downloader():
                 elif not p2 and filetypecounter["par2"]["max"] == 0:
                     pvmode = "copy"
                 if pvmode:
-                    self.logger.debug("Starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
+                    self.logger.debug(lpref + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
                     self.mpp_verifier = mp.Process(target=par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
                                                                               self.main_dir, self.logger, self.pwdb, nzbname, pvmode, ))
                     self.mpp_verifier.start()
@@ -800,9 +779,9 @@ class Downloader():
             else:
                 article_health = 0
             if failed != 0:
-                self.logger.warning(str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
+                self.logger.warning(lpref + str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
                 if not loadpar2vols:
-                    self.logger.info("Queuing par2vols")
+                    self.logger.info(lpref + "queuing par2vols")
                     inject_set0 = ["par2vol"]
                     files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                     bytescount0 += bytescount00
@@ -810,14 +789,12 @@ class Downloader():
                     overall_size = overall_size_wparvol
                     loadpar2vols = True
 
-            # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
-            #                                      article_health, overall_size, already_downloaded_size)
             try:
                 self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                             article_health, overall_size, already_downloaded_size), self.ct.threads, self.ct.servers.server_config)
             except Exception as e:
-                self.logger.info("set data error " + str(e))
-            
+                self.logger.warning(lpref + "set data error " + str(e))
+
             # if all downloaded postprocess
             getnextnzb = True
             for filetype, item in filetypecounter.items():
@@ -826,10 +803,6 @@ class Downloader():
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     getnextnzb = False
                     break
-            if getnextnzb:
-                self.logger.debug(nzbname + "- download complete!")
-                self.pwdb.db_nzb_update_status(nzbname, 3)
-                break
 
             time.sleep(0.2)
 
@@ -851,12 +824,12 @@ class Downloader():
 
 def get_next_nzb(pwdb, dirs, ct, logger):
     # wait for new nzbs to arrive
-    logger.debug("looking for new NZBs ...")
+    logger.debug(lpref + "looking for new NZBs ...")
     try:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = make_allfilelist_inotify(pwdb, dirs, logger, -1)
     except Exception as e:
-        logger.warning("!!! " + str(e))
+        logger.warning(lpref + whoami() + str(e))
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
@@ -872,12 +845,12 @@ def get_next_nzb(pwdb, dirs, ct, logger):
                 ct.servers.close_all_connections()
                 ct.threads = []
                 del ct.servers
-            logger.debug("Polling for new NZBs now in blocking mode!")
+            logger.debug(lpref + "polling for new NZBs now in blocking mode!")
             try:
                 allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
-                logger.warning("!!! " + str(e))
+                logger.warning(lpref + whoami() + str(e))
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
 
 
@@ -887,12 +860,12 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
         if nzbname:
-            logger.debug("Inotify: no timeout, got nzb " + nzbname + " immediately!")
+            logger.debug(lpref + "inotify: no timeout, got nzb " + nzbname + " immediately!")
             return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
         else:
             return None, None, None, None, None, None, None
     # setup inotify
-    logger.debug("Setting up inotify for timeout=" + str(timeout0))
+    logger.debug(lpref + "Setting up inotify for timeout=" + str(timeout0))
     pwdb_inotify = inotify_simple.INotify()
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
     wd = pwdb_inotify.add_watch(dirs["main"], watch_flags)
@@ -900,17 +873,17 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
     timeout00 = timeout0
     while True:
         for event in pwdb_inotify.read(timeout=timeout00):
-            logger.debug("got notify event on " + str(event.name))
+            logger.debug(lpref + "got notify event on " + str(event.name))
             if event.name == u"ginzibix.db":
-                logger.debug("Database updated, now checking for nzbname & data")
+                logger.debug(lpref + "database updated, now checking for nzbname & data")
                 allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
                     = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
                 if nzbname:
-                    logger.debug("new nzb found in db, queuing ...")
+                    logger.debug(lpref + "new nzb found in db, queuing ...")
                     pwdb_inotify.rm_watch(wd)
                     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
                 else:
-                    logger.debug("no new nzb found in db, continuing polling ...")
+                    logger.debug(lpref + "no new nzb found in db, continuing polling ...")
         # if timeout == None: again blocking, else subtract already spent timeout
         if timeout00:
             timeout00 = timeout00 - (time.time() - t0) * 1000
@@ -920,6 +893,7 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
                 return None, None, None, None, None, None, None
 
 
+# this class deals on a meta-level with usenet connections
 class ConnectionThreads:
     def __init__(self, cfg, articlequeue, resultqueue, logger):
         self.cfg = cfg
@@ -937,14 +911,14 @@ class ConnectionThreads:
 
     def start_threads(self):
         if not self.threads:
-            self.logger.debug("Starting download threads")
+            self.logger.debug(lpref + "starting download threads")
             self.init_servers()
             for sn, scon, _, _ in self.all_connections:
                 t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
                 self.threads.append((t, time.time()))
                 t.start()
         else:
-            self.logger.debug("Threads already started")
+            self.logger.debug(lpref + "threads already started")
 
     def reset_timestamps(self):
         for t, _ in self.threads:
@@ -957,7 +931,8 @@ class ConnectionThreads:
                 t.last_timestamp = 0
 
 
-def ginzi_main(cfg, pwdb, logger):
+# main loop for ginzibix downloader
+def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
@@ -965,19 +940,20 @@ def ginzi_main(cfg, pwdb, logger):
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
+    logger.debug(lpref + "initializing sighandler")
     mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None}
     sh = SigHandler_Main(mpp, ct, mp_work_queue, logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
     # start nzb parser mpp
-    logger.debug("Starting nzbparser process ...")
+    logger.debug(lpref + "starting nzbparser process ...")
     mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
     # start decoder mpp
-    logger.debug("Starting decoder process ...")
+    logger.debug(lpref + "starting decoder process ...")
     mpp_decoder = mp.Process(target=decode_articles, args=(mp_work_queue, pwdb, logger, ))
     mpp_decoder.start()
     mpp["decoder"] = mpp_decoder
@@ -986,17 +962,20 @@ def ginzi_main(cfg, pwdb, logger):
 
     logging.handlers.NZBHandler = NZBHandler
 
-    logger.debug("Starting guiconnector process ...")
+    logger.debug(lpref + "starting guiconnector process ...")
     lock = threading.Lock()
     guiconnector = GUI_Connector(pwdb, lock, logger, port="36601")
     guiconnector.start()
-    logger.debug("guiconnector process started!")
+    logger.debug(lpref + "guiconnector process started!")
 
     dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     while True:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = get_next_nzb(pwdb, dirs, ct, logger)
         ct.reset_timestamps_bdl()
+        if not nzbname:
+            break
+        logger.info(lpref + "got next NZB: " + str(nzbname))
 
         # setup db logging handler for NZB
         nzbhandler = logging.handlers.NZBHandler(nzbname, pwdb)
@@ -1009,11 +988,10 @@ def ginzi_main(cfg, pwdb, logger):
         stat0 = pwdb.db_nzb_getstatus(nzbname)
         # if download success, postprocess
         if stat0 == 3:    # if download ok - postprocess
+            logger.info(lpref + "postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
 
         # delete NZB / db logging handler
         pwdb.db_msg_removeall(nzbname)
         logger.removeHandler(nzbhandler)
         del nzbhandler
-
-
