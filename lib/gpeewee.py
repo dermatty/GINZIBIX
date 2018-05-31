@@ -214,6 +214,13 @@ class PWDB:
             size += self.db_file_getsize(a.orig_name)
         return size
 
+    def db_nzb_get_downloadedsize(self, name):
+        nzb0 = self.NZB.get(self.NZB.name == name)
+        size = 0
+        for a in nzb0.files:
+            size += self.db_file_get_downloadedsize(a.orig_name)
+        return size
+
     def db_nzb_exists(self, name):
         try:
             nzb = self.NZB.get(self.NZB.name == name)
@@ -230,6 +237,13 @@ class PWDB:
         for n in self.NZB.select():
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
+
+    def db_nzb_getall_sorted(self):
+        query = self.NZB.select()
+        nzbs = []
+        for n in query:
+            nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name)))
+        return sorted(nzbs, key=lambda nzb: nzb[1])
 
     def db_nzb_set_password(self, nzbname, pw):
         query = self.NZB.update(password=pw).where(self.NZB.name == nzbname)
@@ -311,6 +325,12 @@ class PWDB:
             size += a.size
         return size
 
+    def db_file_get_downloadedsize(self, name):
+        file0 = self.FILE.get(self.FILE.orig_name == name)
+        if file0.status != 2:
+            return 0
+        return sum([a.size for a in file0.articles])
+
     def db_file_getsize_renamed(self, name):
         file0 = self.FILE.get(self.FILE.renamed_name == name)
         size = 0
@@ -335,7 +355,7 @@ class PWDB:
         res0 = [f0 for f0 in files0 if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status > 0 and f0.nzb.name == nzbname]
         return res0
 
-    def get_all_renamed_rar_files(self):
+    def get_all_renamed_rar_files(self, nzbname):
         try:
             files0 = self.FILE.select()
             rarfiles = [f0 for f0 in files0 if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
@@ -344,36 +364,38 @@ class PWDB:
             self.logger.warning(lpref + str(e))
             return None
 
-    def get_all_corrupt_rar_files(self):
+    def get_all_corrupt_rar_files(self, nzbname):
         try:
-            files0 = self.FILE.select()
-            rarfiles = [f0 for f0 in files0 if f0.ftype == "rar" and f0.parverify_state == -1 and f0.renamed_name != "N/A"]
+            rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files
+                        if f0.ftype == "rar" and f0.parverify_state == -1 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
             self.logger.warning(lpref + str(e))
             return None
 
-    def db_only_failed_or_ok_rars(self):
+    def db_only_failed_or_ok_rars(self, nzbname):
         try:
-            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar")
+            rarfiles = [rf for rf in self.NZB.get(self.NZB.name == nzbname).files if rf.ftype == "rar"]
+            # rarfiles = self.FILE.select().where(self.FILE.ftype == "rar")
             rarstates = [r.parverify_state for r in rarfiles]
             if (0 not in rarstates) and (-1 not in rarstates):
                 return True
             return False
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(lpref + ">>>>>>>>>>>>>" + str(e))
             return None
 
-    def db_only_verified_rars(self):
+    def db_only_verified_rars(self, nzbname):
         try:
-            rarfiles = self.FILE.select().where(self.FILE.ftype == "rar")
+            rarfiles = [rf for rf in self.NZB.get(self.NZB.name == nzbname).files if rf.ftype == "rar"]
+            rarl = [(r.parverify_state, r.orig_name) for r in rarfiles]
             rarstates = [r.parverify_state for r in rarfiles]
             if (0 not in rarstates):
-                return True
-            return False
+                return True, rarl
+            return False, rarl
         except Exception as e:
             self.logger.warning(lpref + str(e))
-            return None
+            return None, rarl
 
     def get_renamed_p2(self, dir01, nzbname):
         try:

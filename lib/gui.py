@@ -6,7 +6,7 @@ import datetime
 
 class GUI_Drawer:
 
-    def draw(self, data, pwdb_msg, server_config, threads):
+    def draw(self, data, pwdb_msg, server_config, threads, sortednzblist):
         if not data or not pwdb_msg or not server_config or not threads:
             return
         bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
@@ -85,5 +85,18 @@ class GUI_Drawer:
             print(" " * 120)
             sys.stdout.write("\033[F")
             print(msg0[-1][:120])
-        for _ in range(len(threads) + 8):
+        # print nzblist
+        lnz = 0
+        for nzname, nzprio, nztimestamp, nzstatus, nzsize, nzdlsize in sortednzblist:
+            if nzstatus in [0, 1, 2, 3]:
+                
+                nzsize /= (1024 * 1024 * 1024)
+                nzdlsize /= (1024 * 1024 * 1024)
+                if nzname == nzbname:
+                    print(nzname + ": downloading " + " / " + gbdown0_str + " GiB / {0:.2f}".format(overall_size) + " GiB " + " " * 40)
+                else:
+                    print(nzname + ": " + str(nzstatus) + " / {0:.2f}".format(nzdlsize) + "GiB / {0:.2f}".format(nzsize) + " GiB" * 40)
+                lnz += 1
+        # go up on console
+        for _ in range(len(threads) + 8 + lnz):
             sys.stdout.write("\033[F")

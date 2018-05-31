@@ -366,7 +366,7 @@ class Downloader():
                     self.mp_work_queue.put((inflist0, self.download_dir, filename, filetype))
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
                     infolist[filename] = None
-                    self.logger.info("All articles for " + filename + " downloaded, calling mp.decode ...")
+                    self.logger.debug("All articles for " + filename + " downloaded, calling mp.decode ...")
             except KeyError:
                 pass
             except queue.Empty:
@@ -932,7 +932,7 @@ class ConnectionThreads:
 
 
 # main loop for ginzibix downloader
-def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
+def ginzi_main(cfg, pwdb, dirs, subdirs, nzboutqueue, logger):
 
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
@@ -948,7 +948,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(lpref + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], nzboutqueue, logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
@@ -976,6 +976,12 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         if not nzbname:
             break
         logger.info(lpref + "got next NZB: " + str(nzbname))
+        while True:
+            try:
+                nzboutqueue.get_nowait()
+            except queue.Empty:
+                break
+        nzboutqueue.put(pwdb.db_nzb_getall_sorted())
 
         # setup db logging handler for NZB
         nzbhandler = logging.handlers.NZBHandler(nzbname, pwdb)

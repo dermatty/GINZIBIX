@@ -59,7 +59,7 @@ class SigHandler_Ginzibix:
 # connects to GUI_Connector in main.py and gets data for displaying
 class GUI_Poller(Thread):
 
-    def __init__(self, lock, logger, port="36601"):
+    def __init__(self, lock, nzbinqueue, logger, port="36601"):
         Thread.__init__(self)
         self.daemon = True
         self.context = zmq.Context()
@@ -69,6 +69,7 @@ class GUI_Poller(Thread):
         self.data = None
         self.nzbname = None
         self.delay = 1
+        self.nzbinqueue = nzbinqueue
 
         self.socket = self.context.socket(zmq.REQ)
         self.logger = logger
@@ -79,13 +80,20 @@ class GUI_Poller(Thread):
         socketurl = "tcp://" + self.host + ":" + self.port
         self.socket.connect(socketurl)
         # self.socket.RCVTIMEO = 1000
+        sortednzblist = []
         while True:
             try:
                 self.socket.send_string("REQ")
                 (data, pwdb_msg, server_config, threads) = self.socket.recv_pyobj()
                 if data == "NOOK":
                     continue
-                self.gui_drawer.draw(data, pwdb_msg, server_config, threads)
+                # get nzbqueue
+                while True:
+                    try:
+                        sortednzblist = self.nzbinqueue.get_nowait()
+                    except queue.Empty:
+                        break
+                self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
             except Exception as e:
                 self.logger.error("GUI_ConnectorMain: " + str(e))
             time.sleep(self.delay)
@@ -114,6 +122,7 @@ if __name__ == '__main__':
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
     mp_work_queue = mp.Queue()
+    nzbinqueue = mp.Queue()
 
     # init sighandler
     sh = SigHandler_Ginzibix(None, pwdb, logger)
@@ -125,11 +134,11 @@ if __name__ == '__main__':
 
     # start guiconnector
     lock = threading.Lock()
-    guipoller = GUI_Poller(lock, logger, port="36601")
+    guipoller = GUI_Poller(lock, nzbinqueue, logger, port="36601")
     guipoller.start()
 
     # start main mp
-    mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, dirs, subdirs, logger, ))
+    mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, dirs, subdirs, nzbinqueue, logger, ))
     mpp_main.start()
     sh.mpp_main = mpp_main
 

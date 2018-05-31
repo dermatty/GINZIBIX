@@ -3,6 +3,7 @@ import nntplib
 
 lpref = __name__.split("lib.")[-1] + " - "
 
+
 # Does all the server stuff (open, close connctions) and contains all relevant
 # data
 class Servers():

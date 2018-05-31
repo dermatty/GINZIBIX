@@ -34,7 +34,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
 
     pwdb.db_nzb_update_verify_status(nzbname, 1)
     # a: verify all unverified files in "renamed"
-    unverified_rarfiles = pwdb.get_all_renamed_rar_files()
+    unverified_rarfiles = pwdb.get_all_renamed_rar_files(nzbname)
     doloadpar2vols = False
     if pvmode == "verify" and not p2:
         logger.debug(lpref + "no par2 file found")
@@ -107,12 +107,15 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                     logger.debug(lpref + "copying " + f0.renamed_name.split("/")[-1] + " to verified_rar dir")
                     shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                     pwdb.db_file_update_parstatus(f0.orig_name, 1)
-        if pwdb.db_only_verified_rars():
+        allrarsverified, rvlist = pwdb.db_only_verified_rars(nzbname)
+        logger.debug(str(rvlist))
+        if allrarsverified:
             break
         time.sleep(1)
 
+    logger.debug(lpref + "all rars are verified")
     par2name = pwdb.db_get_renamed_par2(nzbname)
-    corruptrars = pwdb.get_all_corrupt_rar_files()
+    corruptrars = pwdb.get_all_corrupt_rar_files(nzbname)
     if par2name and corruptrars:
         logger.info(lpref + "par2vol files present, repairing ...")
         res0 = multipartrar_repair(renamed_dir, par2name, logger)
@@ -222,6 +225,8 @@ def par_verifier0(mp_inqueue, mp_outqueue, download_dir, verifiedrar_dir, main_d
         if doloadpar2vols:
             mp_outqueue.put((doloadpar2vols, -9999))
         # if all checked is there still a fill which is not ok??
+        logger.debug("#" * 100)
+        logger.debug(">>> maxrar: " + str(maxrar) + " l_rarf: " + str(len(rarf)) + " l_rarlist: " + str(len(rarlist)))
         if len(rarf) == maxrar and len(rarlist) == maxrar:
             allok = True
             for (filename, isok) in rarlist:
