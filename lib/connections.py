@@ -23,6 +23,10 @@ class ConnectionWorker(Thread):
         self.bytesdownloaded = 0
         self.last_timestamp = 0
         self.mode = "download"
+        # 0 ... not running
+        # 1 ... running ok
+        # -1 ... connection problem
+        self.connectionstate = 0
 
     def stop(self):
         self.running = False
@@ -77,17 +81,19 @@ class ConnectionWorker(Thread):
 
     def retry_connect(self):
         if self.nntpobj or not self.running:
+            self.connectionstate = 1
             return
         idx = 0
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
-        self.logger.info(lpref + "Server " + idn + " connecting ...")
+        self.logger.debug(lpref + "Server " + idn + " connecting ...")
         while idx < 5 and self.running:
             self.nntpobj = self.servers.open_connection(name, conn_nr)
             if self.nntpobj:
-                self.logger.info(lpref + "Server " + idn + " connected!")
+                self.logger.debug(lpref + "Server " + idn + " connected!")
                 self.last_timestamp = time.time()
                 self.bytesdownloaded = 0
+                self.connectionstate = 1
                 time.sleep(1)
                 return
             self.logger.warning(lpref + "Could not connect to server " + idn + ", will retry in 5 sec.")
@@ -156,6 +162,7 @@ class ConnectionWorker(Thread):
             if status == -2:
                 # disconnect
                 self.logger.warning("Stopping server " + self.idn)
+                self.connectionstate = -1
                 try:
                     self.nntpobj.quit()
                 except Exception as e:

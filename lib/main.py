@@ -373,6 +373,34 @@ class Downloader():
                 break
         return newresult, avgmiblist, infolist, files, failed
 
+    def connection_thread_health(self):
+        nothreads = 0
+        nodownthreads = 0
+        for t, _ in self.ct.threads:
+            nothreads += 1
+            if t.connectionstate == -1:
+                nodownthreads += 1
+        # self.logger.debug(">>>>" + str(nothreads) + " / " + str(nodownthreads))
+        return 1 - nodownthreads / (nothreads + 0.00001)
+
+    def restart_all_threads(self):
+        self.logger.debug(lpref + "connection-restart: shutting down")
+        if self.ct.threads:
+            for t, _ in self.ct.threads:
+                t.stop()
+                t.join()
+        try:
+            if self.ct.servers:
+                self.servers.close_all_connections()
+        except Exception:
+            pass
+        del self.ct.servers
+        del self.ct.threads
+        time.sleep(3)
+        self.logger.debug(lpref + "connection-restart: restarting")
+        self.ct.init_servers()
+        self.logger.debug()
+
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
         # self.sighandler.shutdown()
@@ -755,7 +783,7 @@ class Downloader():
                         self.sighandler.mpp = self.mpp
                 else:
                     self.logger.debug(lpref + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
-            
+
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.mpp["verifier"]:
                 pvmode = None
@@ -803,6 +831,31 @@ class Downloader():
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     getnextnzb = False
                     break
+
+            # check if > 25% of connections are down
+            if self.connection_thread_health() < 0.75:
+                self.logger.debug(lpref + ">>>> " + str(self.connection_thread_health()))
+                self.logger.info(lpref + "connections are unstable, restarting")
+                # clear article queue
+                remainingarticles = []
+                while True:
+                    try:
+                        aqg = self.articlequeue.get_nowait()
+                        remainingarticles.append(aqg)
+                        self.articlequeue.task_done()
+                    except queue.Empty:
+                        break
+                # clear resultqueue
+                while True:
+                    try:
+                        self.resultqueue.get_nowait()
+                        self.resultqueue.task_done()
+                    except queue.Empty:
+                        break
+                # close everything down, wait 3 sec. and restart
+                self.restart_all_threads()
+                for aqg in remainingarticles:
+                    self.articlequeue.put(aqg)
 
             time.sleep(0.2)
 

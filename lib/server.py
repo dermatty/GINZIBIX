@@ -60,12 +60,12 @@ class Servers():
                     if sc:
                         server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
                         try:
-                            self.logger.info(lpref + "Opening connection # " + str(conn_nr) + "to server " + server_name)
+                            self.logger.debug(lpref + "Opening connection # " + str(conn_nr) + "to server " + server_name)
                             if usessl:
                                 nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             else:
                                 nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
-                            self.logger.info(lpref + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
+                            self.logger.debug(lpref + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)
                             break
