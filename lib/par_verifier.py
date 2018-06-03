@@ -108,7 +108,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                     shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                     pwdb.db_file_update_parstatus(f0.orig_name, 1)
         allrarsverified, rvlist = pwdb.db_only_verified_rars(nzbname)
-        logger.debug(str(rvlist))
+        # logger.debug(str(rvlist))
         if allrarsverified:
             break
         time.sleep(1)

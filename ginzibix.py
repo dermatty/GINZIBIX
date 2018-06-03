@@ -1,6 +1,5 @@
 #!/home/stephan/.virtualenvs/nntp/bin/python
 
-import time
 import sys
 from os.path import expanduser
 import configparser
@@ -11,9 +10,10 @@ import logging.handlers
 from logging import getLoggerClass, addLevelName, setLoggerClass, NOTSET
 import lib
 import queue
-import zmq
-import threading
-from threading import Thread
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import GLib, Gtk
+
 
 lpref = ""
 __version__ = "0.1-alpha"
@@ -56,49 +56,6 @@ class SigHandler_Ginzibix:
         sys.exit()
 
 
-# connects to GUI_Connector in main.py and gets data for displaying
-class GUI_Poller(Thread):
-
-    def __init__(self, lock, nzbinqueue, logger, port="36601"):
-        Thread.__init__(self)
-        self.daemon = True
-        self.context = zmq.Context()
-        self.host = "127.0.0.1"
-        self.port = port
-        self.lock = lock
-        self.data = None
-        self.nzbname = None
-        self.delay = 1
-        self.nzbinqueue = nzbinqueue
-
-        self.socket = self.context.socket(zmq.REQ)
-        self.logger = logger
-        self.gui_drawer = lib.GUI_Drawer()
-
-    def run(self):
-        self.socket.setsockopt(zmq.LINGER, 0)
-        socketurl = "tcp://" + self.host + ":" + self.port
-        self.socket.connect(socketurl)
-        # self.socket.RCVTIMEO = 1000
-        sortednzblist = []
-        while True:
-            try:
-                self.socket.send_string("REQ")
-                (data, pwdb_msg, server_config, threads) = self.socket.recv_pyobj()
-                if data == "NOOK":
-                    continue
-                # get nzbqueue
-                while True:
-                    try:
-                        sortednzblist = self.nzbinqueue.get_nowait()
-                    except queue.Empty:
-                        break
-                self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
-            except Exception as e:
-                self.logger.error("GUI_ConnectorMain: " + str(e))
-            time.sleep(self.delay)
-
-
 # -------------------- main --------------------
 
 if __name__ == '__main__':
@@ -110,6 +67,7 @@ if __name__ == '__main__':
     # init logger
     logger = logging.getLogger("ginzibix")
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
     fh = logging.FileHandler("/home/stephan/.ginzibix/logs/ginzibix.log", mode="w")
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
@@ -132,20 +90,11 @@ if __name__ == '__main__':
     progstr = "ginzibix 0.1-alpha, client"
     logger.debug(lpref + "Welcome to GINZIBIX " + __version__)
 
-    # start guiconnector
-    lock = threading.Lock()
-    guipoller = GUI_Poller(lock, nzbinqueue, logger, port="36601")
-    guipoller.start()
-
     # start main mp
     mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, dirs, subdirs, nzbinqueue, logger, ))
     mpp_main.start()
     sh.mpp_main = mpp_main
 
     # "main" loop ...
-    while True:
-        time.sleep(1)
-
-    logger.debug("exiting GNIZIBIX")
-
-    sys.exit()
+    lib.app_main(nzbinqueue, mpp_main, logger)
+    Gtk.main()

@@ -10,4 +10,4 @@ from .server import Servers
 # from .sighandler import SigHandler
 from .passworded_rars import is_rar_password_protected, get_password
 from .main import ginzi_main
-from .gui import GUI_Drawer
+from .gui import GUI_Drawer, app_main

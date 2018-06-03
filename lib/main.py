@@ -121,7 +121,7 @@ class SigHandler_Main:
             if self.ct.servers:
                 self.logger.warning("signalhandler: closing all server connections")
                 self.servers.close_all_connections()
-        except:
+        except Exception:
             pass
         self.logger.warning("signalhandler: exiting")
         sys.exit()
@@ -834,10 +834,11 @@ class Downloader():
 
             # check if > 25% of connections are down
             if self.connection_thread_health() < 0.75:
-                self.logger.debug(lpref + ">>>> " + str(self.connection_thread_health()))
+                # self.logger.debug(lpref + ">>>> " + str(self.connection_thread_health()))
                 self.logger.info(lpref + "connections are unstable, restarting")
                 # clear article queue
                 remainingarticles = []
+                self.logger.debug(lpref + "clearing articlequeue")
                 while True:
                     try:
                         aqg = self.articlequeue.get_nowait()
@@ -846,6 +847,7 @@ class Downloader():
                     except queue.Empty:
                         break
                 # clear resultqueue
+                self.logger.debug(lpref + "clearing resultqueue")
                 while True:
                     try:
                         self.resultqueue.get_nowait()
@@ -853,6 +855,7 @@ class Downloader():
                     except queue.Empty:
                         break
                 # close everything down, wait 3 sec. and restart
+                self.logger.debug(lpref + "restarting threads and requeuing articles")
                 self.restart_all_threads()
                 for aqg in remainingarticles:
                     self.articlequeue.put(aqg)

@@ -357,8 +357,7 @@ class PWDB:
 
     def get_all_renamed_rar_files(self, nzbname):
         try:
-            files0 = self.FILE.select()
-            rarfiles = [f0 for f0 in files0 if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
+            rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
             self.logger.warning(lpref + str(e))
