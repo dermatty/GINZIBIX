@@ -143,7 +143,7 @@ class NZBHandler(logging.Handler):
 
 
 class GUI_Connector(Thread):
-    def __init__(self, pwdb, lock, logger, port="36601"):
+    def __init__(self, pwdb, lock, nzboutqueue, logger, port="36601"):
         Thread.__init__(self)
         self.daemon = True
         self.pwdb = pwdb
@@ -158,6 +158,7 @@ class GUI_Connector(Thread):
         self.socket.bind("tcp://*:" + self.port)
         self.threads = []
         self.server_config = None
+        self.nzboutqueue = nzboutqueue
 
     def set_data(self, data, threads, server_config):
         with self.lock:
@@ -187,20 +188,29 @@ class GUI_Connector(Thread):
             except Exception as e:
                 self.logger.error("GUI_Connector: " + str(e))
                 try:
-                    self.socket.send_pyobj(("NOOK", None, None, None))
+                    self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
             if msg != "REQ":
                 try:
-                    self.socket.send_pyobj(("NOOK", None, None, None))
+                    self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
                 continue
-            ret0 = self.get_data()
+            ret_queue = None
+            while True:
+                try:
+                    ret_queue = self.nzboutqueue.get_nowait()
+                except queue.Empty:
+                    break
+            if ret_queue:
+                sendtuple = ("NZB_DATA", ret_queue)
+            else:
+                sendtuple = ("DL_DATA", self.get_data())
             try:
-                self.socket.send_pyobj(ret0)
+                self.socket.send_pyobj(sendtuple)
             except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                self.logger.error("GUI_Connector: " + str(e))
 
 
 # Handles download of a NZB file
@@ -988,11 +998,12 @@ class ConnectionThreads:
 
 
 # main loop for ginzibix downloader
-def ginzi_main(cfg, pwdb, dirs, subdirs, nzboutqueue, logger):
+def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
+    nzboutqueue = mp.Queue()
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
@@ -1020,7 +1031,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, nzboutqueue, logger):
 
     logger.debug(lpref + "starting guiconnector process ...")
     lock = threading.Lock()
-    guiconnector = GUI_Connector(pwdb, lock, logger, port="36601")
+    guiconnector = GUI_Connector(pwdb, lock, nzboutqueue, logger, port="36601")
     guiconnector.start()
     logger.debug(lpref + "guiconnector process started!")
 

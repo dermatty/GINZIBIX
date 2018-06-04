@@ -80,7 +80,6 @@ if __name__ == '__main__':
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
     mp_work_queue = mp.Queue()
-    nzbinqueue = mp.Queue()
 
     # init sighandler
     sh = SigHandler_Ginzibix(None, pwdb, logger)
@@ -91,10 +90,10 @@ if __name__ == '__main__':
     logger.debug(lpref + "Welcome to GINZIBIX " + __version__)
 
     # start main mp
-    mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, dirs, subdirs, nzbinqueue, logger, ))
+    mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, pwdb, dirs, subdirs, logger, ))
     mpp_main.start()
     sh.mpp_main = mpp_main
 
     # "main" loop ...
-    lib.app_main(nzbinqueue, mpp_main, logger)
+    lib.app_main(mpp_main, logger)
     Gtk.main()

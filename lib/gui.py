@@ -22,7 +22,7 @@ def closeall(a):
         MPP_MAIN.join()
 
 
-def app_main(nzbinqueue, mpp_main, logger):
+def app_main(mpp_main, logger):
     global MPP_MAIN
     MPP_MAIN = mpp_main
     win = Gtk.Window(default_height=50, default_width=900, title="ginzibix")
@@ -75,14 +75,14 @@ def app_main(nzbinqueue, mpp_main, logger):
 
     # start guiconnector
     lock = threading.Lock()
-    guipoller = GUI_Poller(lock, nzbinqueue, update_mainwindow, logger, port="36601")
+    guipoller = GUI_Poller(lock, update_mainwindow, logger, port="36601")
     guipoller.start()
 
 
 # connects to GUI_Connector in main.py and gets data for displaying
 class GUI_Poller(Thread):
 
-    def __init__(self, lock, nzbinqueue, update_mainwindow, logger, port="36601"):
+    def __init__(self, lock, update_mainwindow, logger, port="36601"):
         Thread.__init__(self)
         self.daemon = True
         self.context = zmq.Context()
@@ -92,7 +92,6 @@ class GUI_Poller(Thread):
         self.data = None
         self.nzbname = None
         self.delay = 1
-        self.nzbinqueue = nzbinqueue
         self.update_mainwindow = update_mainwindow
 
         self.socket = self.context.socket(zmq.REQ)
@@ -107,15 +106,13 @@ class GUI_Poller(Thread):
         while True:
             try:
                 self.socket.send_string("REQ")
-                (data, pwdb_msg, server_config, threads) = self.socket.recv_pyobj()
-                if data == "NOOK":
+                datatype, datarec = self.socket.recv_pyobj()
+                if datatype == "NOOK":
                     continue
-                # get nzbqueue
-                while True:
-                    try:
-                        sortednzblist = self.nzbinqueue.get_nowait()
-                    except queue.Empty:
-                        break
+                elif datatype == "DL_DATA":
+                    data, pwdb_msg, server_config, threads = datarec
+                elif datatype == "NZB_DATA":
+                    sortednzblist = datarec
                 try:
                     GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, sortednzblist)
                 except Exception:
