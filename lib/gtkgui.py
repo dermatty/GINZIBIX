@@ -34,15 +34,17 @@ class AppData:
     def __init__(self):
         self.mbitsec = 0
         # NZB - progress - downloaded - overall - eta
-        self.nzbs = [("Fuenf Freunde", 0, 1.21, 2.67, "11m03s"),
-                     ("Der Gloeckner von Notredame", 0, 0.0, 0.98, "7m14s")]
-        for i in range(122):
+        self.nzbs = [("Fuenf Freunde", 10, 1.21, 2.67, "11m03s", "10%", False),
+                     ("Der Gloeckner von Notredame", 1, 0.0, 0.98, "7m14s", "1%", False)]
+        for i in range(5):
             self.nzbs.append(self.nzbs[0])
 
 
 class AppWindow(Gtk.ApplicationWindow):
 
     def __init__(self, app):
+        self.liststore = None
+        self.mbitlabel = None
         self.appdata = AppData()
         Gtk.Window.__init__(self, title=__appname__, application=app)
         try:
@@ -83,60 +85,84 @@ class AppWindow(Gtk.ApplicationWindow):
         # scrolled window
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_border_width(10)
-        # there is always the scrollbar (otherwise: AUTOMATIC - only if needed
-        # - or NEVER)
         scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled_window.set_property("min-content-height", 300)
-        # scrolled_window.set_property("valign", Gtk.Align.START)
-        stacknzb_box.pack_start(scrolled_window, True, True, 16)
-
+        stacknzb_box.pack_start(scrolled_window, True, True, 8)
         # listbox
         listbox = Gtk.ListBox()
-        
-        # stacknzb_box.pack_start(listbox, True, True, 16)
-
         row = Gtk.ListBoxRow()
-
-        self.liststore = Gtk.ListStore(str, int, float, float, str)
+        # populate liststore
+        self.liststore = Gtk.ListStore(str, int, float, float, str, str, bool)
         for i, nzb in enumerate(self.appdata.nzbs):
             if i == 0:
                 self.current_iter = self.liststore.append(list(nzb))
             else:
                 self.liststore.append(list(nzb))
-
+        # set treeview + actions
         treeview = Gtk.TreeView(model=self.liststore)
+        treeview.set_reorderable(True)
+        treeview.get_selection().connect("changed", self.on_selection_changed)
+        # 1st column: NZB name
         renderer_text0 = Gtk.CellRendererText()
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
         column_text0.set_expand(True)
         treeview.append_column(column_text0)
-
+        # 2nd: progressbar
         renderer_progress = Gtk.CellRendererProgress()
-        column_progress = Gtk.TreeViewColumn("Progress", renderer_progress, value=1)
+        column_progress = Gtk.TreeViewColumn("Progress", renderer_progress, value=1, text=5)
         column_progress.set_min_width(260)
+        column_progress.set_expand(True)
         treeview.append_column(column_progress)
-
+        # 3rd downloaded GiN
         renderer_text1 = Gtk.CellRendererText()
         column_text1 = Gtk.TreeViewColumn("Downloaded", renderer_text1, text=2)
         column_text1.set_cell_data_func(renderer_text1, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 2)[0]) + " GiB"))
         treeview.append_column(column_text1)
-
+        # 4th overall GiB
         renderer_text2 = Gtk.CellRendererText()
         column_text2 = Gtk.TreeViewColumn("Overall", renderer_text2, text=3)
         column_text2.set_cell_data_func(renderer_text2, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
         column_text2.set_min_width(80)
         treeview.append_column(column_text2)
-
+        # 5th Eta
         renderer_text3 = Gtk.CellRendererText()
         column_text3 = Gtk.TreeViewColumn("Eta", renderer_text3, text=4)
         column_text3.set_min_width(80)
         treeview.append_column(column_text3)
-
+        # 6th selection toggled
+        renderer_toggle = Gtk.CellRendererToggle()
+        renderer_toggle.connect("toggled", self.on_inverted_toggled)
+        column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=6)
+        treeview.append_column(column_toggle)
+        # final
         row.add(treeview)
         listbox.add(row)
         scrolled_window.add(listbox)
+        # grid for record/stop/.. selected
+        grid = Gtk.Grid()
+        # stacknzb_box.add(grid)
+        stacknzb_box.pack_start(grid, True, True, 8)
+        button1 = Gtk.Button(label="Button 1")
+        button2 = Gtk.Button(label="Button 2")
+        button3 = Gtk.Button(label="Button 3")
+        button4 = Gtk.Button(label="Button 4")
+        button5 = Gtk.Button(label="Button 5")
+        button6 = Gtk.Button(label="Button 6")
+        grid.add(button1)
+        grid.attach(button2, 1, 0, 2, 1)
+        grid.attach_next_to(button3, button1, Gtk.PositionType.BOTTOM, 1, 2)
+        grid.attach_next_to(button4, button3, Gtk.PositionType.RIGHT, 2, 1)
+        grid.attach(button5, 1, 2, 1, 1)
+        grid.attach_next_to(button6, button5, Gtk.PositionType.RIGHT, 1, 1)
 
+    def on_inverted_toggled(self, widget, path):
+        self.liststore[path][6] = not self.liststore[path][6]
+
+    def on_selection_changed(self, selection):
+        (model, iter) = selection.get_selected()
+        print(model[iter][0])
 
     def header_bar(self):
         hb = Gtk.HeaderBar(spacing=20)
@@ -150,7 +176,12 @@ class AppWindow(Gtk.ApplicationWindow):
         button.add(image)
         hb.pack_start(button)
 
-        hb.pack_start(Gtk.Label(str(int(self.appdata.mbitsec)) + " MBit/s", xalign=0.0, yalign=0.5))
+        self.mbitlabel = Gtk.Label(None, xalign=0.0, yalign=0.5)
+        if self.appdata.mbitsec > 0:
+            self.mbitlabel.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+        else:
+            self.mbitlabel.set_text("")
+        hb.pack_start(self.mbitlabel)
 
 
 class Application(Gtk.Application):
