@@ -37,7 +37,7 @@ class AppData:
         self.nzbs = [("Fuenf Freunde", 10, 1.21, 2.67, "11m03s", "10%", False),
                      ("Der Gloeckner von Notredame", 1, 0.0, 0.98, "7m14s", "1%", False)]
         for i in range(5):
-            self.nzbs.append(self.nzbs[0])
+            self.nzbs.append((self.nzbs[0][0] + str(i), self.nzbs[0][1], self.nzbs[0][2], self.nzbs[0][3], self.nzbs[0][4], self.nzbs[0][5], self.nzbs[0][6]))
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -45,6 +45,8 @@ class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         self.liststore = None
         self.mbitlabel = None
+        self.single_selected = None
+
         self.appdata = AppData()
         Gtk.Window.__init__(self, title=__appname__, application=app)
         try:
@@ -142,27 +144,82 @@ class AppWindow(Gtk.ApplicationWindow):
         scrolled_window.add(listbox)
         # grid for record/stop/.. selected
         grid = Gtk.Grid()
-        # stacknzb_box.add(grid)
-        stacknzb_box.pack_start(grid, True, True, 8)
-        button1 = Gtk.Button(label="Button 1")
-        button2 = Gtk.Button(label="Button 2")
-        button3 = Gtk.Button(label="Button 3")
-        button4 = Gtk.Button(label="Button 4")
-        button5 = Gtk.Button(label="Button 5")
-        button6 = Gtk.Button(label="Button 6")
-        grid.add(button1)
-        grid.attach(button2, 1, 0, 2, 1)
-        grid.attach_next_to(button3, button1, Gtk.PositionType.BOTTOM, 1, 2)
-        grid.attach_next_to(button4, button3, Gtk.PositionType.RIGHT, 2, 1)
-        grid.attach(button5, 1, 2, 1, 1)
-        grid.attach_next_to(button6, button5, Gtk.PositionType.RIGHT, 1, 1)
+        grid.set_row_spacing(4)
+        stacknzb_box.pack_start(grid, True, True, 0)
+        self.gridbuttonlist = []
+        # button full up
+        button_full_up = Gtk.Button(sensitive=False)
+        icon1 = Gio.ThemedIcon(name="arrow-up-double")
+        image1 = Gtk.Image.new_from_gicon(icon1, Gtk.IconSize.BUTTON)
+        button_full_up.add(image1)
+        button_full_up.connect("clicked", self.on_buttonfullup_clicked)
+        grid.add(button_full_up)
+        self.gridbuttonlist.append(button_full_up)
+        # button full down
+        button_full_down = Gtk.Button(sensitive=False)
+        icon2 = Gio.ThemedIcon(name="arrow-down-double")
+        image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
+        button_full_down.add(image2)
+        button_full_down.connect("clicked", self.on_buttonfulldown_clicked)
+        grid.attach_next_to(button_full_down, button_full_up, Gtk.PositionType.BOTTOM, 2, 1)
+        self.gridbuttonlist.append(button_full_down)
+         # button1 = Gtk.Button(label="Button 1")
+#        button2 = Gtk.Button(label="Button 2")
+#        button3 = Gtk.Button(label="Button 3")
+#        button4 = Gtk.Button(label="Button 4")
+#        button5 = Gtk.Button(label="Button 5")
+#        button6 = Gtk.Button(label="Button 6")
+#        grid.attach(button2, 1, 0, 2, 1)
+#        grid.attach_next_to(button3, button1, Gtk.PositionType.BOTTOM, 1, 2)
+#        grid.attach_next_to(button4, button3, Gtk.PositionType.RIGHT, 2, 1)
+#        grid.attach(button5, 1, 2, 1, 1)
+#        grid.attach_next_to(button6, button5, Gtk.PositionType.RIGHT, 1, 1)
+
+    def on_buttonfullup_clicked(self, button):
+        i = 0
+        liststore2 = []
+        for ro in self.liststore:
+            if ro[6]:
+                ls = [r for r in ro]
+                liststore2.append(ls)
+        for ro in self.liststore:
+            if not ro[6]:
+                ls = [r for r in ro]
+                liststore2.append(ls)
+        for i, ro in enumerate(liststore2):
+            self.liststore[i] = ro
+
+    def on_buttonfulldown_clicked(self, button):
+        i = 0
+        liststore2 = []
+        for ro in self.liststore:
+            if not ro[6]:
+                ls = [r for r in ro]
+                liststore2.append(ls)
+        for ro in self.liststore:
+            if ro[6]:
+                ls = [r for r in ro]
+                liststore2.append(ls)
+        for i, ro in enumerate(liststore2):
+            self.liststore[i] = ro
 
     def on_inverted_toggled(self, widget, path):
         self.liststore[path][6] = not self.liststore[path][6]
+        one_is_selected = False
+        if not one_is_selected:
+            for ls in range(len(self.liststore)):
+                path0 = Gtk.TreePath(ls)
+                if self.liststore[path0][6]:
+                    one_is_selected = True
+                    break
+        for b in self.gridbuttonlist:
+            if one_is_selected:
+                b.set_sensitive(True)
+            else:
+                b.set_sensitive(False)
 
     def on_selection_changed(self, selection):
         (model, iter) = selection.get_selected()
-        print(model[iter][0])
 
     def header_bar(self):
         hb = Gtk.HeaderBar(spacing=20)
