@@ -30,6 +30,20 @@ MENU_XML = """
 """
 
 
+class ConfirmDialog(Gtk.Dialog):
+    def __init__(self, parent, txt):
+        Gtk.Dialog.__init__(self, "My Dialog", parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                                           Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        self.set_default_size(150, 100)
+        self.set_border_width(10)
+        self.set_modal(True)
+        # self.set_property("button-spacing", 10)
+        label = Gtk.Label(txt)
+        box = self.get_content_area()
+        box.add(label)
+        self.show_all()
+
+
 class AppData:
     def __init__(self):
         self.mbitsec = 0
@@ -145,6 +159,7 @@ class AppWindow(Gtk.ApplicationWindow):
         # grid for record/stop/.. selected
         grid = Gtk.Grid()
         grid.set_row_spacing(4)
+        grid.set_column_spacing(4)
         stacknzb_box.pack_start(grid, True, True, 0)
         self.gridbuttonlist = []
         # button full up
@@ -153,7 +168,8 @@ class AppWindow(Gtk.ApplicationWindow):
         image1 = Gtk.Image.new_from_gicon(icon1, Gtk.IconSize.BUTTON)
         button_full_up.add(image1)
         button_full_up.connect("clicked", self.on_buttonfullup_clicked)
-        grid.add(button_full_up)
+        # grid.add(button_full_up)
+        grid.attach(button_full_up, 0, 0, 1, 1)   # left top width height
         self.gridbuttonlist.append(button_full_up)
         # button full down
         button_full_down = Gtk.Button(sensitive=False)
@@ -161,8 +177,34 @@ class AppWindow(Gtk.ApplicationWindow):
         image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
         button_full_down.add(image2)
         button_full_down.connect("clicked", self.on_buttonfulldown_clicked)
-        grid.attach_next_to(button_full_down, button_full_up, Gtk.PositionType.BOTTOM, 2, 1)
+        grid.attach_next_to(button_full_down, button_full_up, Gtk.PositionType.BOTTOM, 1, 1)
         self.gridbuttonlist.append(button_full_down)
+        # button down
+        button_down = Gtk.Button(sensitive=False)
+        icon3 = Gio.ThemedIcon(name="arrow-down")
+        image3 = Gtk.Image.new_from_gicon(icon3, Gtk.IconSize.BUTTON)
+        button_down.add(image3)
+        button_down.connect("clicked", self.on_buttondown_clicked)
+        grid.attach_next_to(button_down, button_full_down, Gtk.PositionType.RIGHT, 1, 1)
+        self.gridbuttonlist.append(button_down)
+        # button up
+        button_up = Gtk.Button(sensitive=False)
+        icon4 = Gio.ThemedIcon(name="arrow-up")
+        image4 = Gtk.Image.new_from_gicon(icon4, Gtk.IconSize.BUTTON)
+        button_up.add(image4)
+        button_up.connect("clicked", self.on_buttonup_clicked)
+        grid.attach_next_to(button_up, button_full_up, Gtk.PositionType.RIGHT, 1, 1)
+        self.gridbuttonlist.append(button_up)
+        # delete
+        button_delete = Gtk.Button(sensitive=False)
+        icon5 = Gio.ThemedIcon(name="gtk-delete")
+        image5 = Gtk.Image.new_from_gicon(icon5, Gtk.IconSize.BUTTON)
+        button_delete.add(image5)
+        button_delete.connect("clicked", self.on_buttondelete_clicked)
+        grid.attach(button_delete, 2, 0, 18, 2)
+        # grid.attach_next_to(button_delete, button_up, Gtk.PositionType.RIGHT, 4, 2)
+        self.gridbuttonlist.append(button_delete)
+
          # button1 = Gtk.Button(label="Button 1")
 #        button2 = Gtk.Button(label="Button 2")
 #        button3 = Gtk.Button(label="Button 3")
@@ -174,6 +216,60 @@ class AppWindow(Gtk.ApplicationWindow):
 #        grid.attach_next_to(button4, button3, Gtk.PositionType.RIGHT, 2, 1)
 #        grid.attach(button5, 1, 2, 1, 1)
 #        grid.attach_next_to(button6, button5, Gtk.PositionType.RIGHT, 1, 1)
+
+    def on_buttondelete_clicked(self, button):
+        # todo: confirm dialog
+        dialog = ConfirmDialog(self, "Do you really want to delete these NZBs ?")
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+        liststore2 = []
+        for ro in self.liststore:
+            if not ro[6]:
+                ls = [r for r in ro]
+                liststore2.append(ls)
+        self.liststore.clear()
+        for ro in liststore2:
+            self.liststore.append(ro)
+
+    def on_buttonup_clicked(self, button):
+        ros = [(i, ro) for i, ro in enumerate(self.liststore) if ro[6]]
+        for i, r in ros:
+            if i == 0:
+                break
+            path = Gtk.TreePath(i - 1)
+            iter = self.liststore.get_iter(path)
+            oldval = []
+            for j, r0 in enumerate(self.liststore[iter]):
+                oldval.append(self.liststore.get_value(iter, j))
+            # copy from i to i - 1
+            for j, r0 in enumerate(r):
+                self.liststore.set_value(iter, j, r0)
+            # copy from i - 1 to i
+            path = Gtk.TreePath(i)
+            iter = self.liststore.get_iter(path)
+            for j, r0 in enumerate(oldval):
+                self.liststore.set_value(iter, j, r0)
+
+    def on_buttondown_clicked(self, button):
+        ros = [(i, ro) for i, ro in enumerate(self.liststore) if ro[6]]
+        for i, r in reversed(ros):
+            if i == len(self.liststore) - 1:
+                break
+            path = Gtk.TreePath(i + 1)
+            iter = self.liststore.get_iter(path)
+            oldval = []
+            for j, r0 in enumerate(self.liststore[iter]):
+                oldval.append(self.liststore.get_value(iter, j))
+            # copy from i to i + 1
+            for j, r0 in enumerate(r):
+                self.liststore.set_value(iter, j, r0)
+            # copy from i + 1 to i
+            path = Gtk.TreePath(i)
+            iter = self.liststore.get_iter(path)
+            for j, r0 in enumerate(oldval):
+                self.liststore.set_value(iter, j, r0)
 
     def on_buttonfullup_clicked(self, button):
         i = 0
