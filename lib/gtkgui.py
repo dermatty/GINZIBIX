@@ -1,14 +1,15 @@
 import sys
 import gi
+import threading
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib
+from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
 
 
 __appname__ = "Ginzibix"
 __version__ = "0.01 pre-alpha"
 __author__ = "dermatty"
 
-GBXICON = "ginzibix.jpe"
+GBXICON = "gzbx1.png"
 
 MENU_XML = """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -45,23 +46,28 @@ class ConfirmDialog(Gtk.Dialog):
 
 
 class AppData:
-    def __init__(self):
+    def __init__(self, lock):
+        self.lock = lock
         self.mbitsec = 0
         # NZB - progress - downloaded - overall - eta
         self.nzbs = [("Fuenf Freunde", 10, 1.21, 2.67, "11m03s", "10%", False),
                      ("Der Gloeckner von Notredame", 1, 0.0, 0.98, "7m14s", "1%", False)]
         for i in range(5):
             self.nzbs.append((self.nzbs[0][0] + str(i), self.nzbs[0][1], self.nzbs[0][2], self.nzbs[0][3], self.nzbs[0][4], self.nzbs[0][5], self.nzbs[0][6]))
+        self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
 
 
 class AppWindow(Gtk.ApplicationWindow):
 
     def __init__(self, app):
+        # data
+        self.lock = threading.Lock()
         self.liststore = None
+        self.liststore_s = None
         self.mbitlabel = None
         self.single_selected = None
+        self.appdata = AppData(self.lock)
 
-        self.appdata = AppData()
         Gtk.Window.__init__(self, title=__appname__, application=app)
         try:
             self.set_icon_from_file(GBXICON)
@@ -118,6 +124,11 @@ class AppWindow(Gtk.ApplicationWindow):
         treeview = Gtk.TreeView(model=self.liststore)
         treeview.set_reorderable(True)
         treeview.get_selection().connect("changed", self.on_selection_changed)
+        # 0th selection toggled
+        renderer_toggle = Gtk.CellRendererToggle()
+        renderer_toggle.connect("toggled", self.on_inverted_toggled)
+        column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=6)
+        treeview.append_column(column_toggle)
         # 1st column: NZB name
         renderer_text0 = Gtk.CellRendererText()
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
@@ -147,17 +158,12 @@ class AppWindow(Gtk.ApplicationWindow):
         column_text3 = Gtk.TreeViewColumn("Eta", renderer_text3, text=4)
         column_text3.set_min_width(80)
         treeview.append_column(column_text3)
-        # 6th selection toggled
-        renderer_toggle = Gtk.CellRendererToggle()
-        renderer_toggle.connect("toggled", self.on_inverted_toggled)
-        column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=6)
-        treeview.append_column(column_toggle)
         # final
         row.add(treeview)
         listbox.add(row)
         scrolled_window.add(listbox)
         # grid for record/stop/.. selected
-        grid = Gtk.Grid()
+        grid = Gtk.Grid()    # column_homogeneous=True)
         grid.set_row_spacing(4)
         grid.set_column_spacing(4)
         stacknzb_box.pack_start(grid, True, True, 0)
@@ -205,6 +211,77 @@ class AppWindow(Gtk.ApplicationWindow):
         # grid.attach_next_to(button_delete, button_up, Gtk.PositionType.RIGHT, 4, 2)
         self.gridbuttonlist.append(button_delete)
 
+        # listbox / treeview for server speed
+        scrolled_window_s = Gtk.ScrolledWindow()
+        scrolled_window_s.set_border_width(0)
+        scrolled_window_s.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        # scrolled_window_s.set_property("min-content-height", 30)
+        grid.attach(scrolled_window_s, 22, 0, 80, 2)
+
+        # listbox for server speeds
+        listbox_s = Gtk.ListBox()
+        row_s = Gtk.ListBoxRow()
+        self.liststore_s = Gtk.ListStore(str, int)
+        for i, server in enumerate(self.appdata.servers):
+            if i == 0:
+                self.current_iter = self.liststore_s.append(list(server))
+            else:
+                self.liststore_s.append(list(server))
+        treeview_s = Gtk.TreeView(model=self.liststore_s)
+        renderer_text_s = Gtk.CellRendererText()
+        column_text_s = Gtk.TreeViewColumn(None, renderer_text_s, text=0)
+        custom_header = Gtk.Label('Server Name')
+        column_text_s.set_widget(custom_header)
+        column_text_s.get_widget().override_font(Pango.FontDescription.from_string('10'))
+        column_text_s.get_widget().show_all()
+
+        column_text_s.set_cell_data_func(renderer_text_s, lambda col, cell, model, iter, unused:
+                                         cell.set_property("scale", 0.8))
+        column_text_s.set_expand(True)
+        treeview_s.append_column(column_text_s)
+
+        renderer_text_s2 = Gtk.CellRendererText()
+        column_text_s2 = Gtk.TreeViewColumn("Speed Mbit/s", renderer_text_s2, text=1)
+        custom_header1 = Gtk.Label('Speed Mbit/s')
+        column_text_s2.set_widget(custom_header1)
+        column_text_s2.get_widget().override_font(Pango.FontDescription.from_string('10'))
+        column_text_s2.get_widget().show_all()
+        column_text_s2.set_cell_data_func(renderer_text_s2, lambda col, cell, model, iter, unused:
+                                          cell.set_property("scale", 0.8))
+        column_text_s2.set_expand(True)
+        treeview_s.append_column(column_text_s2)
+
+
+
+
+
+        row_s.add(treeview_s)
+        listbox_s.add(row_s)
+        scrolled_window_s.add(listbox_s)
+
+
+
+        # treeview_s.set_reorderable(True)'''
+        '''levelbar = Gtk.LevelBar()
+        levelbar.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        levelbar.set_min_value(0)
+        levelbar.set_max_value(100)
+        levelbar.set_value(40)
+        levelbar2 = Gtk.LevelBar()
+        levelbar2.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        levelbar2.set_min_value(0)
+        levelbar2.set_max_value(100)
+        levelbar2.set_value(40)
+        levelbar3 = Gtk.LevelBar()
+        levelbar3.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        levelbar3.set_min_value(0)
+        levelbar3.set_max_value(100)
+        levelbar3.set_value(40)
+        # treeview_s.append_column(column_toggle)
+        grid.attach_next_to(levelbar, button_delete, Gtk.PositionType.RIGHT, 100, 1)
+        grid.attach_next_to(levelbar2, levelbar, Gtk.PositionType.BOTTOM, 100, 1)
+        grid.attach_next_to(levelbar3, levelbar2, Gtk.PositionType.BOTTOM, 100, 1)'''
+
          # button1 = Gtk.Button(label="Button 1")
 #        button2 = Gtk.Button(label="Button 2")
 #        button3 = Gtk.Button(label="Button 3")
@@ -232,6 +309,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore.clear()
         for ro in liststore2:
             self.liststore.append(ro)
+        self.toggle_buttons()
 
     def on_buttonup_clicked(self, button):
         ros = [(i, ro) for i, ro in enumerate(self.liststore) if ro[6]]
@@ -301,6 +379,9 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def on_inverted_toggled(self, widget, path):
         self.liststore[path][6] = not self.liststore[path][6]
+        self.toggle_buttons()
+
+    def toggle_buttons(self):
         one_is_selected = False
         if not one_is_selected:
             for ls in range(len(self.liststore)):
