@@ -9,7 +9,7 @@ __appname__ = "Ginzibix"
 __version__ = "0.01 pre-alpha"
 __author__ = "dermatty"
 
-GBXICON = "gzbx1.png"
+GBXICON = "lib/gzbx1.png"
 
 MENU_XML = """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -72,7 +72,7 @@ class AppWindow(Gtk.ApplicationWindow):
         try:
             self.set_icon_from_file(GBXICON)
         except GLib.GError as e:
-            print("Cannot find icon file!")
+            print("Cannot find icon file!" + GBXICON)
         # init main window
         self.set_border_width(10)
         # self.set_default_size(600, 200)
@@ -180,6 +180,7 @@ class AppWindow(Gtk.ApplicationWindow):
         button_full_up.add(image1)
         button_full_up.connect("clicked", self.on_buttonfullup_clicked)
         box_media.pack_start(button_full_up, box_media_expand, box_media_fill, box_media_padd)
+        button_full_up.set_tooltip_text("Move NZB(s) to top")
         self.gridbuttonlist.append(button_full_up)
         # button up
         button_up = Gtk.Button(sensitive=False)
@@ -188,6 +189,7 @@ class AppWindow(Gtk.ApplicationWindow):
         button_up.add(image4)
         button_up.connect("clicked", self.on_buttonup_clicked)
         box_media.pack_start(button_up, box_media_expand, box_media_fill, box_media_padd)
+        button_up.set_tooltip_text("Move NZB(s) 1 up")
         self.gridbuttonlist.append(button_up)
         # button down
         button_down = Gtk.Button(sensitive=False)
@@ -196,6 +198,7 @@ class AppWindow(Gtk.ApplicationWindow):
         button_down.add(image3)
         button_down.connect("clicked", self.on_buttondown_clicked)
         box_media.pack_start(button_down, box_media_expand, box_media_fill, box_media_padd)
+        button_down.set_tooltip_text("Move NZB(s) 1 down")
         self.gridbuttonlist.append(button_down)
         # button full down
         button_full_down = Gtk.Button(sensitive=False)
@@ -205,6 +208,7 @@ class AppWindow(Gtk.ApplicationWindow):
         button_full_down.add(image2)
         button_full_down.connect("clicked", self.on_buttonfulldown_clicked)
         box_media.pack_start(button_full_down, box_media_expand, box_media_fill, box_media_padd)
+        button_full_down.set_tooltip_text("Move NZB(s) to bottom")
         self.gridbuttonlist.append(button_full_down)
         # delete
         button_delete = Gtk.Button(sensitive=False)
@@ -213,12 +217,14 @@ class AppWindow(Gtk.ApplicationWindow):
         button_delete.add(image6)
         button_delete.connect("clicked", self.on_buttondelete_clicked)
         box_media.pack_end(button_delete, box_media_expand, box_media_fill, box_media_padd)
+        button_delete.set_tooltip_text("Delete NZB(s)")
         self.gridbuttonlist.append(button_delete)
         # add
         button_add = Gtk.Button(sensitive=True)
         icon7 = Gio.ThemedIcon(name="list-add")
         image7 = Gtk.Image.new_from_gicon(icon7, Gtk.IconSize.BUTTON)
         button_add.add(image7)
+        button_add.set_tooltip_text("Add NZB from File")
         box_media.pack_end(button_add, box_media_expand, box_media_fill, box_media_padd)
 
         '''# listbox / treeview for server speed
@@ -379,6 +385,7 @@ class AppWindow(Gtk.ApplicationWindow):
         icon = Gio.ThemedIcon(name="media-playback-pause")
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
         button.add(image)
+        # button.set_tooltip_text("Pause download")
         hb.pack_start(button)
 
         self.mbitlabel = Gtk.Label(None, xalign=0.0, yalign=0.5)
@@ -433,6 +440,6 @@ class Application(Gtk.Application):
         self.quit()
 
 
-app = Application()
-exit_status = app.run(sys.argv)
-sys.exit(exit_status)
+# app = Application()
+# exit_status = app.run(sys.argv)
+# sys.exit(exit_status)
