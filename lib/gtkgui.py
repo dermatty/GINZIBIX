@@ -91,7 +91,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.show_nzb_stack(self.stacknzb_box)
 
         self.stackdetails_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
-        stack.add_titled(self.stackdetails_box, "details", "Details")
+        stack.add_titled(self.stackdetails_box, "stats", "Stats")
         self.stacksettings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
         stack.add_titled(self.stacksettings_box, "settings", "Settings")
         self.stacklogs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
@@ -162,61 +162,71 @@ class AppWindow(Gtk.ApplicationWindow):
         row.add(treeview)
         listbox.add(row)
         scrolled_window.add(listbox)
-        # grid for record/stop/.. selected
-        grid = Gtk.Grid()    # column_homogeneous=True)
-        grid.set_row_spacing(4)
-        grid.set_column_spacing(4)
-        stacknzb_box.pack_start(grid, True, True, 0)
+        
+        # box for record/stop/.. selected
+        box_media = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box_media.set_property("margin-left", 8)
+        box_media.set_property("margin-right", 8)
+        box_media_expand = False
+        box_media_fill = False
+        box_media_padd = 1
+        stacknzb_box.pack_start(box_media, box_media_expand, box_media_fill, box_media_padd)
         self.gridbuttonlist = []
         # button full up
         button_full_up = Gtk.Button(sensitive=False)
+        button_full_up.set_size_request(50, 20)
         icon1 = Gio.ThemedIcon(name="arrow-up-double")
         image1 = Gtk.Image.new_from_gicon(icon1, Gtk.IconSize.BUTTON)
         button_full_up.add(image1)
         button_full_up.connect("clicked", self.on_buttonfullup_clicked)
-        # grid.add(button_full_up)
-        grid.attach(button_full_up, 0, 0, 1, 1)   # left top width height
+        box_media.pack_start(button_full_up, box_media_expand, box_media_fill, box_media_padd)
         self.gridbuttonlist.append(button_full_up)
-        # button full down
-        button_full_down = Gtk.Button(sensitive=False)
-        icon2 = Gio.ThemedIcon(name="arrow-down-double")
-        image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
-        button_full_down.add(image2)
-        button_full_down.connect("clicked", self.on_buttonfulldown_clicked)
-        grid.attach_next_to(button_full_down, button_full_up, Gtk.PositionType.BOTTOM, 1, 1)
-        self.gridbuttonlist.append(button_full_down)
-        # button down
-        button_down = Gtk.Button(sensitive=False)
-        icon3 = Gio.ThemedIcon(name="arrow-down")
-        image3 = Gtk.Image.new_from_gicon(icon3, Gtk.IconSize.BUTTON)
-        button_down.add(image3)
-        button_down.connect("clicked", self.on_buttondown_clicked)
-        grid.attach_next_to(button_down, button_full_down, Gtk.PositionType.RIGHT, 1, 1)
-        self.gridbuttonlist.append(button_down)
         # button up
         button_up = Gtk.Button(sensitive=False)
         icon4 = Gio.ThemedIcon(name="arrow-up")
         image4 = Gtk.Image.new_from_gicon(icon4, Gtk.IconSize.BUTTON)
         button_up.add(image4)
         button_up.connect("clicked", self.on_buttonup_clicked)
-        grid.attach_next_to(button_up, button_full_up, Gtk.PositionType.RIGHT, 1, 1)
+        box_media.pack_start(button_up, box_media_expand, box_media_fill, box_media_padd)
         self.gridbuttonlist.append(button_up)
+        # button down
+        button_down = Gtk.Button(sensitive=False)
+        icon3 = Gio.ThemedIcon(name="arrow-down")
+        image3 = Gtk.Image.new_from_gicon(icon3, Gtk.IconSize.BUTTON)
+        button_down.add(image3)
+        button_down.connect("clicked", self.on_buttondown_clicked)
+        box_media.pack_start(button_down, box_media_expand, box_media_fill, box_media_padd)
+        self.gridbuttonlist.append(button_down)
+        # button full down
+        button_full_down = Gtk.Button(sensitive=False)
+        button_full_down.set_size_request(50, 20)
+        icon2 = Gio.ThemedIcon(name="arrow-down-double")
+        image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
+        button_full_down.add(image2)
+        button_full_down.connect("clicked", self.on_buttonfulldown_clicked)
+        box_media.pack_start(button_full_down, box_media_expand, box_media_fill, box_media_padd)
+        self.gridbuttonlist.append(button_full_down)
         # delete
         button_delete = Gtk.Button(sensitive=False)
-        icon5 = Gio.ThemedIcon(name="gtk-delete")
-        image5 = Gtk.Image.new_from_gicon(icon5, Gtk.IconSize.BUTTON)
-        button_delete.add(image5)
+        icon6 = Gio.ThemedIcon(name="gtk-delete")
+        image6 = Gtk.Image.new_from_gicon(icon6, Gtk.IconSize.BUTTON)
+        button_delete.add(image6)
         button_delete.connect("clicked", self.on_buttondelete_clicked)
-        grid.attach(button_delete, 2, 0, 18, 2)
-        # grid.attach_next_to(button_delete, button_up, Gtk.PositionType.RIGHT, 4, 2)
+        box_media.pack_end(button_delete, box_media_expand, box_media_fill, box_media_padd)
         self.gridbuttonlist.append(button_delete)
+        # add
+        button_add = Gtk.Button(sensitive=True)
+        icon7 = Gio.ThemedIcon(name="list-add")
+        image7 = Gtk.Image.new_from_gicon(icon7, Gtk.IconSize.BUTTON)
+        button_add.add(image7)
+        box_media.pack_end(button_add, box_media_expand, box_media_fill, box_media_padd)
 
-        # listbox / treeview for server speed
+        '''# listbox / treeview for server speed
         scrolled_window_s = Gtk.ScrolledWindow()
-        scrolled_window_s.set_border_width(0)
+        scrolled_window_s.set_border_width(2)
         scrolled_window_s.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         # scrolled_window_s.set_property("min-content-height", 30)
-        grid.attach(scrolled_window_s, 22, 0, 80, 2)
+        grid.attach(scrolled_window_s, 22, 0, 80, 3)
 
         # listbox for server speeds
         listbox_s = Gtk.ListBox()
@@ -251,48 +261,9 @@ class AppWindow(Gtk.ApplicationWindow):
         column_text_s2.set_expand(True)
         treeview_s.append_column(column_text_s2)
 
-
-
-
-
         row_s.add(treeview_s)
         listbox_s.add(row_s)
-        scrolled_window_s.add(listbox_s)
-
-
-
-        # treeview_s.set_reorderable(True)'''
-        '''levelbar = Gtk.LevelBar()
-        levelbar.set_mode(Gtk.LevelBarMode.CONTINUOUS)
-        levelbar.set_min_value(0)
-        levelbar.set_max_value(100)
-        levelbar.set_value(40)
-        levelbar2 = Gtk.LevelBar()
-        levelbar2.set_mode(Gtk.LevelBarMode.CONTINUOUS)
-        levelbar2.set_min_value(0)
-        levelbar2.set_max_value(100)
-        levelbar2.set_value(40)
-        levelbar3 = Gtk.LevelBar()
-        levelbar3.set_mode(Gtk.LevelBarMode.CONTINUOUS)
-        levelbar3.set_min_value(0)
-        levelbar3.set_max_value(100)
-        levelbar3.set_value(40)
-        # treeview_s.append_column(column_toggle)
-        grid.attach_next_to(levelbar, button_delete, Gtk.PositionType.RIGHT, 100, 1)
-        grid.attach_next_to(levelbar2, levelbar, Gtk.PositionType.BOTTOM, 100, 1)
-        grid.attach_next_to(levelbar3, levelbar2, Gtk.PositionType.BOTTOM, 100, 1)'''
-
-         # button1 = Gtk.Button(label="Button 1")
-#        button2 = Gtk.Button(label="Button 2")
-#        button3 = Gtk.Button(label="Button 3")
-#        button4 = Gtk.Button(label="Button 4")
-#        button5 = Gtk.Button(label="Button 5")
-#        button6 = Gtk.Button(label="Button 6")
-#        grid.attach(button2, 1, 0, 2, 1)
-#        grid.attach_next_to(button3, button1, Gtk.PositionType.BOTTOM, 1, 2)
-#        grid.attach_next_to(button4, button3, Gtk.PositionType.RIGHT, 2, 1)
-#        grid.attach(button5, 1, 2, 1, 1)
-#        grid.attach_next_to(button6, button5, Gtk.PositionType.RIGHT, 1, 1)
+        scrolled_window_s.add(listbox_s)'''
 
     def on_buttondelete_clicked(self, button):
         # todo: confirm dialog
