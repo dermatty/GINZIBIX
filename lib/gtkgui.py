@@ -1,6 +1,11 @@
 import sys
+import os
+import signal
 import gi
 import threading
+import zmq
+import time
+from threading import Thread
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
 
@@ -59,20 +64,30 @@ class AppData:
 
 class AppWindow(Gtk.ApplicationWindow):
 
-    def __init__(self, app):
+    def __init__(self, app, mpp_main, logger):
         # data
+        self.logger = logger
         self.lock = threading.Lock()
         self.liststore = None
         self.liststore_s = None
         self.mbitlabel = None
         self.single_selected = None
+        self.mpp_main = mpp_main
         self.appdata = AppData(self.lock)
 
-        Gtk.Window.__init__(self, title=__appname__, application=app)
+        self.win = Gtk.Window.__init__(self, title=__appname__, application=app)
+
+        self.connect("destroy", self.closeall)
+
         try:
             self.set_icon_from_file(GBXICON)
         except GLib.GError as e:
             print("Cannot find icon file!" + GBXICON)
+
+        self.lock = threading.Lock()
+        self.guipoller = GUI_Poller(self.lock, self.update_mainwindow, self.logger, port="36601")
+        self.guipoller.start()
+
         # init main window
         self.set_border_width(10)
         # self.set_default_size(600, 200)
@@ -395,15 +410,37 @@ class AppWindow(Gtk.ApplicationWindow):
             self.mbitlabel.set_text("")
         hb.pack_start(self.mbitlabel)
 
+    def closeall(self, a):
+        # Gtk.main_quit()
+        if self.mpp_main:
+            os.kill(self.mpp_main.pid, signal.SIGTERM)
+            self.mpp_main.join()
+
+    def update_mainwindow(self, data, pwdb_msg, server_config, threads, sortednzblist):
+        if data:
+            bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
+            gbdown0 = 0
+            for t_bytesdownloaded, t_last_timestamp, t_idn in threads:
+                gbdown = t_bytesdownloaded / (1024 * 1024 * 1024)
+                gbdown0 += gbdown
+            gbdown0 += already_downloaded_size
+            fraction = gbdown0 / overall_size
+        if sortednzblist:
+            n_name, n_prio, n_ts, n_status, n_size, n_downloaded = sortednzblist
+            print(sortednzblist)
+        return False
+
 
 class Application(Gtk.Application):
 
-    def __init__(self):
+    def __init__(self, mpp_main, logger):
         Gtk.Application.__init__(self)
+        self.mpp_main = mpp_main
         self.window = None
+        self.logger = logger
 
     def do_activate(self):
-        self.window = AppWindow(self)
+        self.window = AppWindow(self, self.mpp_main, self.logger)
         self.window.show_all()
 
     def do_startup(self):
@@ -437,7 +474,56 @@ class Application(Gtk.Application):
         about_dialog.present()
 
     def on_quit(self, action, param):
+        if self.mpp_main:
+            os.kill(self.mpp_main.pid, signal.SIGTERM)
+            self.mpp_main.join()
         self.quit()
+
+
+# connects to GUI_Connector in main.py and gets data for displaying
+class GUI_Poller(Thread):
+
+    def __init__(self, lock, update_mainwindow, logger, port="36601"):
+        Thread.__init__(self)
+        self.daemon = True
+        self.context = zmq.Context()
+        self.host = "127.0.0.1"
+        self.port = port
+        self.lock = lock
+        self.data = None
+        self.nzbname = None
+        self.delay = 1
+        self.update_mainwindow = update_mainwindow
+
+        self.socket = self.context.socket(zmq.REQ)
+        self.logger = logger
+
+    def run(self):
+        self.socket.setsockopt(zmq.LINGER, 0)
+        socketurl = "tcp://" + self.host + ":" + self.port
+        self.socket.connect(socketurl)
+        # self.socket.RCVTIMEO = 1000
+        sortednzblist = []
+        while True:
+            print("----")
+            try:
+                self.socket.send_string("REQ")
+                datatype, datarec = self.socket.recv_pyobj()
+                if datatype == "NOOK":
+                    continue
+                elif datatype == "DL_DATA":
+                    data, pwdb_msg, server_config, threads = datarec
+                elif datatype == "NZB_DATA":
+                    sortednzblist = datarec
+                try:
+                    GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, sortednzblist)
+                except Exception:
+                    pass
+                # self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
+            except Exception as e:
+                self.logger.error("GUI_ConnectorMain: " + str(e))
+            time.sleep(self.delay)
+
 
 
 # app = Application()

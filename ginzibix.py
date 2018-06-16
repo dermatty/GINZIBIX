@@ -73,7 +73,7 @@ if __name__ == '__main__':
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
-    '''# init peewee db
+    # init peewee db
     pwdb = lib.PWDB(logger)
 
     # init download threads
@@ -95,8 +95,10 @@ if __name__ == '__main__':
     sh.mpp_main = mpp_main
 
     # "main" loop ...
-    lib.app_main(mpp_main, logger)
-    Gtk.main()'''
-    app = lib.Application()
+    # lib.app_main(mpp_main, logger)
+    # Gtk.main()
+    # mpp_main = None
+
+    app = lib.Application(mpp_main, logger)
     exit_status = app.run(sys.argv)
     sys.exit(exit_status)
