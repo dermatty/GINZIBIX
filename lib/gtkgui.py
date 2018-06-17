@@ -3,6 +3,7 @@ import os
 import signal
 import gi
 import threading
+import datetime
 import zmq
 import time
 from threading import Thread
@@ -54,11 +55,10 @@ class AppData:
     def __init__(self, lock):
         self.lock = lock
         self.mbitsec = 0
-        # NZB - progress - downloaded - overall - eta
-        self.nzbs = [("Fuenf Freunde", 10, 1.21, 2.67, "11m03s", "10%", False),
-                     ("Der Gloeckner von Notredame", 1, 0.0, 0.98, "7m14s", "1%", False)]
-        for i in range(5):
-            self.nzbs.append((self.nzbs[0][0] + str(i), self.nzbs[0][1], self.nzbs[0][2], self.nzbs[0][3], self.nzbs[0][4], self.nzbs[0][5], self.nzbs[0][6]))
+        self.nzbs = []
+        self.nzbname = None
+        self.overall_size = 0
+        self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
 
 
@@ -130,11 +130,7 @@ class AppWindow(Gtk.ApplicationWindow):
         row = Gtk.ListBoxRow()
         # populate liststore
         self.liststore = Gtk.ListStore(str, int, float, float, str, str, bool)
-        for i, nzb in enumerate(self.appdata.nzbs):
-            if i == 0:
-                self.current_iter = self.liststore.append(list(nzb))
-            else:
-                self.liststore.append(list(nzb))
+        self.update_liststore()
         # set treeview + actions
         treeview = Gtk.TreeView(model=self.liststore)
         treeview.set_reorderable(True)
@@ -373,6 +369,40 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore[path][6] = not self.liststore[path][6]
         self.toggle_buttons()
 
+    def update_liststore(self):
+        self.liststore.clear()
+        for i, nzb in enumerate(self.appdata.nzbs):
+            if i == 0:
+                self.current_iter = self.liststore.append(list(nzb))
+            else:
+                self.liststore.append(list(nzb))
+
+    def update_liststore_dldata(self):
+        if len(self.liststore) == 0:
+            return
+        # n_name, n_perc, n_dl, n_size, "11m03s", str(n_perc) + "%", False
+        path = Gtk.TreePath(0)
+        iter = self.liststore.get_iter(path)
+
+        if self.appdata.overall_size > 0:
+            n_perc = int((self.appdata.gbdown / self.appdata.overall_size) * 100)
+        else:
+            n_perc = 0
+        n_dl = self.appdata.gbdown
+        n_size = self.appdata.overall_size
+
+        self.liststore.set_value(iter, 1, n_perc)
+        self.liststore.set_value(iter, 2, n_dl)
+        self.liststore.set_value(iter, 3, n_size)
+        self.liststore.set_value(iter, 5, str(n_perc) + "%")
+        if self.appdata.mbitsec > 0:
+            eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
+            etastr = str(datetime.timedelta(seconds=int(eta0)))
+            self.liststore.set_value(iter, 4, etastr)
+        else:
+            self.liststore.set_value(iter, 4, "-")
+        self.mbitlabel.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+
     def toggle_buttons(self):
         one_is_selected = False
         if not one_is_selected:
@@ -417,17 +447,70 @@ class AppWindow(Gtk.ApplicationWindow):
             self.mpp_main.join()
 
     def update_mainwindow(self, data, pwdb_msg, server_config, threads, sortednzblist):
+        nzbname = None
         if data:
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
             gbdown0 = 0
+            mbitsec0 = 0
             for t_bytesdownloaded, t_last_timestamp, t_idn in threads:
                 gbdown = t_bytesdownloaded / (1024 * 1024 * 1024)
                 gbdown0 += gbdown
+                mbitsec0 += (t_bytesdownloaded / (time.time() - t_last_timestamp)) / (1024 * 1024) * 8
             gbdown0 += already_downloaded_size
-            fraction = gbdown0 / overall_size
+            self.appdata.nzbname = nzbname
+            self.appdata.overall_size = overall_size
+            self.appdata.gbdown = gbdown0
+            self.appdata.mbitsec = mbitsec0
+            self.update_liststore_dldata()
+
         if sortednzblist:
-            n_name, n_prio, n_ts, n_status, n_size, n_downloaded = sortednzblist
-            print(sortednzblist)
+            gibdivisor = (1024 * 1024 * 1024)
+            do_update_list = False
+            if len(self.appdata.nzbs) != len(sortednzblist):
+                do_update_list = True
+            else:
+                # check if displayed data has to be updated
+                for i, nzbdata in enumerate(sortednzblist):
+                    n_name, n_prio, n_ts, n_status, n_siz, n_downloaded = nzbdata
+                    try:
+                        n_perc = int(n_siz/n_downloaded)
+                    except ZeroDivisionError:
+                        n_perc = 0
+                    n_dl = n_downloaded / gibdivisor
+                    n_size = n_siz / gibdivisor
+                    n_name0, n_perc0, n_dl0, n_size0, hstr0, percstr0, sel0 = self.appdata.nzbs[i]
+                    if n_name != n_name0 or n_perc != n_perc0 or n_dl != n_dl0 or n_size != n_size0:
+                        do_update_list = True
+                        break
+            # if yes: update liststore
+            if do_update_list:
+                nzbs_copy = self.appdata.nzbs.copy()
+                self.appdata.nzbs = []
+                for n_name, n_prio, n_ts, n_status, n_siz, n_downloaded in sortednzblist:
+                    if n_name == self.appdata.nzbname:
+                        n_perc = int(self.appdata.gbdown / self.appdata.overall_size)
+                        n_dl = self.appdata.gbdown
+                        n_size = self.overall_size
+                    else:
+                        try:
+                            n_perc = int(n_siz/n_downloaded)
+                        except ZeroDivisionError:
+                            n_perc = 0
+                        n_dl = n_downloaded / gibdivisor
+                        n_size = n_siz / gibdivisor
+                    if self.appdata.mbitsec > 0:
+                        eta0 = (((n_size - n_dl) * 1024) / (self.appdata.mbitsec / 8))
+                        etastr = str(datetime.timedelta(seconds=int(eta0)))
+                    else:
+                        etastr = "-"
+                    # set correct selected flag
+                    selected = False
+                    for n_name1, _, _, _, _, selected0 in nzbs_copy:
+                        if n_name1 == n_name:
+                            selected = selected0
+                            break
+                    self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected))
+                self.update_liststore()
         return False
 
 
@@ -505,7 +588,6 @@ class GUI_Poller(Thread):
         # self.socket.RCVTIMEO = 1000
         sortednzblist = []
         while True:
-            print("----")
             try:
                 self.socket.send_string("REQ")
                 datatype, datarec = self.socket.recv_pyobj()
