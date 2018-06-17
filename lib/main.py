@@ -159,6 +159,7 @@ class GUI_Connector(Thread):
         self.threads = []
         self.server_config = None
         self.nzboutqueue = nzboutqueue
+        self.dl_running = True
 
     def set_data(self, data, threads, server_config):
         with self.lock:
@@ -191,26 +192,42 @@ class GUI_Connector(Thread):
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
-            if msg != "REQ":
+            if msg == "REQ":
+                ret_queue = None
+                while True:
+                    try:
+                        ret_queue = self.nzboutqueue.get_nowait()
+                    except queue.Empty:
+                        break
+                if ret_queue:
+                    sendtuple = ("NZB_DATA", ret_queue)
+                else:
+                    sendtuple = ("DL_DATA", self.get_data())
+                try:
+                    self.socket.send_pyobj(sendtuple)
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+            elif msg == "SET_PAUSE":     # pause downloads
+                try:
+                    self.socket.send_pyobj(("SET_PAUSE_OK", None))
+                    with self.lock:
+                        self.dl_running = False
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+                continue
+            elif msg == "SET_RESUME":    # resume downloads
+                try:
+                    self.socket.send_pyobj(("SET_RESUME_OK", None))
+                    self.dl_running = True
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+                continue
+            else:
                 try:
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
                 continue
-            ret_queue = None
-            while True:
-                try:
-                    ret_queue = self.nzboutqueue.get_nowait()
-                except queue.Empty:
-                    break
-            if ret_queue:
-                sendtuple = ("NZB_DATA", ret_queue)
-            else:
-                sendtuple = ("DL_DATA", self.get_data())
-            try:
-                self.socket.send_pyobj(sendtuple)
-            except Exception as e:
-                self.logger.error("GUI_Connector: " + str(e))
 
 
 # Handles download of a NZB file
@@ -629,7 +646,7 @@ class Downloader():
         return a_health
 
     # main download routine
-    def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2):
+    def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, servers_shut_down):
         self.logger.info(lpref + "downloading " + nzbname)
 
         # init variables
@@ -675,11 +692,12 @@ class Downloader():
         self.mpp["renamer"] = self.mpp_renamer
         self.sighandler.mpp = self.mpp
 
-        # start download threads
-        self.logger.debug(lpref + "starting download threads")
-        if not self.ct.threads:
-            self.ct.start_threads()
-            self.sighandler.servers = self.ct.servers
+        if servers_shut_down:
+            # start download threads
+            self.logger.debug(lpref + "starting download threads")
+            if not self.ct.threads:
+                self.ct.start_threads()
+                self.sighandler.servers = self.ct.servers
 
         bytescount0 = self.getbytescount(allfileslist)
 
@@ -710,6 +728,12 @@ class Downloader():
 
         # download loop until articles downloaded
         while True:
+
+            with self.guiconnector.lock:
+                if not self.guiconnector.dl_running:
+                    return_reason = "dl_stopped"
+                    return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                      overall_size, already_downloaded_size)), return_reason
 
             if getnextnzb:
                 self.logger.info(nzbname + "- download complete!")
@@ -872,8 +896,9 @@ class Downloader():
 
             time.sleep(0.2)
 
+        return_reason = "dl_finished"
         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                          overall_size, already_downloaded_size))
+                          overall_size, already_downloaded_size)), return_reason
 
     def get_level_servers(self, retention):
         le_serv0 = []
@@ -1036,7 +1061,12 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     logger.debug(lpref + "guiconnector process started!")
 
     dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
+    servers_shut_down = True
     while True:
+        with lock:
+            if not guiconnector.dl_running:
+                time.sleep(1)
+                continue
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
             = get_next_nzb(pwdb, dirs, ct, logger)
         ct.reset_timestamps_bdl()
@@ -1056,7 +1086,102 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         nzbhandler.setLevel(logging.INFO)
 
         # download nzb
-        nzbname, downloaddata = dl.download(allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2)
+        nzbname, downloaddata, return_reason = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
+                                                           overall_size_wparvol, already_downloaded_size, p2, servers_shut_down)
+
+        if return_reason == "dl_stopped":
+            # join all queues
+            logger.debug(lpref + "clearing articlequeue")
+            while True:
+                # clear articlequeue
+                try:
+                    articlequeue.get_nowait()
+                    articlequeue.task_done()
+                except queue.Empty:
+                    break
+            articlequeue.join()
+            # clear resultqueue
+            logger.debug(lpref + "clearing resultqueue")
+            while True:
+                try:
+                    resultqueue.get_nowait()
+                    resultqueue.task_done()
+                except queue.Empty:
+                    break
+            # clear mp_work_queue
+            logger.debug(lpref + "clearing mp_work_queue")
+            while True:
+                try:
+                    mp_work_queue.get_nowait()
+                except queue.Empty:
+                    break
+            # kill all mpps
+            # stop unrarer
+            mpid = None
+            if dl.mpp["unrarer"]:
+                mpid = dl.mpp["unrarer"].pid
+            if mpid:
+                # if self.mpp["unrarer"].pid:
+                logger.warning("terminating unrarer")
+                try:
+                    os.kill(dl.mpp["unrarer"].pid, signal.SIGKILL)
+                    dl.mpp["unrarer"].join()
+                    dl.mpp["unrarer"] = None
+                    dl.sighandler.mpp = dl.mpp
+                except Exception as e:
+                    logger.debug(str(e))
+            # stop rar_verifier
+            mpid = None
+            if dl.mpp["verifier"]:
+                mpid = dl.mpp["verifier"].pid
+            if mpid:
+                logger.warning("terminating rar_verifier")
+                try:
+                    os.kill(dl.mpp["verifier"].pid, signal.SIGKILL)
+                    dl.mpp["verifier"].join()
+                    dl.mpp["verifier"] = None
+                    dl.sighandler.mpp = dl.mpp
+                except Exception as e:
+                    logger.debug(str(e))
+            # stop mpp_renamer
+            mpid = None
+            if dl.mpp["renamer"]:
+                mpid = dl.mpp["renamer"].pid
+            if mpid:
+                logger.warning("terminating renamer")
+                try:
+                    os.kill(dl.mpp["renamer"].pid, signal.SIGTERM)
+                    dl.mpp["renamer"].join()
+                    dl.mpp["renamer"].join()
+                    dl.mpp["renamer"] = None
+                    dl.sighandler.mpp = dl.mpp
+                except Exception as e:
+                    logger.debug(str(e))
+            # idle until start signal comes from gui_drawer
+            idlestart = time.time()
+            servers_shut_down = False
+            while True:
+                dobreak = False
+                with guiconnector.lock:
+                    if guiconnector.dl_running:
+                        dobreak = True
+                if dobreak:
+                    break
+                time.sleep(1)
+                if not servers_shut_down and time.time() - idlestart > 45:
+                    # stop all threads
+                    logger.debug(lpref + "stopping all threads")
+                    for t, _ in dl.ct.threads:
+                        t.stop()
+                        t.join()
+                    dl.ct.threads = []
+                    dl.ct.servers.close_all_connections()
+                    del dl.ct.servers
+                    servers_shut_down = True
+                time.sleep(1)
+            logger.removeHandler(nzbhandler)
+            del nzbhandler
+            continue
 
         stat0 = pwdb.db_nzb_getstatus(nzbname)
         # if download success, postprocess

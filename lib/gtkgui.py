@@ -10,6 +10,7 @@ from threading import Thread
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
 
+lpref = __name__.split("lib.")[-1] + " - "
 
 __appname__ = "Ginzibix"
 __version__ = "0.01 pre-alpha"
@@ -60,6 +61,7 @@ class AppData:
         self.overall_size = 0
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
+        self.dl_running = True
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -85,7 +87,7 @@ class AppWindow(Gtk.ApplicationWindow):
             print("Cannot find icon file!" + GBXICON)
 
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self.lock, self.update_mainwindow, self.logger, port="36601")
+        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36601")
         self.guipoller.start()
 
         # init main window
@@ -370,6 +372,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.toggle_buttons()
 
     def update_liststore(self):
+        self.logger.debug(lpref + "updating nzbs in liststore")
         self.liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs):
             if i == 0:
@@ -388,6 +391,7 @@ class AppWindow(Gtk.ApplicationWindow):
             n_perc = int((self.appdata.gbdown / self.appdata.overall_size) * 100)
         else:
             n_perc = 0
+        # print(">>>" + str(n_perc))
         n_dl = self.appdata.gbdown
         n_size = self.appdata.overall_size
 
@@ -395,6 +399,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore.set_value(iter, 2, n_dl)
         self.liststore.set_value(iter, 3, n_size)
         self.liststore.set_value(iter, 5, str(n_perc) + "%")
+        # print(self.liststore.get_value(iter, 5))
         if self.appdata.mbitsec > 0:
             eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
             etastr = str(datetime.timedelta(seconds=int(eta0)))
@@ -426,12 +431,13 @@ class AppWindow(Gtk.ApplicationWindow):
         hb.props.title = __appname__
         self.set_titlebar(hb)
 
-        button = Gtk.Button()
+        button_startstop = Gtk.Button()
         icon = Gio.ThemedIcon(name="media-playback-pause")
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
-        button.add(image)
-        # button.set_tooltip_text("Pause download")
-        hb.pack_start(button)
+        button_startstop.add(image)
+        button_startstop.connect("clicked", self.on_buttonstartstop_clicked)
+        button_startstop.set_tooltip_text("Pause download")
+        hb.pack_start(button_startstop)
 
         self.mbitlabel = Gtk.Label(None, xalign=0.0, yalign=0.5)
         if self.appdata.mbitsec > 0:
@@ -439,6 +445,19 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             self.mbitlabel.set_text("")
         hb.pack_start(self.mbitlabel)
+
+    def on_buttonstartstop_clicked(self, button):
+        with self.lock:
+            self.appdata.dl_running = not self.appdata.dl_running
+        if self.appdata.dl_running:
+            icon = Gio.ThemedIcon(name="media-playback-pause")
+            image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+            button.set_image(image)
+        else:
+            icon = Gio.ThemedIcon(name="media-playback-start")
+            image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+            button.set_image(image)
+        # print(self.appdata.dl_running)
 
     def closeall(self, a):
         # Gtk.main_quit()
@@ -457,17 +476,21 @@ class AppWindow(Gtk.ApplicationWindow):
                 gbdown0 += gbdown
                 mbitsec0 += (t_bytesdownloaded / (time.time() - t_last_timestamp)) / (1024 * 1024) * 8
             gbdown0 += already_downloaded_size
-            self.appdata.nzbname = nzbname
-            self.appdata.overall_size = overall_size
-            self.appdata.gbdown = gbdown0
-            self.appdata.mbitsec = mbitsec0
-            self.update_liststore_dldata()
+            self.logger.debug(lpref + "received data")
+            with self.lock:
+                self.appdata.nzbname = nzbname
+                self.appdata.overall_size = overall_size
+                self.appdata.gbdown = gbdown0
+                self.appdata.mbitsec = mbitsec0
+                self.update_liststore_dldata()
+            # print(nzbname, overall_size, gbdown0)
 
         if sortednzblist:
             gibdivisor = (1024 * 1024 * 1024)
             do_update_list = False
             if len(self.appdata.nzbs) != len(sortednzblist):
                 do_update_list = True
+                print(">>>> len differs")
             else:
                 # check if displayed data has to be updated
                 for i, nzbdata in enumerate(sortednzblist):
@@ -481,6 +504,7 @@ class AppWindow(Gtk.ApplicationWindow):
                     n_name0, n_perc0, n_dl0, n_size0, hstr0, percstr0, sel0 = self.appdata.nzbs[i]
                     if n_name != n_name0 or n_perc != n_perc0 or n_dl != n_dl0 or n_size != n_size0:
                         do_update_list = True
+                        print("data differs: ", n_name, n_name0, n_perc, n_perc0, n_dl != n_dl0, n_size, n_size0)
                         break
             # if yes: update liststore
             if do_update_list:
@@ -490,7 +514,7 @@ class AppWindow(Gtk.ApplicationWindow):
                     if n_name == self.appdata.nzbname:
                         n_perc = int(self.appdata.gbdown / self.appdata.overall_size)
                         n_dl = self.appdata.gbdown
-                        n_size = self.overall_size
+                        n_size = self.appdata.overall_size
                     else:
                         try:
                             n_perc = int(n_siz/n_downloaded)
@@ -505,7 +529,7 @@ class AppWindow(Gtk.ApplicationWindow):
                         etastr = "-"
                     # set correct selected flag
                     selected = False
-                    for n_name1, _, _, _, _, selected0 in nzbs_copy:
+                    for n_name1, _, _, _, _, _, selected0 in nzbs_copy:
                         if n_name1 == n_name:
                             selected = selected0
                             break
@@ -566,7 +590,7 @@ class Application(Gtk.Application):
 # connects to GUI_Connector in main.py and gets data for displaying
 class GUI_Poller(Thread):
 
-    def __init__(self, lock, update_mainwindow, logger, port="36601"):
+    def __init__(self, lock, appdata, update_mainwindow, logger, port="36601"):
         Thread.__init__(self)
         self.daemon = True
         self.context = zmq.Context()
@@ -576,6 +600,7 @@ class GUI_Poller(Thread):
         self.data = None
         self.nzbname = None
         self.delay = 1
+        self.appdata = appdata
         self.update_mainwindow = update_mainwindow
 
         self.socket = self.context.socket(zmq.REQ)
@@ -586,26 +611,42 @@ class GUI_Poller(Thread):
         socketurl = "tcp://" + self.host + ":" + self.port
         self.socket.connect(socketurl)
         # self.socket.RCVTIMEO = 1000
-        sortednzblist = []
+        dl_running = True
         while True:
-            try:
-                self.socket.send_string("REQ")
-                datatype, datarec = self.socket.recv_pyobj()
-                if datatype == "NOOK":
-                    continue
-                elif datatype == "DL_DATA":
-                    data, pwdb_msg, server_config, threads = datarec
-                elif datatype == "NZB_DATA":
-                    sortednzblist = datarec
+            sortednzblist = []
+            with self.lock:
+                dl_running_new = self.appdata.dl_running
+            # if download state switched -> send to main.py
+            if dl_running_new != dl_running:
+                dl_running = dl_running_new
+                if dl_running:
+                    msg0 = "SET_RESUME"
+                else:
+                    msg0 = "SET_PAUSE"
                 try:
-                    GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, sortednzblist)
-                except Exception:
-                    pass
-                # self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
-            except Exception as e:
-                self.logger.error("GUI_ConnectorMain: " + str(e))
+                    self.socket.send_string(msg0)
+                    datatype, datarec = self.socket.recv_pyobj()
+                    print("Sent: " + msg0 + ", received: " + datatype)
+                except Exception as e:
+                    self.logger.error("GUI_ConnectorMain: " + str(e))
+            else:
+                try:
+                    self.socket.send_string("REQ")
+                    datatype, datarec = self.socket.recv_pyobj()
+                    if datatype == "NOOK":
+                        continue
+                    elif datatype == "DL_DATA":
+                        data, pwdb_msg, server_config, threads = datarec
+                    elif datatype == "NZB_DATA":
+                        sortednzblist = datarec
+                    try:
+                        GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, sortednzblist)
+                    except Exception:
+                        pass
+                    # self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
+                except Exception as e:
+                    self.logger.error("GUI_ConnectorMain: " + str(e))
             time.sleep(self.delay)
-
 
 
 # app = Application()

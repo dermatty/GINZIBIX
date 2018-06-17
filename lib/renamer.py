@@ -9,14 +9,18 @@ import sys
 
 lpref = __name__.split("lib.")[-1] + " - "
 
+TERMINATED = False
+
 
 class SigHandler_Renamer:
     def __init__(self, logger):
         self.logger = logger
 
     def sighandler_renamer(self, a, b):
-        self.logger.info(lpref + "terminated!")
-        sys.exit()
+        self.logger.info(lpref + "setting terminating flag")
+        global TERMINATED
+        TERMINATED = True
+        # sys.exit()
 
 
 def get_not_yet_renamed_files(source_dir):
@@ -187,7 +191,7 @@ def renamer(source_dir, dest_dir, pwdb, mp_result_queue, logger):
     # eventslist = []
     isfirstrun = True
 
-    while True:
+    while not TERMINATED:
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
             logger.debug(lpref + "Events: " + str(events))
@@ -211,7 +215,7 @@ def renamer(source_dir, dest_dir, pwdb, mp_result_queue, logger):
             # print("-" * 60)
             # get_nowait
     os.chdir(cwd0)
-
+    logger.debug(lpref + "exited!")
 
 # maindir = "st502304a4df4c023adf43c1462a.nfo"
 
