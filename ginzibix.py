@@ -99,6 +99,6 @@ if __name__ == '__main__':
     # Gtk.main()
     # mpp_main = None
 
-    app = lib.Application(mpp_main, logger)
+    app = lib.Application(mpp_main, dirs, logger)
     exit_status = app.run(sys.argv)
     sys.exit(exit_status)

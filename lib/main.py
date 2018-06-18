@@ -173,10 +173,10 @@ class GUI_Connector(Thread):
                     self.threads.append((t.bytesdownloaded, t.last_timestamp, t.idn))
 
     def get_data(self):
-        ret0 = ("NOOK", None, None, None)
+        ret0 = ("NOOK", None, None, None, None)
         with self.lock:
             try:
-                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads)
+                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running)
                 # self.logger.debug("GUI_Connector: " + str(ret0))
             except Exception as e:
                 self.logger.error("GUI_Connector: " + str(e))
@@ -913,7 +913,7 @@ class Downloader():
         return le_serv0
 
 
-def get_next_nzb(pwdb, dirs, ct, logger):
+def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
     # wait for new nzbs to arrive
     logger.debug(lpref + "looking for new NZBs ...")
     try:
@@ -942,6 +942,16 @@ def get_next_nzb(pwdb, dirs, ct, logger):
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(lpref + whoami() + str(e))
+    # send current nzbqueue
+    try:
+        while True:
+            try:
+                nzbqueue.get_nowait()
+            except queue.Empty:
+                break
+        nzbqueue.put(pwdb.db_nzb_getall_sorted())
+    except Exception as e:
+        logger.warning(lpref + "ParseNZB: " + str(e))
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
 
 
@@ -1040,7 +1050,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(lpref + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], nzboutqueue, logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
@@ -1068,7 +1078,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 time.sleep(1)
                 continue
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
-            = get_next_nzb(pwdb, dirs, ct, logger)
+            = get_next_nzb(pwdb, dirs, ct, nzboutqueue, logger)
         ct.reset_timestamps_bdl()
         if not nzbname:
             break
@@ -1160,6 +1170,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             # idle until start signal comes from gui_drawer
             idlestart = time.time()
             servers_shut_down = False
+            dl.ct.reset_timestamps_bdl()
             while True:
                 dobreak = False
                 with guiconnector.lock:

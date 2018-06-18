@@ -93,7 +93,7 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(pwdb, nzbdir, nzbqueue, logger):
+def ParseNZB(pwdb, nzbdir, logger):
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
@@ -151,16 +151,6 @@ def ParseNZB(pwdb, nzbdir, nzbqueue, logger):
                                 pwdb.db_article_insert_many(data)
                             logger.info(lpref + "Added NZB: " + infostr)
                             pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
-                            # clear queue + send nzbs to queue
-                            try:
-                                while True:
-                                    try:
-                                        nzbqueue.get_nowait()
-                                    except queue.Empty:
-                                        break
-                                nzbqueue.put(pwdb.db_nzb_getall_sorted())
-                            except Exception as e:
-                                logger.warning(lpref + "ParseNZB: " + str(e))
             isfirstrun = False
     logger.warning(lpref + "exiting")
     os.chdir(cwd0)
