@@ -38,6 +38,25 @@ MENU_XML = """
 """
 
 
+def get_bg_color(n_status_s):
+    bgcol = "white"
+    if n_status_s == "preprocessing":
+        bgcol = "beige"
+    elif n_status_s == "queued":
+        bgcol = "khaki"
+    elif n_status_s == "downloading":
+        bgcol = "yellow"
+    elif n_status_s == "postprocessing":
+        bgcol = "yellow green"
+    elif n_status_s == "success":
+        bgcol = "lime green"
+    elif n_status_s == "failed" or n_status_s == "unknown":
+        bgcol = "red"
+    else:
+        bgcol = "white"
+    return bgcol
+
+
 class ConfirmDialog(Gtk.Dialog):
     def __init__(self, parent, txt):
         Gtk.Dialog.__init__(self, "My Dialog", parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
@@ -78,6 +97,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.mpp_main = mpp_main
         self.appdata = AppData(self.lock)
         self.dl_running = True
+        self.nzb_status_string = ""
 
         self.win = Gtk.Window.__init__(self, title=__appname__, application=app)
 
@@ -133,7 +153,7 @@ class AppWindow(Gtk.ApplicationWindow):
         listbox = Gtk.ListBox()
         row = Gtk.ListBoxRow()
         # populate liststore
-        self.liststore = Gtk.ListStore(str, int, float, float, str, str, bool)
+        self.liststore = Gtk.ListStore(str, int, float, float, str, str, bool, str, str)
         self.update_liststore()
         # set treeview + actions
         treeview = Gtk.TreeView(model=self.liststore)
@@ -173,6 +193,12 @@ class AppWindow(Gtk.ApplicationWindow):
         column_text3 = Gtk.TreeViewColumn("Eta", renderer_text3, text=4)
         column_text3.set_min_width(80)
         treeview.append_column(column_text3)
+        # 7th status
+        renderer_text7 = Gtk.CellRendererText()
+        column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
+        column_text7.set_min_width(80)
+        treeview.append_column(column_text7)
+        
         # final
         row.add(treeview)
         listbox.add(row)
@@ -395,11 +421,15 @@ class AppWindow(Gtk.ApplicationWindow):
         # print(">>>" + str(n_perc))
         n_dl = self.appdata.gbdown
         n_size = self.appdata.overall_size
+        n_bgcolor = get_bg_color(self.nzb_status_string)
 
         self.liststore.set_value(iter, 1, n_perc)
         self.liststore.set_value(iter, 2, n_dl)
         self.liststore.set_value(iter, 3, n_size)
         self.liststore.set_value(iter, 5, str(n_perc) + "%")
+        self.liststore.set_value(iter, 7, self.nzb_status_string)
+        self.liststore.set_value(iter, 8, n_bgcolor)
+
         # print(self.liststore.get_value(iter, 5))
         if self.appdata.mbitsec > 0 and self.dl_running:
             eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
@@ -408,7 +438,7 @@ class AppWindow(Gtk.ApplicationWindow):
             etastr = "-"
         self.liststore.set_value(iter, 4, etastr)
         # (n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected))
-        newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6])
+        newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.nzb_status_string, n_bgcolor)
         self.appdata.nzbs[0] = newnzb
         self.mbitlabel.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
 
@@ -469,7 +499,7 @@ class AppWindow(Gtk.ApplicationWindow):
             os.kill(self.mpp_main.pid, signal.SIGTERM)
             self.mpp_main.join()
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, sortednzblist):
+    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, sortednzblist):
         nzbname = None
         if data:
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
@@ -504,11 +534,17 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.dl_running = False
             else:
                 self.dl_running = True
+            self.nzb_status_string = nzb_status_string
             with self.lock:
                 self.appdata.nzbname = nzbname
-                self.appdata.overall_size = overall_size
-                self.appdata.gbdown = gbdown0
-                self.appdata.mbitsec = mbitseccurr
+                if nzb_status_string == "postprocessing" or nzb_status_string == "success":
+                    self.appdata.overall_size = overall_size
+                    self.appdata.gbdown = overall_size
+                    self.appdata.mbitsec = 0
+                else:
+                    self.appdata.overall_size = overall_size
+                    self.appdata.gbdown = gbdown0
+                    self.appdata.mbitsec = mbitseccurr
                 self.update_liststore_dldata()
 
         if sortednzblist:
@@ -526,7 +562,7 @@ class AppWindow(Gtk.ApplicationWindow):
                     #     n_perc = 0
                     # n_dl = n_downloaded / gibdivisor
                     # n_size = n_siz / gibdivisor
-                    n_name0, n_perc0, n_dl0, n_size0, hstr0, percstr0, sel0 = self.appdata.nzbs[i]
+                    n_name0, n_perc0, n_dl0, n_size0, hstr0, percstr0, sel0, stat0, bgcol0 = self.appdata.nzbs[i]
                     if n_name != n_name0:    # or n_perc != n_perc0 or n_dl != n_dl0 or n_size != n_size0:
                         do_update_list = True
                         # print("data differs: ", n_name, n_name0, n_perc, n_perc0, n_dl != n_dl0, n_size, n_size0)
@@ -538,11 +574,12 @@ class AppWindow(Gtk.ApplicationWindow):
                 for n_name, n_prio, n_ts, n_status, n_siz, n_downloaded in sortednzblist:
                     name_found = False
                     idx = -1
-                    for idx, (n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0) in enumerate(nzbs_copy):
+                    for idx, (n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0) in enumerate(nzbs_copy):
                         if n_name0 == n_name:
                             name_found = True
                             break
                     if name_found:
+                        # muss auch alles andere übernehmen!!!
                         self.appdata.nzbs.append(nzbs_copy[idx])
                     else:
                         try:
@@ -557,7 +594,21 @@ class AppWindow(Gtk.ApplicationWindow):
                         else:
                             etastr = "-"
                         selected = False
-                        self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected))
+                        if n_status == 0:
+                            n_status_s = "preprocessing"
+                        elif n_status == 1:
+                            n_status_s = "queued"
+                        elif n_status == 2:
+                            n_status_s = "downloading"
+                        elif n_status == 3:
+                            n_status_s = "postprocessing"
+                        elif n_status == 4:
+                            n_status_s = "success"
+                        elif n_status < 0:
+                            n_status_s = "failed"
+                        else:
+                            n_status_s = "unknown"
+                        self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status_s, get_bg_color(n_status_s)))
                 if nzbs_copy != self.appdata.nzbs:
                     self.update_liststore()
         return False
@@ -661,11 +712,11 @@ class GUI_Poller(Thread):
                     if datatype == "NOOK":
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running = datarec
+                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string = datarec
                     elif datatype == "NZB_DATA":
                         sortednzblist = datarec
                     try:
-                        GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, sortednzblist)
+                        GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, sortednzblist)
                     except Exception:
                         pass
                     # self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)

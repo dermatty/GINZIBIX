@@ -198,6 +198,7 @@ def renamer(source_dir, dest_dir, pwdb, mp_result_queue, logger):
             # get all files not yet .renamed
             logger.debug(lpref + "reading not yet downloaded files in _downloaded0")
             notrenamedfiles = get_not_yet_renamed_files(source_dir)
+            logger.debug(lpref + "--> " + str(notrenamedfiles))
             # get all renames filed & trying to get .par2 file
             logger.debug(lpref + "Reading files in _renamed0 & trying to get .par2 file")
             renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj, logger)

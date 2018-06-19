@@ -116,7 +116,10 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     logger.debug(lpref + "all rars are verified")
     par2name = pwdb.db_get_renamed_par2(nzbname)
     corruptrars = pwdb.get_all_corrupt_rar_files(nzbname)
-    if par2name and corruptrars:
+    if not corruptrars:
+        logger.debug(lpref + "rar files ok, no repair needed, exiting par_verifier")
+        pwdb.db_nzb_update_verify_status(nzbname, 2)
+    elif par2name and corruptrars:
         logger.info(lpref + "par2vol files present, repairing ...")
         res0 = multipartrar_repair(renamed_dir, par2name, logger)
         if res0 == 1:

@@ -54,7 +54,10 @@ def decompose_nzb(nzb, logger):
             age = int((time.time() - float(date))/(24 * 3600))
             subject = headers["subject"]
             hn_list = subject.split('"')
-            hn = hn_list[1]
+            if hn_list[1].startswith("."):
+                hn = hn_list[1].lstrip(".")         # must not start with "." to be detected by "glob"
+            else:
+                hn = hn_list[1]
         except Exception as e:
             continue
         for s in r:

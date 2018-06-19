@@ -160,14 +160,16 @@ class GUI_Connector(Thread):
         self.server_config = None
         self.nzboutqueue = nzboutqueue
         self.dl_running = True
+        self.status = "idle"
 
-    def set_data(self, data, threads, server_config):
+    def set_data(self, data, threads, server_config, status):
         with self.lock:
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
             self.data = data
             self.nzbname = nzbname
             self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
             self.server_config = server_config
+            self.status = status
             self.threads = []
             for k, (t, last_timestamp) in enumerate(threads):
                     self.threads.append((t.bytesdownloaded, t.last_timestamp, t.idn))
@@ -176,7 +178,7 @@ class GUI_Connector(Thread):
         ret0 = ("NOOK", None, None, None, None)
         with self.lock:
             try:
-                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running)
+                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status)
                 # self.logger.debug("GUI_Connector: " + str(ret0))
             except Exception as e:
                 self.logger.error("GUI_Connector: " + str(e))
@@ -197,7 +199,7 @@ class GUI_Connector(Thread):
                 while True:
                     try:
                         ret_queue = self.nzboutqueue.get_nowait()
-                    except queue.Empty:
+                    except (queue.Empty, EOFError):
                         break
                 if ret_queue:
                     sendtuple = ("NZB_DATA", ret_queue)
@@ -396,7 +398,7 @@ class Downloader():
                     self.logger.debug("All articles for " + filename + " downloaded, calling mp.decode ...")
             except KeyError:
                 pass
-            except queue.Empty:
+            except (queue.Empty, EOFError):
                 break
         return newresult, avgmiblist, infolist, files, failed
 
@@ -431,7 +433,7 @@ class Downloader():
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
         # self.sighandler.shutdown()
-        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config)
+        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing")
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
         # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
         #                                      article_health, overall_size, already_downloaded_size)
@@ -463,7 +465,7 @@ class Downloader():
                 while True:
                     try:
                         self.mp_parverify_inqueue.get_nowait()
-                    except queue.Empty:
+                    except (queue.Empty, EOFError):
                         break
                 self.mpp["verifier"].join()
             except Exception as e:
@@ -567,9 +569,22 @@ class Downloader():
             self.pwdb.db_nzb_update_status(nzbname, -4)
             self.logger.warning(str(e) + ": cannot remove download_dir!")
         # move content of unpack dir to complete
-        self.logger.debug("Moving unpack_dir: " + self.unpack_dir)
+        self.logger.debug(lpref + "moving unpack_dir to complete: " + self.unpack_dir)
         for f00 in glob.glob(self.unpack_dir + "*"):
-            self.logger.debug("Unpack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
+            self.logger.debug(lpref + "u1npack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
+            d0 = f00.split("/")[-1]
+            self.logger.debug(lpref + "Does " + self.complete_dir + d0 + " already exist?")
+            if os.path.isfile(self.complete_dir + d0):
+                try:
+                    self.logger.debug(lpref + self.complete_dir + d0 + " already exists, deleting!")
+                    os.remove(self.complete_dir + d0)
+                except Exception as e:
+                    self.logger.debug(lpref + f00 + " already exists but cannot delete")
+                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    break
+            else:
+                self.logger.debug(lpref + self.complete_dir + d0 + " does not exist!")
+
             if not os.path.isdir(f00):
                 try:
                     shutil.move(f00, self.complete_dir)
@@ -577,7 +592,6 @@ class Downloader():
                     self.pwdb.db_nzb_update_status(nzbname, -4)
                     self.logger.warning(str(e) + ": cannot move unrared file to complete dir!")
             else:
-                d0 = f00.split("/")[-1]
                 if os.path.isdir(self.complete_dir + d0):
                     try:
                         shutil.rmtree(self.complete_dir + d0)
@@ -607,9 +621,11 @@ class Downloader():
         # finalize
         if self.pwdb.db_nzb_getstatus(nzbname) == -4:
             self.logger.info("Copy/Move of NZB " + nzbname + " failed!")
+            self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "failed")
             return -1
         else:
             self.logger.info("Copy/Move of NZB " + nzbname + " success!")
+            self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "success")
             self.pwdb.db_nzb_update_status(nzbname, 4)
             return 1
 
@@ -633,7 +649,7 @@ class Downloader():
                 _, _, _, _, _, _, _, status = resultarticle
                 if status != "failed":
                     nr_ok_articles += 1
-            except queue.Empty:
+            except (queue.Empty, EOFError):
                 break
         self.resultqueue.join()
         if nr_articles == 0:
@@ -771,7 +787,7 @@ class Downloader():
                         files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                         bytescount0 += bytescount00
                         article_count += article_count0
-                except queue.Empty:
+                except (queue.Empty, EOFError):
                     break
 
             # get mp_parverify_inqueue
@@ -779,7 +795,7 @@ class Downloader():
                 while True:
                     try:
                         loadpar2vols = self.mp_parverify_inqueue.get_nowait()
-                    except queue.Empty:
+                    except (queue.Empty, EOFError):
                         break
                 if loadpar2vols:
                     self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
@@ -853,9 +869,10 @@ class Downloader():
 
             try:
                 self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
-                                            article_health, overall_size, already_downloaded_size), self.ct.threads, self.ct.servers.server_config)
+                                            article_health, overall_size, already_downloaded_size), self.ct.threads,
+                                           self.ct.servers.server_config, "downloading")
             except Exception as e:
-                self.logger.warning(lpref + "set data error " + str(e))
+                self.logger.warning(lpref + "set_data error " + str(e))
 
             # if all downloaded postprocess
             getnextnzb = True
@@ -864,6 +881,8 @@ class Downloader():
                     continue
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     getnextnzb = False
+                    # self.logger.debug(lpref + "--- " + filetype + ": " + str(filetypecounter[filetype]["counter"]) + " / "
+                    #                  + str(filetypecounter[filetype]["max"]))
                     break
 
             # check if > 25% of connections are down
@@ -878,7 +897,7 @@ class Downloader():
                         aqg = self.articlequeue.get_nowait()
                         remainingarticles.append(aqg)
                         self.articlequeue.task_done()
-                    except queue.Empty:
+                    except (queue.Empty, EOFError):
                         break
                 # clear resultqueue
                 self.logger.debug(lpref + "clearing resultqueue")
@@ -886,7 +905,7 @@ class Downloader():
                     try:
                         self.resultqueue.get_nowait()
                         self.resultqueue.task_done()
-                    except queue.Empty:
+                    except (queue.Empty, EOFError):
                         break
                 # close everything down, wait 3 sec. and restart
                 self.logger.debug(lpref + "restarting threads and requeuing articles")
@@ -894,7 +913,7 @@ class Downloader():
                 for aqg in remainingarticles:
                     self.articlequeue.put(aqg)
 
-            time.sleep(0.2)
+            time.sleep(0.3)
 
         return_reason = "dl_finished"
         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
@@ -947,7 +966,7 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
         while True:
             try:
                 nzbqueue.get_nowait()
-            except queue.Empty:
+            except (queue.Empty, EOFError):
                 break
         nzbqueue.put(pwdb.db_nzb_getall_sorted())
     except Exception as e:
@@ -1086,7 +1105,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         while True:
             try:
                 nzboutqueue.get_nowait()
-            except queue.Empty:
+            except (queue.Empty, EOFError):
                 break
         nzboutqueue.put(pwdb.db_nzb_getall_sorted())
 
@@ -1107,7 +1126,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 try:
                     articlequeue.get_nowait()
                     articlequeue.task_done()
-                except queue.Empty:
+                except (queue.Empty, EOFError):
                     break
             articlequeue.join()
             # clear resultqueue
@@ -1116,14 +1135,14 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 try:
                     resultqueue.get_nowait()
                     resultqueue.task_done()
-                except queue.Empty:
+                except (queue.Empty, EOFError):
                     break
             # clear mp_work_queue
             logger.debug(lpref + "clearing mp_work_queue")
             while True:
                 try:
                     mp_work_queue.get_nowait()
-                except queue.Empty:
+                except (queue.Empty, EOFError):
                     break
             # kill all mpps
             # stop unrarer
