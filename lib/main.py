@@ -426,9 +426,17 @@ class Downloader():
         del self.ct.servers
         del self.ct.threads
         time.sleep(3)
+        self.ct.servers = None
+        self.ct.threads = []
         self.logger.debug(lpref + "connection-restart: restarting")
-        self.ct.init_servers()
-        self.logger.debug()
+        try:
+            self.ct.init_servers()
+            self.ct.start_threads()
+            self.sighandler.servers = self.ct.servers
+            self.logger.debug(lpref + "connection-restart: servers restarted")
+        except Exception as e:
+            self.logger.warning(lpref + "cannot restart servers + threads")
+            # !!! todo: return to main loop here with status = failed
 
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
@@ -816,8 +824,12 @@ class Downloader():
                     if is_pwp in [0, -2]:
                         self.logger.warning(lpref + "cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
                         self.pwdb.db_nzb_update_status(nzbname, -2)  # status download failed
-                        getnextnzb = True
-                        continue
+                        self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                                    article_health, overall_size, already_downloaded_size), self.ct.threads,
+                                                   self.ct.servers.server_config, "failed")
+                        return_reason = "dl_failed"
+                        return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                          overall_size, already_downloaded_size)), return_reason
                     if is_pwp == 1:
                         # if pw protected -> postpone password test + unrar
                         self.pwdb.db_nzb_set_ispw(nzbname, True)
@@ -858,7 +870,17 @@ class Downloader():
                 article_health = 0
             if failed != 0:
                 self.logger.warning(lpref + str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
-                if not loadpar2vols:
+                # if too many missing articles: exit download
+                if (article_health < 0.98 and filetypecounter["par2vol"]["max"] == 0) or (filetypecounter["parvols"]["max"] > 0 and article_health <= 0.95):
+                    self.logger.info(lpref + "articles missing and cannot repair, exiting download")
+                    self.pwdb.db_nzb_update_status(nzbname, -2)
+                    self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                                article_health, overall_size, already_downloaded_size), self.ct.threads,
+                                               self.ct.servers.server_config, "failed")
+                    return_reason = "dl_failed"
+                    return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                      overall_size, already_downloaded_size)), return_reason
+                if not loadpar2vols and filetypecounter["parvols"]["max"] > 0 and article_health > 0.95:
                     self.logger.info(lpref + "queuing par2vols")
                     inject_set0 = ["par2vol"]
                     files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
@@ -932,7 +954,25 @@ class Downloader():
         return le_serv0
 
 
+def send_nzbqueue_to_gui(pwdb, nzbqueue, logger):
+    logger.debug(lpref + "putting sorted nzbs into queue")
+    try:
+        while True:
+            try:
+                nzbqueue.get_nowait()
+            except (queue.Empty, EOFError):
+                break
+        sortednzbs = pwdb.db_nzb_getall_sorted()
+        if not sortednzbs:
+            logger.debug(lpref + "putting -1 in nzbqueue")
+            sortednzbs = [-1]
+        nzbqueue.put(sortednzbs)
+    except Exception as e:
+        logger.warning(lpref + "ParseNZB: " + str(e))
+
+
 def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
+    send_nzbqueue_to_gui(pwdb, nzbqueue, logger)
     # wait for new nzbs to arrive
     logger.debug(lpref + "looking for new NZBs ...")
     try:
@@ -961,16 +1001,7 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(lpref + whoami() + str(e))
-    # send current nzbqueue
-    try:
-        while True:
-            try:
-                nzbqueue.get_nowait()
-            except (queue.Empty, EOFError):
-                break
-        nzbqueue.put(pwdb.db_nzb_getall_sorted())
-    except Exception as e:
-        logger.warning(lpref + "ParseNZB: " + str(e))
+    send_nzbqueue_to_gui(pwdb, nzbqueue, logger)
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
 
 

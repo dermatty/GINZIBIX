@@ -242,7 +242,9 @@ class PWDB:
         query = self.NZB.select()
         nzbs = []
         for n in query:
-            nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name)))
+            # only return nzbs with valid status
+            if n.status in [1, 2, 3]:
+                nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name)))
         return sorted(nzbs, key=lambda nzb: nzb[1])
 
     def db_nzb_set_password(self, nzbname, pw):

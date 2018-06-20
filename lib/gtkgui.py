@@ -81,6 +81,8 @@ class AppData:
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
         self.dl_running = True
+        self.mbit_min = 0
+        self.mbit_max = 150
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -92,7 +94,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.lock = threading.Lock()
         self.liststore = None
         self.liststore_s = None
-        self.mbitlabel = None
+        self.mbitlabel2 = None
         self.single_selected = None
         self.mpp_main = mpp_main
         self.appdata = AppData(self.lock)
@@ -140,6 +142,25 @@ class AppWindow(Gtk.ApplicationWindow):
         stack_switcher.set_property("halign", Gtk.Align.CENTER)
         stack_switcher.set_property("valign", Gtk.Align.START)
         box_main.pack_start(stack_switcher, False, False, 0)
+
+        self.box_levelbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.box_levelbar.set_property("margin-left", 20)
+        self.box_levelbar.set_property("margin-right", 20)
+        box_main.pack_start(self.box_levelbar, False, False, 10)
+
+        self.levelbar = Gtk.LevelBar()
+        self.levelbar.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        self.levelbar.set_min_value(self.appdata.mbit_min)
+        self.levelbar.set_max_value(self.appdata.mbit_max)
+        self.levelbar.set_value(0)
+        self.box_levelbar.pack_start(self.levelbar, True, True, 0)
+        self.mbitlabel2 = Gtk.Label(None)
+        if self.appdata.mbitsec > 0:
+            self.mbitlabel2.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+        else:
+            self.mbitlabel2.set_text("")
+        self.box_levelbar.pack_start(self.mbitlabel2, False, False, 0)
+
         box_main.pack_start(stack, True, True, 0)
 
     def show_nzb_stack(self, stacknzb_box):
@@ -147,8 +168,8 @@ class AppWindow(Gtk.ApplicationWindow):
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_border_width(10)
         scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_window.set_property("min-content-height", 300)
-        stacknzb_box.pack_start(scrolled_window, True, True, 8)
+        scrolled_window.set_property("min-content-height", 380)
+        stacknzb_box.pack_start(scrolled_window, True, True, 0)
         # listbox
         listbox = Gtk.ListBox()
         row = Gtk.ListBoxRow()
@@ -440,7 +461,15 @@ class AppWindow(Gtk.ApplicationWindow):
         # (n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected))
         newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.nzb_status_string, n_bgcolor)
         self.appdata.nzbs[0] = newnzb
-        self.mbitlabel.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+
+        levelbar_is_hidden = not self.box_levelbar.get_property("visible")
+        if self.appdata.mbitsec == 0 and not levelbar_is_hidden:
+            self.box_levelbar.hide()
+        if self.appdata.mbitsec > 0:
+            self.levelbar.set_value(int(self.appdata.mbitsec))
+            self.mbitlabel2.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+            if levelbar_is_hidden:
+                self.box_levelbar.show_all()
 
     def toggle_buttons(self):
         one_is_selected = False
@@ -472,13 +501,6 @@ class AppWindow(Gtk.ApplicationWindow):
         button_startstop.connect("clicked", self.on_buttonstartstop_clicked)
         button_startstop.set_tooltip_text("Pause download")
         hb.pack_start(button_startstop)
-
-        self.mbitlabel = Gtk.Label(None, xalign=0.0, yalign=0.5)
-        if self.appdata.mbitsec > 0:
-            self.mbitlabel.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
-        else:
-            self.mbitlabel.set_text("")
-        hb.pack_start(self.mbitlabel)
 
     def on_buttonstartstop_clicked(self, button):
         with self.lock:
@@ -548,6 +570,12 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_liststore_dldata()
 
         if sortednzblist:
+            self.logger.debug(lpref + str(sortednzblist))
+            if sortednzblist[0] == -1:
+                sortednzblist = []
+            self.logger.debug(lpref + "got new sortedlist")
+            self.logger.debug(lpref + str(self.appdata.nzbs))
+            self.logger.debug(lpref + str(sortednzblist))
             gibdivisor = (1024 * 1024 * 1024)
             do_update_list = False
             if len(self.appdata.nzbs) != len(sortednzblist):
@@ -626,6 +654,7 @@ class Application(Gtk.Application):
     def do_activate(self):
         self.window = AppWindow(self, self.mpp_main, self.dirs, self.logger)
         self.window.show_all()
+        self.window.box_levelbar.hide()
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
