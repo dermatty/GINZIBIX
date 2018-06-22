@@ -5,6 +5,7 @@ from os.path import expanduser
 import time
 import glob
 import re
+import dill
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -588,13 +589,28 @@ class PWDB:
                            "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
+
+        resqlist = None
+        if nzb.status == 2:
+            fn_resq = dir0 + "resqueue.gzbx"
+            self.logger.debug(lpref + "reading " + fn_resq + "...")
+            try:
+                with open(fn_resq, "rb") as fp:
+                    try:
+                        resqlist = dill.load(fp)
+                        self.logger.debug(lpref + "reading resqueue.gzbx success!!")
+                    except Exception as e:
+                        self.logger.debug(lpref + str(e) + ": reading resqueue failed!")
+            except Exception as e:
+                self.logger.debug(lpref + str(e) + ": cannot find .gzbx file, but it SHOULD exist!")
+
         nzbname = nzb.name
         dir00 = dir0 + "_downloaded0/"
         dir01 = dir0 + "_renamed0/"
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
         if not files:
             self.logger.info(lpref + "No files to download for NZB " + nzb.name)
-            return None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None, None
         idx = 0
         overall_size = 0
         overall_size_wparvol = 0
@@ -613,8 +629,8 @@ class PWDB:
             if f0.status == 2:
                 full_filename_renamed = dir01 + f0.renamed_name
                 full_filename_downloaded = dir00 + f0.renamed_name
-                self.logger.debug(lpref + " >>> " + full_filename_renamed)
-                self.logger.debug(lpref + " >>> " + full_filename_downloaded)
+                # self.logger.debug(lpref + " >>> " + full_filename_renamed)
+                # self.logger.debug(lpref + " >>> " + full_filename_downloaded)
                 filename0 = None
                 if f0.ftype == "par2":
                     if os.path.isfile(full_filename_renamed):
@@ -627,7 +643,7 @@ class PWDB:
                         filename0 = full_filename_downloaded
                     else:
                         self.logger.error("Processing par2 file, but not found in dirs; this should not occur!!")
-                        return None, None, None, None, None, None, None
+                        return None, None, None, None, None, None, None, None
                 else:
                     if os.path.isfile(full_filename_renamed):
                         filename0 = full_filename_renamed
@@ -635,7 +651,7 @@ class PWDB:
                         filename0 = full_filename_downloaded
                 if not filename0:
                     self.logger.error("Processing " + f0.orig_name + ", but not found in dirs; this should not occur!!")
-                    return None, None, None, None, None, None, None
+                    return None, None, None, None, None, None, None, None
                 filetypecounter[f0.ftype]["counter"] += 1
                 md5 = calc_file_md5hash(filename0)
                 filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
@@ -654,6 +670,14 @@ class PWDB:
                                 break
                 if allok:
                     allfilelist[idx].append((a.number, a.name, a.size))
+                    if resqlist:
+                        art_found = False
+                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r in resqlist:
+                            if a.name == art_name_r:
+                                art_found = True
+                                break
+                        if art_found:
+                            already_downloaded_size += a.size
             idx += 1
         if allfilelist:
             self.db_nzb_update_status(nzbname, 1)
@@ -662,7 +686,7 @@ class PWDB:
             overall_size_wparvol /= gbdivisor
             overall_size_wparvol += overall_size
             already_downloaded_size /= gbdivisor
-            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
         else:
             self.db_nzb_update_status(nzbname, 2)
             return None, None, None, None, None, None, None
@@ -676,7 +700,7 @@ class PWDB:
                                           | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
-            return None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None, None
         self.logger.info(lpref + "analyzing NZB: " + nzb.name + " with status: " + str(nzb.status))
         nzbname = nzb.name
         nzbstatus = self.db_nzb_getstatus(nzbname)
@@ -688,7 +712,7 @@ class PWDB:
             if not files:
                 self.logger.info(lpref + "No files to download for NZB " + nzb.name)
                 self.db_nzb_update_status(nzbname, -1)     # download failed as no files present
-                return None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None
             # if queued and incomplete dir exists -> delete, because of inconsistent state!
             try:
                 if os.path.isdir(incompletedir):
@@ -697,7 +721,7 @@ class PWDB:
             except Exception as e:
                 self.logger.error(lpref + str(e) + ": error in removing incomplete_dir")
                 self.db_nzb_update_status(nzbname, -1)     # download failed as no files present
-                return None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None
             # set all files to status "queued" / 0
             for f0 in files:
                 self.db_file_update_status(f0.orig_name, 0)
@@ -719,7 +743,7 @@ class PWDB:
             if not lists_are_equal(verified_files, rars_in_verified_dir):
                 self.logger.warning(lpref + "inconsistency in verified rars, deleting nzb in db")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None
             # check consistency: renamed
             self.logger.debug(lpref + "verified_dir consistent, checking renamed_dir")
             renamed_files = [f0.renamed_name for f0 in files if f0.renamed_name != "N/A"]
@@ -728,7 +752,7 @@ class PWDB:
             if not lists_are_equal(renamed_files, files_in_renamed_dir):
                 self.logger.warning(lpref + "inconsistency in renamed_dir, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None
             # check if all downloaded files exist in _renamed or _downloaded0
             self.logger.debug(lpref + "renamed_dir consistent, checking if all downloaded files exist")
             files_in_downloaded_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_downloaded + "*")]
@@ -741,18 +765,18 @@ class PWDB:
             if inconsistent:
                 self.logger.warning(lpref + "inconsistency in downloaded files, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None
-            allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                return None, None, None, None, None, None, None, None
+            allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
                 = self.create_allfile_list(nzb, incompletedir)
             if nzbstatus == 2:
-                return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+                return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
             # if postprocessing: check if all files are downloaded
             # if loadpar2vols == True: check if complete
             if self.db_nzb_loadpar2vols(nzbname):
                 if filetypecounter["par2vol"]["max"] > filetypecounter["par2vol"]["counter"]:
                     self.logger.warning(lpref + "not all par2vol downloaded, deleting nzb in db/filesystem")
                     self.nzb_reset(nzbname, incompletedir, nzbdir)
-                    return None, None, None, None, None, None, None
+                    return None, None, None, None, None, None, None, None
             # check all other filetypes if complete
             inconsistent = False
             for fset in ["par2", "rar", "sfv", "nfo", "etc"]:
@@ -762,8 +786,8 @@ class PWDB:
             if inconsistent:
                 self.logger.warning(lpref + "not all files downloaded although in postproc. state, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None
-            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+                return None, None, None, None, None, None, None, None
+            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
         # --------------------------------------------------------------------------------------
         '''try:

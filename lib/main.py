@@ -26,6 +26,7 @@ from .passworded_rars import is_rar_password_protected, get_password
 from .connections import ConnectionWorker
 from .server import Servers
 import inspect
+import dill
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -38,13 +39,17 @@ def whoami():
 
 class SigHandler_Main:
 
-    def __init__(self, mpp, ct, mp_work_queue, logger):
+    def __init__(self, mpp, ct, mp_work_queue, resultqueue, logger):
         self.logger = logger
         self.ct = ct
         self.mpp = mpp
         self.mp_work_queue = mp_work_queue
+        self.resultqueue = resultqueue
+        self.main_dir = None
 
     def shutdown(self):
+        if self.main_dir:
+            write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
         f = open('/dev/null', 'w')
         sys.stdout = f
         for key, item in self.mpp.items():
@@ -252,6 +257,7 @@ class Downloader():
         self.sighandler = sighandler
         self.mpp = mpp
         self.guiconnector = guiconnector
+        self.resqlist = []
         try:
             self.pw_file = self.dirs["main"] + self.cfg["FOLDERS"]["PW_FILE"]
             self.logger.debug("Password file is: " + self.pw_file)
@@ -350,9 +356,20 @@ class Downloader():
                     if i == 0:
                         continue
                     art_nr, art_name, art_bytescount = art0
-                    bytescount0 += art_bytescount
-                    q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
-                    self.articlequeue.put(q)
+                    art_found = False
+                    if self.resqlist:
+                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r in self.resqlist:
+                            if art_name == art_name_r:
+                                art_found = True
+                                break
+                    if art_found:
+                        # put to resultqueue:
+                        self.logger.debug(lpref + "-----> " + art_name + " / " + str(art_bytescount))
+                        self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r))
+                    else:
+                        bytescount0 += art_bytescount
+                        q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
+                        self.articlequeue.put(q)
                     article_count += 1
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         self.logger.debug("Art. Count: " + str(article_count))
@@ -670,8 +687,10 @@ class Downloader():
         return a_health
 
     # main download routine
-    def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, servers_shut_down):
+    def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist):
         self.logger.info(lpref + "downloading " + nzbname)
+
+        self.resqlist = resqlist
 
         # init variables
         self.logger.debug(lpref + "download: init variables")
@@ -691,7 +710,7 @@ class Downloader():
         if self.pwdb.db_nzb_getstatus(nzbname) > 2:
             self.logger.info(nzbname + "- download complete!")
             return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                              overall_size, already_downloaded_size))
+                              overall_size, already_downloaded_size)), "dl_finished", self.main_dir
         self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
 
         # which set of filetypes should I download
@@ -708,6 +727,7 @@ class Downloader():
         # make dirs
         self.logger.debug(lpref + "creating dirs")
         self.make_dirs(nzbname)
+        self.sighandler.main_dir = self.main_dir
 
         # start renamer
         self.logger.debug(lpref + "starting renamer process for NZB ")
@@ -755,10 +775,12 @@ class Downloader():
 
             with self.guiconnector.lock:
                 if not self.guiconnector.dl_running:
-                    return_reason = "dl_stopped"
-                    return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                                      overall_size, already_downloaded_size)), return_reason
-
+                    try:
+                        return_reason = "dl_stopped"
+                        return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                          overall_size, already_downloaded_size)), return_reason, self.main_dir
+                    except Exception as e:
+                        self.logger.debug(lpref + str(e))
             if getnextnzb:
                 self.logger.info(nzbname + "- download complete!")
                 self.pwdb.db_nzb_update_status(nzbname, 3)
@@ -829,7 +851,7 @@ class Downloader():
                                                    self.ct.servers.server_config, "failed")
                         return_reason = "dl_failed"
                         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                                          overall_size, already_downloaded_size)), return_reason
+                                          overall_size, already_downloaded_size)), return_reason, self.main_dir
                     if is_pwp == 1:
                         # if pw protected -> postpone password test + unrar
                         self.pwdb.db_nzb_set_ispw(nzbname, True)
@@ -879,7 +901,7 @@ class Downloader():
                                                self.ct.servers.server_config, "failed")
                     return_reason = "dl_failed"
                     return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                                      overall_size, already_downloaded_size)), return_reason
+                                      overall_size, already_downloaded_size)), return_reason, self.main_dir
                 if not loadpar2vols and filetypecounter["parvols"]["max"] > 0 and article_health > 0.95:
                     self.logger.info(lpref + "queuing par2vols")
                     inject_set0 = ["par2vol"]
@@ -939,7 +961,7 @@ class Downloader():
 
         return_reason = "dl_finished"
         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                          overall_size, already_downloaded_size)), return_reason
+                          overall_size, already_downloaded_size)), return_reason, self.main_dir
 
     def get_level_servers(self, retention):
         le_serv0 = []
@@ -976,14 +998,14 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
     # wait for new nzbs to arrive
     logger.debug(lpref + "looking for new NZBs ...")
     try:
-        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = make_allfilelist_inotify(pwdb, dirs, logger, -1)
     except Exception as e:
         logger.warning(lpref + whoami() + str(e))
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
-        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = make_allfilelist_inotify(pwdb, dirs, logger, 30 * 1000)
         if not nzbname:
             if ct.threads:
@@ -997,24 +1019,24 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
                 del ct.servers
             logger.debug(lpref + "polling for new NZBs now in blocking mode!")
             try:
-                allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(lpref + whoami() + str(e))
     send_nzbqueue_to_gui(pwdb, nzbqueue, logger)
-    return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+    return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
 
 def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
     # immediatley get allfileslist
     if timeout0 and timeout0 <= -1:
-        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
         if nzbname:
             logger.debug(lpref + "inotify: no timeout, got nzb " + nzbname + " immediately!")
-            return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+            return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
         else:
-            return None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None, None
     # setup inotify
     logger.debug(lpref + "Setting up inotify for timeout=" + str(timeout0))
     pwdb_inotify = inotify_simple.INotify()
@@ -1027,12 +1049,12 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
             logger.debug(lpref + "got notify event on " + str(event.name))
             if event.name == u"ginzibix.db":
                 logger.debug(lpref + "database updated, now checking for nzbname & data")
-                allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+                allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
                     = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
                 if nzbname:
                     logger.debug(lpref + "new nzb found in db, queuing ...")
                     pwdb_inotify.rm_watch(wd)
-                    return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
+                    return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
                 else:
                     logger.debug(lpref + "no new nzb found in db, continuing polling ...")
         # if timeout == None: again blocking, else subtract already spent timeout
@@ -1041,7 +1063,7 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
             t0 = time.time()
             if timeout00 <= 0:
                 pwdb_inotify.rm_watch(wd)
-                return None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None
 
 
 # this class deals on a meta-level with usenet connections
@@ -1082,6 +1104,30 @@ class ConnectionThreads:
                 t.last_timestamp = 0
 
 
+def write_resultqueue_to_file(resultqueue, maindir, logger):
+    logger.debug(lpref + "reading resultqueue and writing to " + maindir)
+    resqlist = []
+    while True:
+        try:
+            res = resultqueue.get_nowait()
+            resultqueue.task_done()
+            resqlist.append(res)
+        except (queue.Empty, EOFError):
+            break
+    fn = maindir + "resqueue.gzbx"
+    if resqlist:
+        try:
+            with open(fn, "wb") as fp:
+                dill.dump(resqlist, fp)
+        except Exception as e:
+            logger.warning(lpref + str(e) + ": cannot write resqueue.gzbx")
+    else:
+        try:
+            os.remove(fn)
+        except Exception as e:
+            logger.warning(lpref + str(e) + ": cannot remove resqueue.gzbx")
+
+
 # main loop for ginzibix downloader
 def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
@@ -1094,7 +1140,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     # init sighandler
     logger.debug(lpref + "initializing sighandler")
     mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None}
-    sh = SigHandler_Main(mpp, ct, mp_work_queue, logger)
+    sh = SigHandler_Main(mpp, ct, mp_work_queue, resultqueue, logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
@@ -1127,7 +1173,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             if not guiconnector.dl_running:
                 time.sleep(1)
                 continue
-        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2 \
+        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = get_next_nzb(pwdb, dirs, ct, nzboutqueue, logger)
         ct.reset_timestamps_bdl()
         if not nzbname:
@@ -1146,8 +1192,12 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         nzbhandler.setLevel(logging.INFO)
 
         # download nzb
-        nzbname, downloaddata, return_reason = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
-                                                           overall_size_wparvol, already_downloaded_size, p2, servers_shut_down)
+        nzbname, downloaddata, return_reason, maindir = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
+                                                                    overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist)
+        stat0 = pwdb.db_nzb_getstatus(nzbname)
+        # if dl was stopped -> write resultarticles to file
+        if stat0 == 2:
+            write_resultqueue_to_file(resultqueue, maindir, logger)
 
         if return_reason == "dl_stopped":
             # join all queues
@@ -1244,7 +1294,6 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             del nzbhandler
             continue
 
-        stat0 = pwdb.db_nzb_getstatus(nzbname)
         # if download success, postprocess
         if stat0 == 3:    # if download ok - postprocess
             logger.info(lpref + "postprocessing NZB " + nzbname)

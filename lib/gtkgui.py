@@ -24,6 +24,10 @@ MENU_XML = """
   <menu id="app-menu">
     <section>
       <item>
+        <attribute name="action">app.settings</attribute>
+        <attribute name="label" translatable="yes">_Settings</attribute>
+      </item>
+      <item>
         <attribute name="action">app.about</attribute>
         <attribute name="label" translatable="yes">_About</attribute>
       </item>
@@ -495,12 +499,21 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_titlebar(hb)
 
         button_startstop = Gtk.Button()
+        button_startstop.set_property("margin-left", 2)
         icon = Gio.ThemedIcon(name="media-playback-pause")
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
         button_startstop.add(image)
         button_startstop.connect("clicked", self.on_buttonstartstop_clicked)
         button_startstop.set_tooltip_text("Pause download")
         hb.pack_start(button_startstop)
+
+        button_settings = Gtk.Button()
+        icon2 = Gio.ThemedIcon(name="preferences-other")
+        image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
+        button_settings.add(image2)
+        # button_settings.connect("clicked", self.on_buttonsettings_clicked)
+        button_settings.set_tooltip_text("Settings")
+        hb.pack_end(button_settings)
 
     def on_buttonstartstop_clicked(self, button):
         with self.lock:
@@ -658,6 +671,11 @@ class Application(Gtk.Application):
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
+
+        action = Gio.SimpleAction.new("settings", None)
+        action.connect("activate", self.on_settings)
+        self.add_action(action)
+
         action = Gio.SimpleAction.new("about", None)
         action.connect("activate", self.on_about)
         self.add_action(action)
@@ -668,6 +686,9 @@ class Application(Gtk.Application):
 
         builder = Gtk.Builder.new_from_string(MENU_XML, -1)
         self.set_app_menu(builder.get_object("app-menu"))
+
+    def on_settings(self, action, param):
+        pass
 
     def on_about(self, action, param):
         about_dialog = Gtk.AboutDialog(transient_for=self.window, modal=True)
