@@ -615,7 +615,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 for n_name, n_prio, n_ts, n_status, n_siz, n_downloaded in sortednzblist:
                     name_found = False
                     idx = -1
-                    for idx, (n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0) in enumerate(nzbs_copy):
+                    for idx, (n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0, bgcol0) in enumerate(nzbs_copy):
                         if n_name0 == n_name:
                             name_found = True
                             break

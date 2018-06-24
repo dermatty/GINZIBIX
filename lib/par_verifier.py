@@ -28,13 +28,17 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     signal.signal(signal.SIGINT, sh.sighandler_verifier)
     signal.signal(signal.SIGTERM, sh.sighandler_verifier)
 
-    logger.info(lpref + "starting par_verifier")
+    pwdb.log(nzbname, lpref + "starting par_verifier in mode " + pvmode, "info", logger)
+
     if pvmode == "verify":
         p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
-
     pwdb.db_nzb_update_verify_status(nzbname, 1)
     # a: verify all unverified files in "renamed"
-    unverified_rarfiles = pwdb.get_all_renamed_rar_files(nzbname)
+    unverified_rarfiles = None
+    try:
+        unverified_rarfiles = pwdb.get_all_renamed_rar_files(nzbname)
+    except Exception as e:
+        logger.debug(lpref + str(e) + ": no unverified rarfiles met in first run, skipping!")
     doloadpar2vols = False
     if pvmode == "verify" and not p2:
         logger.debug(lpref + "no par2 file found")

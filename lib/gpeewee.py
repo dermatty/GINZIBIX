@@ -6,6 +6,7 @@ import time
 import glob
 import re
 import dill
+import queue
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -139,13 +140,18 @@ class PWDB:
             return None
         toomuchdata = True
         while toomuchdata:
-            allmsg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
-            if len(allmsg) > maxitems:
-                mints = allmsg[0].timestamp
-                query = self.MSG.delete().where(self.MSG.nzbname == nzbname0 and self.MSG.timestamp == mints)
-                query.execute()
-            else:
-                toomuchdata = False
+            try:
+                allmsg = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp)
+                if len(allmsg) > maxitems:
+                    mints = allmsg[0].timestamp
+                    query = self.MSG.delete().where(self.MSG.nzbname == nzbname0 and self.MSG.timestamp == mints)
+                    query.execute()
+                else:
+                    toomuchdata = False
+            except Exception as e:
+                self.logger.warning(lpref + "db_msg_insert: " + str(e))
+                return None
+        print(msg0)
         return new_msg
 
     def db_msg_get(self, nzbname0):
@@ -281,8 +287,11 @@ class PWDB:
         query.execute()
 
     def db_nzb_update_status(self, nzbname, newstatus):
-        query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
-        query.execute()
+        try:
+            query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(lpref + "-----------> " + str(e))
         '''with self.db.atomic():
             nzb0 = self.NZB.get((self.NZB.name == nzbname))
             nzb0.status = newstatus
@@ -550,6 +559,28 @@ class PWDB:
 
     def db_drop(self):
         self.db.drop_tables(self.tablelist)
+
+    # ---- send nzbqueue to gui ----
+    def send_nzbqueue_to_gui(self, nzbqueue):
+        self.logger.debug(lpref + "putting sorted nzbs into queue")
+        try:
+            while True:
+                try:
+                    nzbqueue.get_nowait()
+                except (queue.Empty, EOFError):
+                    break
+            sortednzbs = self.db_nzb_getall_sorted()
+            if not sortednzbs:
+                self.logger.debug(lpref + "putting -1 in nzbqueue")
+                sortednzbs = [-1]
+            nzbqueue.put(sortednzbs)
+        except Exception as e:
+            self.logger.warning(lpref + "ParseNZB: " + str(e))
+
+    # ---- log info for nzb in db ###
+    def log(self, nzbname, logmsg, loglevel, logger):
+        logger.info(logmsg)
+        self.db_msg_insert(nzbname, logmsg, loglevel)
 
     # ---- get_downloaded_file_full_path ----
     def get_downloaded_file_full_path(self, file0, dir0):

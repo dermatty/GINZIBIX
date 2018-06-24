@@ -7,7 +7,6 @@ import inotify_simple
 from lxml import etree
 import sys
 import signal
-import queue
 
 lpref = __name__ + " - "
 
@@ -96,7 +95,7 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(pwdb, nzbdir, logger):
+def ParseNZB(pwdb, nzbdir, nzboutqueue, logger):
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
@@ -152,8 +151,10 @@ def ParseNZB(pwdb, nzbdir, logger):
                                         fn, no, size = it
                                         data.append((fn, newfile, size, no, time.time()))
                                 pwdb.db_article_insert_many(data)
-                            logger.info(lpref + "Added NZB: " + infostr)
+                            logger.info(lpref + "Added NZB: " + infostr + " to database / queue")
                             pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
+                            logger.debug(lpref + "Added NZB: " + infostr + " to GUI")
+                            pwdb.send_nzbqueue_to_gui(nzboutqueue)
             isfirstrun = False
     logger.warning(lpref + "exiting")
     os.chdir(cwd0)

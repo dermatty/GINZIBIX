@@ -689,6 +689,7 @@ class Downloader():
     # main download routine
     def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist):
         self.logger.info(lpref + "downloading " + nzbname)
+        self.pwdb.log(nzbname, lpref + "starting download", "info", self.logger)
 
         self.resqlist = resqlist
 
@@ -976,25 +977,8 @@ class Downloader():
         return le_serv0
 
 
-def send_nzbqueue_to_gui(pwdb, nzbqueue, logger):
-    logger.debug(lpref + "putting sorted nzbs into queue")
-    try:
-        while True:
-            try:
-                nzbqueue.get_nowait()
-            except (queue.Empty, EOFError):
-                break
-        sortednzbs = pwdb.db_nzb_getall_sorted()
-        if not sortednzbs:
-            logger.debug(lpref + "putting -1 in nzbqueue")
-            sortednzbs = [-1]
-        nzbqueue.put(sortednzbs)
-    except Exception as e:
-        logger.warning(lpref + "ParseNZB: " + str(e))
-
-
 def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
-    send_nzbqueue_to_gui(pwdb, nzbqueue, logger)
+    pwdb.send_nzbqueue_to_gui(nzbqueue)
     # wait for new nzbs to arrive
     logger.debug(lpref + "looking for new NZBs ...")
     try:
@@ -1023,7 +1007,7 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(lpref + whoami() + str(e))
-    send_nzbqueue_to_gui(pwdb, nzbqueue, logger)
+    pwdb.send_nzbqueue_to_gui(nzbqueue)
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
 
@@ -1146,7 +1130,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(lpref + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], nzboutqueue, logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
@@ -1158,7 +1142,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     sh.mpp = mpp
 
-    logging.handlers.NZBHandler = NZBHandler
+    # logging.handlers.NZBHandler = NZBHandler
 
     logger.debug(lpref + "starting guiconnector process ...")
     lock = threading.Lock()
@@ -1187,9 +1171,9 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         nzboutqueue.put(pwdb.db_nzb_getall_sorted())
 
         # setup db logging handler for NZB
-        nzbhandler = logging.handlers.NZBHandler(nzbname, pwdb)
-        logger.addHandler(nzbhandler)
-        nzbhandler.setLevel(logging.INFO)
+        #nzbhandler = logging.handlers.NZBHandler(nzbname, pwdb)
+        #logger.addHandler(nzbhandler)
+        #nzbhandler.setLevel(logging.INFO)
 
         # download nzb
         nzbname, downloaddata, return_reason, maindir = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
@@ -1279,7 +1263,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 if dobreak:
                     break
                 time.sleep(1)
-                if not servers_shut_down and time.time() - idlestart > 45:
+                # after 2min idle -> stop threads
+                if not servers_shut_down and time.time() - idlestart > 2 * 60:
                     # stop all threads
                     logger.debug(lpref + "stopping all threads")
                     for t, _ in dl.ct.threads:
@@ -1290,8 +1275,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                     del dl.ct.servers
                     servers_shut_down = True
                 time.sleep(1)
-            logger.removeHandler(nzbhandler)
-            del nzbhandler
+            # logger.removeHandler(nzbhandler)
+            # del nzbhandler
             continue
 
         # if download success, postprocess
@@ -1300,6 +1285,6 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             dl.postprocess_nzb(nzbname, downloaddata)
 
         # delete NZB / db logging handler
-        pwdb.db_msg_removeall(nzbname)
-        logger.removeHandler(nzbhandler)
-        del nzbhandler
+        # pwdb.db_msg_removeall(nzbname)
+        # logger.removeHandler(nzbhandler)
+        # del nzbhandler
