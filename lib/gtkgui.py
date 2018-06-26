@@ -1,4 +1,5 @@
 import sys
+import inotify_simple
 import os
 import signal
 import gi
@@ -115,8 +116,12 @@ class AppWindow(Gtk.ApplicationWindow):
             print("Cannot find icon file!" + GBXICON)
 
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36601")
-        self.guipoller.start()
+        # self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36601")
+        # self.guipoller.start()
+
+        self.filepoller = File_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger)
+        self.filepoller.start()
+
 
         # init main window
         self.set_border_width(10)
@@ -355,83 +360,95 @@ class AppWindow(Gtk.ApplicationWindow):
         self.toggle_buttons()
 
     def on_buttonup_clicked(self, button):
-        ros = [(i, ro) for i, ro in enumerate(self.liststore) if ro[6]]
+        ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
         for i, r in ros:
             if i == 0:
                 break
-            path = Gtk.TreePath(i - 1)
-            iter = self.liststore.get_iter(path)
-            oldval = []
-            for j, r0 in enumerate(self.liststore[iter]):
-                oldval.append(self.liststore.get_value(iter, j))
-            # copy from i to i - 1
-            for j, r0 in enumerate(r):
-                self.liststore.set_value(iter, j, r0)
-            # copy from i - 1 to i
-            path = Gtk.TreePath(i)
-            iter = self.liststore.get_iter(path)
-            for j, r0 in enumerate(oldval):
-                self.liststore.set_value(iter, j, r0)
+            oldval = self.appdata.nzbs[i - 1]
+            self.appdata.nzbs[i - 1] = r
+            self.appdata.nzbs[i] = oldval
+        # send to main.py
+        print(self.appdata.nzbs)
+        self.update_liststore()
 
     def on_buttondown_clicked(self, button):
-        ros = [(i, ro) for i, ro in enumerate(self.liststore) if ro[6]]
+        ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
         for i, r in reversed(ros):
-            if i == len(self.liststore) - 1:
+            if i == len(self.appdata.nzbs) - 1:
                 break
-            path = Gtk.TreePath(i + 1)
-            iter = self.liststore.get_iter(path)
-            oldval = []
-            for j, r0 in enumerate(self.liststore[iter]):
-                oldval.append(self.liststore.get_value(iter, j))
-            # copy from i to i + 1
-            for j, r0 in enumerate(r):
-                self.liststore.set_value(iter, j, r0)
-            # copy from i + 1 to i
-            path = Gtk.TreePath(i)
-            iter = self.liststore.get_iter(path)
-            for j, r0 in enumerate(oldval):
-                self.liststore.set_value(iter, j, r0)
+            oldval = self.appdata.nzbs[i + 1]
+            self.appdata.nzbs[i + 1] = r
+            self.appdata.nzbs[i] = oldval
+        # send to main.py
+        print(self.appdata.nzbs)
+        self.update_liststore()
 
     def on_buttonfullup_clicked(self, button):
-        i = 0
-        liststore2 = []
-        for ro in self.liststore:
+        newnzbs = []
+        for i, ro in enumerate(self.liststore):
             if ro[6]:
-                ls = [r for r in ro]
-                liststore2.append(ls)
-        for ro in self.liststore:
+                newnzbs.append(self.appdata.nzbs[i])
+        for i, ro in enumerate(self.liststore):
             if not ro[6]:
-                ls = [r for r in ro]
-                liststore2.append(ls)
-        for i, ro in enumerate(liststore2):
-            self.liststore[i] = ro
+                newnzbs.append(self.appdata.nzbs[i])
+        self.appdata.nzbs = newnzbs[:]
+        # send to main.py
+        print(self.appdata.nzbs)
+        self.update_liststore()
 
     def on_buttonfulldown_clicked(self, button):
-        i = 0
-        liststore2 = []
-        for ro in self.liststore:
+        newnzbs = []
+        for i, ro in enumerate(self.liststore):
             if not ro[6]:
-                ls = [r for r in ro]
-                liststore2.append(ls)
-        for ro in self.liststore:
+                newnzbs.append(self.appdata.nzbs[i])
+        for i, ro in enumerate(self.liststore):
             if ro[6]:
-                ls = [r for r in ro]
-                liststore2.append(ls)
-        for i, ro in enumerate(liststore2):
-            self.liststore[i] = ro
+                newnzbs.append(self.appdata.nzbs[i])
+        self.appdata.nzbs = newnzbs[:]
+        # send to main.py
+        print(self.appdata.nzbs)
+        self.update_liststore()
 
     def on_inverted_toggled(self, widget, path):
         self.liststore[path][6] = not self.liststore[path][6]
+        i = int(path)
+        newnzb = list(self.appdata.nzbs[i])
+        newnzb[6] = self.liststore[path][6]
+        self.appdata.nzbs[i] = tuple(newnzb)
         self.toggle_buttons()
 
     def update_liststore(self):
         self.logger.debug(lpref + "updating nzbs in liststore")
         self.liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs):
-            if i == 0:
-                self.current_iter = self.liststore.append(list(nzb))
+            nzb_as_list = list(nzb)
+            n_status = nzb_as_list[7]
+            if n_status == 0:
+                n_status_s = "preprocessing"
+            elif n_status == 1:
+                n_status_s = "queued"
+            elif n_status == 2:
+                n_status_s = "downloading"
+            elif n_status == 3:
+                n_status_s = "postprocessing"
+            elif n_status == 4:
+                n_status_s = "success"
+            elif n_status < 0:
+                n_status_s = "failed"
             else:
-                self.liststore.append(list(nzb))
+                n_status_s = "unknown"
+            # only set bgcolor for first row
+            if i != 0:
+                n_status_s = "idle(" + n_status_s + ")"
+                bgcolor = "white"
+            else:
+                bgcolor = get_bg_color(n_status_s)
+            nzb_as_list[7] = n_status_s
+            nzb_as_list.append(bgcolor)
+            if i == 0:
+                self.current_iter = self.liststore.append(nzb_as_list)
+            else:
+                self.liststore.append(nzb_as_list)
 
     def update_liststore_dldata(self):
         if len(self.liststore) == 0:
@@ -463,7 +480,7 @@ class AppWindow(Gtk.ApplicationWindow):
             etastr = "-"
         self.liststore.set_value(iter, 4, etastr)
         # (n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected))
-        newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.nzb_status_string, n_bgcolor)
+        newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
         self.appdata.nzbs[0] = newnzb
 
         levelbar_is_hidden = not self.box_levelbar.get_property("visible")
@@ -534,7 +551,7 @@ class AppWindow(Gtk.ApplicationWindow):
             os.kill(self.mpp_main.pid, signal.SIGTERM)
             self.mpp_main.join()
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, sortednzblist):
+    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, sortednzblist0):
         nzbname = None
         if data:
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
@@ -582,7 +599,10 @@ class AppWindow(Gtk.ApplicationWindow):
                     self.appdata.mbitsec = mbitseccurr
                 self.update_liststore_dldata()
 
-        if sortednzblist:
+        if sortednzblist0:
+            # sort again just to make sure
+            sortednzblist = sorted(sortednzblist0, key=lambda prio: prio[1])
+
             self.logger.debug(lpref + str(sortednzblist))
             if sortednzblist[0] == -1:
                 sortednzblist = []
@@ -635,21 +655,7 @@ class AppWindow(Gtk.ApplicationWindow):
                         else:
                             etastr = "-"
                         selected = False
-                        if n_status == 0:
-                            n_status_s = "preprocessing"
-                        elif n_status == 1:
-                            n_status_s = "queued"
-                        elif n_status == 2:
-                            n_status_s = "downloading"
-                        elif n_status == 3:
-                            n_status_s = "postprocessing"
-                        elif n_status == 4:
-                            n_status_s = "success"
-                        elif n_status < 0:
-                            n_status_s = "failed"
-                        else:
-                            n_status_s = "unknown"
-                        self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status_s, get_bg_color(n_status_s)))
+                        self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
                 if nzbs_copy != self.appdata.nzbs:
                     self.update_liststore()
         return False
@@ -772,6 +778,57 @@ class GUI_Poller(Thread):
                     # self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
+            time.sleep(self.delay)
+
+
+class File_Poller(Thread):
+
+    def __init__(self, lock, appdata, update_mainwindow, logger, port="36601"):
+        Thread.__init__(self)
+        self.daemon = True
+        self.lock = lock
+        self.data = None
+        self.nzbname = None
+        self.delay = 1
+        self.appdata = appdata
+        self.update_mainwindow = update_mainwindow
+        self.logger = logger
+        self.inotify = inotify_simple.INotify()
+        self.nzbdir = "/home/stephan/.ginzibix/"
+        self.nzbfile = "NZB_DATA.TXT"
+        self.nzbfile_full = self.nzbdir + self.nzbfile
+        watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
+        self.inotify.add_watch(self.nzbdir, watch_flags)
+        sortednzblist = self.read_nzb_file()
+        GLib.idle_add(self.update_mainwindow, None, None, None, None, None, None, sortednzblist)
+
+    def get_inotify_events(self):
+        noevent = True
+        while noevent:
+            for event in self.inotify.read():
+                if event.name == self.nzbfile:
+                    print("-----> " + event.name)
+                    for flg in inotify_simple.flags.from_mask(event.mask):
+                        if "flags.MODIFY" in str(flg):
+                            noevent = False
+                            break
+
+    def read_nzb_file(self):
+        sortednzblist = []
+        with open(self.nzbfile_full, "r") as fp:
+            for line in fp:
+                ll = line.split()
+                if ll:
+                    linetuple = (ll[0], int(ll[1]), int(ll[2]), int(ll[3]), int(ll[4]), int(ll[5]))
+                    print("###################")
+                    sortednzblist.append(linetuple)
+        return sorted(sortednzblist, key=lambda prio: prio[1])
+
+    def run(self):
+        while True:
+            self.get_inotify_events()
+            sortednzblist = self.read_nzb_file()
+            GLib.idle_add(self.update_mainwindow, None, None, None, None, None, None, sortednzblist)
             time.sleep(self.delay)
 
 
