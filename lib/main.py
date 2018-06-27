@@ -192,7 +192,7 @@ class GUI_Connector(Thread):
     def run(self):
         while True:
             try:
-                msg = self.socket.recv_string()
+                msg, datarec = self.socket.recv_pyobj()
             except Exception as e:
                 self.logger.error("GUI_Connector: " + str(e))
                 try:
@@ -226,6 +226,15 @@ class GUI_Connector(Thread):
                 try:
                     self.socket.send_pyobj(("SET_RESUME_OK", None))
                     self.dl_running = True
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+                continue
+            elif msg == "SET_NZB_ORDER":
+                try:
+                    self.socket.send_pyobj(("SET_NZBORDER_OK", None))
+                    # set new prios in pwdb
+                    # .
+                    # .
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
                 continue

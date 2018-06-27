@@ -86,6 +86,7 @@ class AppData:
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
         self.dl_running = True
+        self.order_changed = False
         self.mbit_min = 0
         self.mbit_max = 150
 
@@ -343,79 +344,80 @@ class AppWindow(Gtk.ApplicationWindow):
         scrolled_window_s.add(listbox_s)'''
 
     def on_buttondelete_clicked(self, button):
-        # todo: confirm dialog
+        # todo: appdata.nzbs -> update_liststore
         dialog = ConfirmDialog(self, "Do you really want to delete these NZBs ?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
             return
-        liststore2 = []
-        for ro in self.liststore:
-            if not ro[6]:
-                ls = [r for r in ro]
-                liststore2.append(ls)
-        self.liststore.clear()
-        for ro in liststore2:
-            self.liststore.append(ro)
-        self.toggle_buttons()
+        with self.lock:
+            newnzbs = []
+            for i, ro in enumerate(self.liststore):
+                if not ro[6]:
+                    newnzbs.append(self.appdata.nzbs[i])
+            self.appdata.nzbs = newnzbs[:]
+            self.update_liststore()
+            self.toggle_buttons()
+            self.order_changed = True
 
     def on_buttonup_clicked(self, button):
-        ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
-        for i, r in ros:
-            if i == 0:
-                break
-            oldval = self.appdata.nzbs[i - 1]
-            self.appdata.nzbs[i - 1] = r
-            self.appdata.nzbs[i] = oldval
-        # send to main.py
-        print(self.appdata.nzbs)
-        self.update_liststore()
+        with self.lock:
+            ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
+            for i, r in ros:
+                if i == 0:
+                    break
+                oldval = self.appdata.nzbs[i - 1]
+                self.appdata.nzbs[i - 1] = r
+                self.appdata.nzbs[i] = oldval
+            self.update_liststore()
+            self.order_changed = True
 
     def on_buttondown_clicked(self, button):
-        ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
-        for i, r in reversed(ros):
-            if i == len(self.appdata.nzbs) - 1:
-                break
-            oldval = self.appdata.nzbs[i + 1]
-            self.appdata.nzbs[i + 1] = r
-            self.appdata.nzbs[i] = oldval
-        # send to main.py
-        print(self.appdata.nzbs)
-        self.update_liststore()
+        with self.lock:
+            ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
+            for i, r in reversed(ros):
+                if i == len(self.appdata.nzbs) - 1:
+                    break
+                oldval = self.appdata.nzbs[i + 1]
+                self.appdata.nzbs[i + 1] = r
+                self.appdata.nzbs[i] = oldval
+            self.update_liststore()
+            self.order_changed = True
 
     def on_buttonfullup_clicked(self, button):
-        newnzbs = []
-        for i, ro in enumerate(self.liststore):
-            if ro[6]:
-                newnzbs.append(self.appdata.nzbs[i])
-        for i, ro in enumerate(self.liststore):
-            if not ro[6]:
-                newnzbs.append(self.appdata.nzbs[i])
-        self.appdata.nzbs = newnzbs[:]
-        # send to main.py
-        print(self.appdata.nzbs)
-        self.update_liststore()
+        with self.lock:
+            newnzbs = []
+            for i, ro in enumerate(self.liststore):
+                if ro[6]:
+                    newnzbs.append(self.appdata.nzbs[i])
+            for i, ro in enumerate(self.liststore):
+                if not ro[6]:
+                    newnzbs.append(self.appdata.nzbs[i])
+            self.appdata.nzbs = newnzbs[:]
+            self.update_liststore()
+            self.order_changed = True
 
     def on_buttonfulldown_clicked(self, button):
-        newnzbs = []
-        for i, ro in enumerate(self.liststore):
-            if not ro[6]:
-                newnzbs.append(self.appdata.nzbs[i])
-        for i, ro in enumerate(self.liststore):
-            if ro[6]:
-                newnzbs.append(self.appdata.nzbs[i])
-        self.appdata.nzbs = newnzbs[:]
-        # send to main.py
-        print(self.appdata.nzbs)
-        self.update_liststore()
+        with self.lock:
+            newnzbs = []
+            for i, ro in enumerate(self.liststore):
+                if not ro[6]:
+                    newnzbs.append(self.appdata.nzbs[i])
+            for i, ro in enumerate(self.liststore):
+                if ro[6]:
+                    newnzbs.append(self.appdata.nzbs[i])
+            self.appdata.nzbs = newnzbs[:]
+            self.update_liststore()
+            self.order_changed = True
 
     def on_inverted_toggled(self, widget, path):
-        self.liststore[path][6] = not self.liststore[path][6]
-        i = int(path)
-        newnzb = list(self.appdata.nzbs[i])
-        newnzb[6] = self.liststore[path][6]
-        self.appdata.nzbs[i] = tuple(newnzb)
-        self.toggle_buttons()
+        with self.lock:
+            self.liststore[path][6] = not self.liststore[path][6]
+            i = int(path)
+            newnzb = list(self.appdata.nzbs[i])
+            newnzb[6] = self.liststore[path][6]
+            self.appdata.nzbs[i] = tuple(newnzb)
+            self.toggle_buttons()
 
     def update_liststore(self):
         self.logger.debug(lpref + "updating nzbs in liststore")
@@ -617,31 +619,19 @@ class AppWindow(Gtk.ApplicationWindow):
                 # check if displayed data has to be updated
                 for i, nzbdata in enumerate(sortednzblist):
                     n_name, n_prio, n_ts, n_status, n_siz, n_downloaded = nzbdata
-                    # try:
-                    #     n_perc = int((n_siz/n_downloaded) * 100)
-                    # except ZeroDivisionError:
-                    #     n_perc = 0
-                    # n_dl = n_downloaded / gibdivisor
-                    # n_size = n_siz / gibdivisor
-                    n_name0, n_perc0, n_dl0, n_size0, hstr0, percstr0, sel0, stat0, bgcol0 = self.appdata.nzbs[i]
-                    if n_name != n_name0:    # or n_perc != n_perc0 or n_dl != n_dl0 or n_size != n_size0:
+                    n_name0, n_perc0, n_dl0, n_size0, hstr0, percstr0, sel0, stat0 = self.appdata.nzbs[i]
+                    if n_name != n_name0 or n_siz != n_size0:
                         do_update_list = True
-                        # print("data differs: ", n_name, n_name0, n_perc, n_perc0, n_dl != n_dl0, n_size, n_size0)
                         break
             # if yes: update liststore
             if do_update_list:
                 nzbs_copy = self.appdata.nzbs.copy()
                 self.appdata.nzbs = []
-                for n_name, n_prio, n_ts, n_status, n_siz, n_downloaded in sortednzblist:
-                    name_found = False
-                    idx = -1
-                    for idx, (n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0, bgcol0) in enumerate(nzbs_copy):
-                        if n_name0 == n_name:
-                            name_found = True
-                            break
-                    if name_found:
-                        # muss auch alles andere übernehmen!!!
-                        self.appdata.nzbs.append(nzbs_copy[idx])
+                for idx1, (n_name, n_prio, n_ts, n_status, n_siz, n_downloaded) in enumerate(sortednzblist):
+                    # if first nzb is unchanged just change size in case
+                    if nzbs_copy and idx1 == 0 and n_name == nzbs_copy[0][0]:
+                        n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0 = nzbs_copy[0]
+                        self.appdata.nzbs.append((n_name0, n_perc0, n_dl0, n_siz / gibdivisor, etastr0, n_percstr0, selected0, status0))
                     else:
                         try:
                             n_perc = min(int((n_siz/n_downloaded) * 100), 100)
@@ -655,6 +645,9 @@ class AppWindow(Gtk.ApplicationWindow):
                         else:
                             etastr = "-"
                         selected = False
+                        for n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0 in nzbs_copy:
+                            if n_name0 == n_name:
+                                selected = selected0
                         self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
                 if nzbs_copy != self.appdata.nzbs:
                     self.update_liststore()
@@ -745,10 +738,12 @@ class GUI_Poller(Thread):
         self.socket.connect(socketurl)
         # self.socket.RCVTIMEO = 1000
         dl_running = True
+        order_changed = False
         while True:
             sortednzblist = []
             with self.lock:
                 dl_running_new = self.appdata.dl_running
+                order_changed = self.appdata.order_changed
             # if download state switched -> send to main.py
             if dl_running_new != dl_running:
                 dl_running = dl_running_new
@@ -757,7 +752,15 @@ class GUI_Poller(Thread):
                 else:
                     msg0 = "SET_PAUSE"
                 try:
-                    self.socket.send_string(msg0)
+                    self.socket.send_pyobj(msg0, None)
+                    datatype, datarec = self.socket.recv_pyobj()
+                except Exception as e:
+                    self.logger.error("GUI_ConnectorMain: " + str(e))
+            elif order_changed:
+                msg0 = "SET_NZB_ORDER"
+                orderednzbs = [nzb[0] for nzb in self.appdata.nzbs]
+                try:
+                    self.socket.send_pyobj(msg0, orderednzbs)
                     datatype, datarec = self.socket.recv_pyobj()
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
@@ -807,7 +810,6 @@ class File_Poller(Thread):
         while noevent:
             for event in self.inotify.read():
                 if event.name == self.nzbfile:
-                    print("-----> " + event.name)
                     for flg in inotify_simple.flags.from_mask(event.mask):
                         if "flags.MODIFY" in str(flg):
                             noevent = False
@@ -820,7 +822,6 @@ class File_Poller(Thread):
                 ll = line.split()
                 if ll:
                     linetuple = (ll[0], int(ll[1]), int(ll[2]), int(ll[3]), int(ll[4]), int(ll[5]))
-                    print("###################")
                     sortednzblist.append(linetuple)
         return sorted(sortednzblist, key=lambda prio: prio[1])
 
