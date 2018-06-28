@@ -1267,6 +1267,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 clear_download(articlequeue, resultqueue, mp_work_queue, dl, logger)
                 continue
             elif return_reason == "dl_stopped":
+                # todo: redesign resultqueue write / read - > evtl. to pwdb in self.ARTICLES !!??
                 write_resultqueue_to_file(resultqueue, maindir, logger)
                 clear_download(articlequeue, resultqueue, mp_work_queue, dl, logger)
                 # idle until start or nzbs_reordered signal comes from gtkgui
