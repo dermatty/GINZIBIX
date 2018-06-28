@@ -7,14 +7,18 @@ import glob
 import re
 import dill
 import queue
+import inspect
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
 else:
     from .par2lib import calc_file_md5hash, Par2File
 
+lpref = __name__.split("lib.")[-1] + " - "
 
-lpref = __name__ + " - "
+
+def whoami():
+    return str(inspect.getouterframes(inspect.currentframe())[1].function)
 
 
 def lists_are_equal(list1, list2):
@@ -559,6 +563,26 @@ class PWDB:
 
     def db_drop(self):
         self.db.drop_tables(self.tablelist)
+
+    # ---- set new prios acc. to nzb list ----
+    def set_nzbs_prios(self, new_nzb_list):
+        oldnzb_0 = self.NZB.select().order_by(self.NZB.priority)[0]
+        first_has_changed = True
+        if oldnzb_0.name == new_nzb_list[0]:
+            first_has_changed = False
+
+        old_nzb_list = []
+        for n in self.NZB.select().order_by(self.NZB.priority):
+            old_nzb_list.append(n.name)
+
+        for i, onzb in enumerate(old_nzb_list):
+            try:
+                matchidx = [j for j, name in enumerate(new_nzb_list)][0]
+                query = self.NZB.update(priority=matchidx + 1).where(self.NZB.name == onzb)
+                query.execute()
+            except Exception as e:
+                self.logger(lpref + whoami() + ": " + str(e))
+        return first_has_changed
 
     # ---- send nzbqueue to gui ----
     def send_nzbqueue_to_gui(self, nzbqueue):

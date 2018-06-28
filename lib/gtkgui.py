@@ -527,7 +527,7 @@ class AppWindow(Gtk.ApplicationWindow):
         hb.pack_start(button_startstop)
 
         button_settings = Gtk.Button()
-        icon2 = Gio.ThemedIcon(name="preferences-other")
+        icon2 = Gio.ThemedIcon(name="open-menu")
         image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
         button_settings.add(image2)
         # button_settings.connect("clicked", self.on_buttonsettings_clicked)
@@ -757,13 +757,15 @@ class GUI_Poller(Thread):
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
             elif order_changed:
-                msg0 = "SET_NZB_ORDER"
-                orderednzbs = [nzb[0] for nzb in self.appdata.nzbs]
-                try:
-                    self.socket.send_pyobj(msg0, orderednzbs)
-                    datatype, datarec = self.socket.recv_pyobj()
-                except Exception as e:
-                    self.logger.error("GUI_ConnectorMain: " + str(e))
+                with self.lock:
+                    msg0 = "SET_NZB_ORDER"
+                    orderednzbs = [nzb[0] for nzb in self.appdata.nzbs]
+                    try:
+                        self.socket.send_pyobj(msg0, orderednzbs)
+                        datatype, datarec = self.socket.recv_pyobj()
+                    except Exception as e:
+                        self.logger.error("GUI_ConnectorMain: " + str(e))
+                    self.appdata.order_changed = False
             else:
                 try:
                     self.socket.send_string("REQ")
