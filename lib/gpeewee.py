@@ -155,7 +155,6 @@ class PWDB:
             except Exception as e:
                 self.logger.warning(lpref + "db_msg_insert: " + str(e))
                 return None
-        print(msg0)
         return new_msg
 
     def db_msg_get(self, nzbname0):
@@ -705,13 +704,13 @@ class PWDB:
                     elif os.path.isfile(full_filename_downloaded):
                         filename0 = full_filename_downloaded
                 if not filename0:
-                    self.logger.error("Processing " + f0.orig_name + ", but not found in dirs; this should not occur!!")
-                    return None, None, None, None, None, None, None, None
-                filetypecounter[f0.ftype]["counter"] += 1
-                md5 = calc_file_md5hash(filename0)
-                filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
-                already_downloaded_size += f0size
-                continue
+                    self.logger.warning(lpref + "processing " + f0.orig_name + ", but not found in dirs; this should not occur!!")
+                else:
+                    filetypecounter[f0.ftype]["counter"] += 1
+                    md5 = calc_file_md5hash(filename0)
+                    filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
+                    already_downloaded_size += f0size
+                    continue
             allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
             articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
             for a in articles:
@@ -924,6 +923,8 @@ if __name__ == "__main__":
 
     import logging
     import logging.handlers
+
+
 
     logger = logging.getLogger("ginzibix")
     logger.setLevel(logging.DEBUG)

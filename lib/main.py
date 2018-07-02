@@ -48,8 +48,6 @@ class SigHandler_Main:
         self.main_dir = None
 
     def shutdown(self):
-        if self.main_dir:
-            write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
         f = open('/dev/null', 'w')
         sys.stdout = f
         for key, item in self.mpp.items():
@@ -128,6 +126,11 @@ class SigHandler_Main:
                 self.servers.close_all_connections()
         except Exception:
             pass
+        # write resultqueue to file
+        if self.main_dir:
+            self.logger.warning(lpref + whoami() + ": writing resultqueue to .gzbx file")
+            time.sleep(0.5)
+            write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
         self.logger.warning("signalhandler: exiting")
         sys.exit()
 
@@ -191,9 +194,8 @@ class GUI_Connector(Thread):
         return ret0
 
     def has_first_nzb_changed(self):
-        with self.lock:
-            res = self.first_has_changed
-            self.first_has_changed = False
+        res = self.first_has_changed
+        self.first_has_changed = False
         return res
 
     def run(self):
@@ -794,7 +796,7 @@ class Downloader():
                 if not self.guiconnector.dl_running:
                     return_reason = "dl_stopped"
                 if self.guiconnector.has_first_nzb_changed():
-                    return_reason = "nzbs_reordered"
+                        return_reason = "nzbs_reordered"
             if return_reason:
                 return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                   overall_size, already_downloaded_size)), return_reason, self.main_dir
@@ -1130,17 +1132,29 @@ def write_resultqueue_to_file(resultqueue, maindir, logger):
             logger.warning(lpref + str(e) + ": cannot remove resqueue.gzbx")
 
 
-def clear_download(articlequeue, resultqueue, mp_work_queue, dl, logger):
+def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger):
     # join all queues
     logger.debug(lpref + "clearing articlequeue")
+    # clear articlequeue
     while True:
-        # clear articlequeue
         try:
             articlequeue.get_nowait()
             articlequeue.task_done()
         except (queue.Empty, EOFError):
             break
     articlequeue.join()
+    # wait for all remaining articles to be downloaded
+    logger.debug(lpref + "waiting for all remaining articles to be downloaded")
+    dl_not_done_yet = True
+    while dl_not_done_yet:
+        dl_not_done_yet = False
+        for t, _ in dl.ct.threads:
+            if not t.is_download_done():
+                dl_not_done_yet = True
+                break
+        if dl_not_done_yet:
+            time.sleep(0.2)
+    write_resultqueue_to_file(resultqueue, maindir, logger)
     # clear resultqueue
     logger.debug(lpref + "clearing resultqueue")
     while True:
@@ -1264,12 +1278,11 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
         if stat0 == 2:
             if return_reason == "nzbs_reordered":
-                clear_download(articlequeue, resultqueue, mp_work_queue, dl, logger)
+                clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 continue
             elif return_reason == "dl_stopped":
-                # todo: redesign resultqueue write / read - > evtl. to pwdb in self.ARTICLES !!??
-                write_resultqueue_to_file(resultqueue, maindir, logger)
-                clear_download(articlequeue, resultqueue, mp_work_queue, dl, logger)
+                logger.info(lpref + "download paused")
+                clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 # idle until start or nzbs_reordered signal comes from gtkgui
                 idlestart = time.time()
                 servers_shut_down = False

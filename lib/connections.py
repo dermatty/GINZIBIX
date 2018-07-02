@@ -23,6 +23,7 @@ class ConnectionWorker(Thread):
         self.bytesdownloaded = 0
         self.last_timestamp = 0
         self.mode = "download"
+        self.download_done = True
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
@@ -115,11 +116,19 @@ class ConnectionWorker(Thread):
             if addserver:
                 next_servers.append(addserver)
         return next_servers
+
+    def is_download_done(self):
+        dld = None
+        with self.lock:
+            dld = self.download_done
+        return dld
                             
     def run(self):
         self.logger.info(lpref + self.idn + " thread starting !")
         timeout = 5
         while True and self.running:
+            with self.lock:
+                self.download_done = True
             self.retry_connect()
             if not self.nntpobj:
                 time.sleep(5)
@@ -153,7 +162,9 @@ class ConnectionWorker(Thread):
             article = self.articlequeue.get()
             self.lock.release()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
-            # print("Downloading on server " + idn + ": + for article #" + str(art_nr), filename)
+            # avoid ctrl-c to interrup downloading itself
+            with self.lock:
+                self.download_done = False
             status, bytesdownloaded, info = self.download_article(art_name, age)
             # if ctrl-c - exit thread
             if status == -3:

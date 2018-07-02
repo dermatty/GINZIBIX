@@ -117,12 +117,11 @@ class AppWindow(Gtk.ApplicationWindow):
             print("Cannot find icon file!" + GBXICON)
 
         self.lock = threading.Lock()
-        # self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36601")
-        # self.guipoller.start()
+        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36601")
+        self.guipoller.start()
 
-        self.filepoller = File_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger)
-        self.filepoller.start()
-
+        # self.filepoller = File_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger)
+        # self.filepoller.start()
 
         # init main window
         self.set_border_width(10)
@@ -444,7 +443,11 @@ class AppWindow(Gtk.ApplicationWindow):
                 n_status_s = "idle(" + n_status_s + ")"
                 bgcolor = "white"
             else:
-                bgcolor = get_bg_color(n_status_s)
+                if not self.appdata.dl_running:
+                    n_status_s = "paused"
+                    bgcolor = "white"
+                else:
+                    bgcolor = get_bg_color(n_status_s)
             nzb_as_list[7] = n_status_s
             nzb_as_list.append(bgcolor)
             if i == 0:
@@ -465,7 +468,12 @@ class AppWindow(Gtk.ApplicationWindow):
         # print(">>>" + str(n_perc))
         n_dl = self.appdata.gbdown
         n_size = self.appdata.overall_size
-        n_bgcolor = get_bg_color(self.nzb_status_string)
+
+        if not self.appdata.dl_running:
+            self.nzb_status_string = "paused"
+            n_bgcolor = "white"
+        else:
+            n_bgcolor = get_bg_color(self.nzb_status_string)
 
         self.liststore.set_value(iter, 1, n_perc)
         self.liststore.set_value(iter, 2, n_dl)
@@ -485,14 +493,18 @@ class AppWindow(Gtk.ApplicationWindow):
         newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
         self.appdata.nzbs[0] = newnzb
 
-        levelbar_is_hidden = not self.box_levelbar.get_property("visible")
-        if self.appdata.mbitsec == 0 and not levelbar_is_hidden:
-            self.box_levelbar.hide()
-        if self.appdata.mbitsec > 0:
+        # levelbar_is_hidden = not self.box_levelbar.get_property("visible")
+        # if self.appdata.mbitsec == 0 and not levelbar_is_hidden:
+        #    self.box_levelbar.hide()
+        # if self.appdata.mbitsec > 0:
+        if self.appdata.mbitsec > 0 and self.appdata.dl_running:
             self.levelbar.set_value(int(self.appdata.mbitsec))
             self.mbitlabel2.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
-            if levelbar_is_hidden:
-                self.box_levelbar.show_all()
+        else:
+            self.levelbar.set_value(0)
+            self.mbitlabel2.set_text("")
+            # if levelbar_is_hidden:
+            #    self.box_levelbar.show_all()
 
     def toggle_buttons(self):
         one_is_selected = False
@@ -545,7 +557,8 @@ class AppWindow(Gtk.ApplicationWindow):
             icon = Gio.ThemedIcon(name="media-playback-start")
             image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
             button.set_image(image)
-        # print(self.appdata.dl_running)
+        self.update_liststore_dldata()
+        self.update_liststore()
 
     def closeall(self, a):
         # Gtk.main_quit()
@@ -602,12 +615,12 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_liststore_dldata()
 
         if sortednzblist0:
+            if sortednzblist0[0] == -1:
+                sortednzblist0 = []
             # sort again just to make sure
             sortednzblist = sorted(sortednzblist0, key=lambda prio: prio[1])
 
             self.logger.debug(lpref + str(sortednzblist))
-            if sortednzblist[0] == -1:
-                sortednzblist = []
             self.logger.debug(lpref + "got new sortedlist")
             self.logger.debug(lpref + str(self.appdata.nzbs))
             self.logger.debug(lpref + str(sortednzblist))
@@ -666,7 +679,7 @@ class Application(Gtk.Application):
     def do_activate(self):
         self.window = AppWindow(self, self.mpp_main, self.dirs, self.logger)
         self.window.show_all()
-        self.window.box_levelbar.hide()
+        # self.window.box_levelbar.hide()
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -752,7 +765,7 @@ class GUI_Poller(Thread):
                 else:
                     msg0 = "SET_PAUSE"
                 try:
-                    self.socket.send_pyobj(msg0, None)
+                    self.socket.send_pyobj((msg0, None))
                     datatype, datarec = self.socket.recv_pyobj()
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
@@ -761,14 +774,14 @@ class GUI_Poller(Thread):
                     msg0 = "SET_NZB_ORDER"
                     orderednzbs = [nzb[0] for nzb in self.appdata.nzbs]
                     try:
-                        self.socket.send_pyobj(msg0, orderednzbs)
+                        self.socket.send_pyobj((msg0, orderednzbs))
                         datatype, datarec = self.socket.recv_pyobj()
                     except Exception as e:
                         self.logger.error("GUI_ConnectorMain: " + str(e))
                     self.appdata.order_changed = False
             else:
                 try:
-                    self.socket.send_string("REQ")
+                    self.socket.send_pyobj(("REQ", None))
                     datatype, datarec = self.socket.recv_pyobj()
                     if datatype == "NOOK":
                         continue
