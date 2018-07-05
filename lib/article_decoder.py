@@ -1,10 +1,13 @@
 import re
 import yenc
 import os
-import sys
+import time
+import queue
 import signal
 
 lpref = __name__.split("lib.")[-1] + " - "
+
+TERMINATED = False
 
 
 class SigHandler_Decoder:
@@ -12,8 +15,9 @@ class SigHandler_Decoder:
         self.logger = logger
 
     def sighandler(self, a, b):
-        self.logger.info(lpref + "terminated!")
-        sys.exit()
+        global TERMINATED
+        self.logger.info(lpref + "terminating ...")
+        TERMINATED = True
 
 
 def decode_articles(mp_work_queue0, pwdb, logger):
@@ -24,14 +28,21 @@ def decode_articles(mp_work_queue0, pwdb, logger):
     logger.info(lpref + "starting decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
-    while True:
-        try:
-            res0 = mp_work_queue0.get()
-        except KeyboardInterrupt:
-            return
-        if not res0:
+    while not TERMINATED:
+        res0 = None
+        while not TERMINATED:
+            try:
+                res0 = mp_work_queue0.get_nowait()
+                break
+            except (queue.Empty, EOFError):
+                pass
+            except Exception as e:
+                logger.warning(lpref + str(e))
+            time.sleep(0.1)
+        if not res0 or TERMINATED:
             logger.info(lpref + "exiting decoder process!")
             break
+
         infolist, save_dir, filename, filetype = res0
         del bytes0
         bytesfinal = bytearray()
@@ -138,13 +149,9 @@ def decode_articles(mp_work_queue0, pwdb, logger):
         try:
             pwdb.db_file_update_status(filename, pwdbstatus)
             logger.debug(lpref + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
-            # finalnonrarstate = pwdb.db_allnonrarfiles_getstate("Florida_project.nzb")
-            # logger.info(">>>" + str(finalnonrarstate))
-            # s0 = pwdb.db_file_getstatus(filename)
-            # logger.info("RETRIEVED " + filename + " status:" + str(s0))
         except Exception as e:
             logger.error(lpref + str(e) + ": cannot update DB for " + filename)
-        # mp_result_queue0.put((filename, full_filename, filetype, status, statusmsg, md5))
+    logger.info(lpref + "terminated!")
 
 
 # ---- test only ----

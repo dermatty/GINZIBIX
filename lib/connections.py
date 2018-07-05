@@ -195,7 +195,7 @@ class ConnectionWorker(Thread):
             if status == 1:
                 self.bytesdownloaded += bytesdownloaded
                 # print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
-                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info))
+                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
                 self.articlequeue.task_done()
             # if article could not be found on server / retention not good enough - requeue to other server
             if status in [0, -1]:
@@ -203,7 +203,7 @@ class ConnectionWorker(Thread):
                 self.articlequeue.task_done()
                 if not next_servers:
                     self.logger.error(lpref + "Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
-                    self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed"))
+                    self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
                 else:
                     self.logger.warning(lpref + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))

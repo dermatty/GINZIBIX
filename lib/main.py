@@ -39,99 +39,141 @@ def whoami():
 
 class SigHandler_Main:
 
-    def __init__(self, mpp, ct, mp_work_queue, resultqueue, logger):
+    def __init__(self, mpp, ct, mp_work_queue, resultqueue, articlequeue, logger):
         self.logger = logger
         self.ct = ct
         self.mpp = mpp
         self.mp_work_queue = mp_work_queue
         self.resultqueue = resultqueue
+        self.articlequeue = articlequeue
         self.main_dir = None
 
     def shutdown(self):
         f = open('/dev/null', 'w')
         sys.stdout = f
+        # just log mpp pids
         for key, item in self.mpp.items():
             if item:
                 item_pid = str(item.pid)
             else:
                 item_pid = "-"
             self.logger.debug("MPP " + key + ", pid = " + item_pid)
-        # stop unrarer
-        mpid = None
-        if self.mpp["unrarer"]:
-            mpid = self.mpp["unrarer"].pid
-        if mpid:
-            # if self.mpp["unrarer"].pid:
-            self.logger.warning("signalhandler: terminating unrarer")
+        # 1. clear articlequeue
+        self.logger.warning(lpref + whoami() + ": clearing articlequeue")
+        while True:
             try:
-                os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
-                self.mpp["unrarer"].join()
-            except Exception as e:
-                self.logger.debug(str(e))
-        # stop rar_verifier
+                self.articlequeue.get_nowait()
+                self.articlequeue.task_done()
+            except (queue.Empty, EOFError):
+                break
+        self.articlequeue.join()
+        # 2. wait for all downloads to be finished
+        self.logger.warning(lpref + whoami() + ": waiting for all remaining articles to be downloaded")
+        dl_not_done_yet = True
+        while dl_not_done_yet:
+            dl_not_done_yet = False
+            for t, _ in self.ct.threads:
+                if not t.is_download_done():
+                    dl_not_done_yet = True
+                    break
+            if dl_not_done_yet:
+                time.sleep(0.2)
+        # 3. stop decoder
         mpid = None
-        if self.mpp["verifier"]:
-            mpid = self.mpp["verifier"].pid
-        if mpid:
-            self.logger.warning("signalhandler: terminating rar_verifier")
+        try:
+            if self.mpp["decoder"]:
+                mpid = self.mpp["decoder"].pid
+            if mpid:
+                self.logger.warning(lpref + whoami() + ": terminating decoder")
+                try:
+                    os.kill(self.mpp["decoder"].pid, signal.SIGKILL)
+                    self.mpp["decoder"].join()
+                except Exception as e:
+                    self.logger.debug(str(e))
+        except Exception as e:
+            self.logger.warning(lpref + whoami() + ": " + str(e))
+        # 4. clear mp_work_queue
+        self.logger.warning(lpref + whoami() + ": clearing mp_work_queue")
+        while True:
             try:
-                os.kill(self.mpp["verifier"].pid, signal.SIGKILL)
-                self.mpp["verifier"].join()
-            except Exception as e:
-                self.logger.debug(str(e))
-        # stop mpp_renamer
-        mpid = None
-        if self.mpp["renamer"]:
-            mpid = self.mpp["renamer"].pid
-        if mpid:
-            self.logger.warning("signalhandler: terminating renamer")
-            try:
-                os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
-                self.mpp["renamer"].join()
-            except Exception as e:
-                self.logger.debug(str(e))
-        # stop nzbparser
-        mpid = None
-        if self.mpp["nzbparser"]:
-            mpid = self.mpp["nzbparser"].pid
-        if mpid:
-            self.logger.warning("signalhandler: terminating nzb_parser")
-            try:
-                os.kill(self.mpp["nzbparser"].pid, signal.SIGKILL)
-                self.mpp["nzbparser"].join()
-            except Exception as e:
-                self.logger.debug(str(e))
-        # stop article decoder
-        mpid = None
-        if self.mpp["decoder"]:
-            mpid = self.mpp["decoder"].pid
-        if mpid:
-            self.logger.warning("signalhandler: terminating article_decoder")
-            self.mp_work_queue.put(None)
-            time.sleep(1)
-            try:
-                os.kill(self.mpp["decoder"].pid, signal.SIGKILL)
-                self.mpp["decoder"].join()
-            except Exception as e:
-                self.logger.debug(str(e))
-        # threads + servers
+                self.mp_work_queue.get_nowait()
+            except (queue.Empty, EOFError):
+                break
+        # 5. write resultqueue to file
+        if self.main_dir:
+            self.logger.warning(lpref + whoami() + ": writing resultqueue to .gzbx file")
+            time.sleep(0.5)
+            write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
+        # 6. stop unrarer
+        try:
+            mpid = None
+            if self.mpp["unrarer"]:
+                mpid = self.mpp["unrarer"].pid
+            if mpid:
+                # if self.mpp["unrarer"].pid:
+                self.logger.warning(lpref + whoami() + ": terminating unrarer")
+                try:
+                    os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
+                    self.mpp["unrarer"].join()
+                except Exception as e:
+                    self.logger.debug(str(e))
+        except Exception as e:
+            self.logger.warning(lpref + whoami() + ": " + str(e))
+        # 7. stop rar_verifier
+        try:
+            mpid = None
+            if self.mpp["verifier"]:
+                mpid = self.mpp["verifier"].pid
+            if mpid:
+                self.logger.warning(lpref + whoami() + ": terminating rar_verifier")
+                try:
+                    os.kill(self.mpp["verifier"].pid, signal.SIGKILL)
+                    self.mpp["verifier"].join()
+                except Exception as e:
+                    self.logger.debug(str(e))
+        except Exception as e:
+            self.logger.warning(lpref + whoami() + ": " + str(e))
+        # 8. stop mpp_renamer
+        try:
+            mpid = None
+            if self.mpp["renamer"]:
+                mpid = self.mpp["renamer"].pid
+            if mpid:
+                self.logger.warning(lpref + whoami() + ": terminating renamer")
+                try:
+                    os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
+                    self.mpp["renamer"].join()
+                except Exception as e:
+                    self.logger.debug(str(e))
+        except Exception as e:
+            self.logger.warning(lpref + whoami() + ": " + str(e))
+        # 9. stop nzbparser
+        try:
+            mpid = None
+            if self.mpp["nzbparser"]:
+                mpid = self.mpp["nzbparser"].pid
+            if mpid:
+                self.logger.warning(lpref + whoami() + ": terminating nzb_parser")
+                try:
+                    os.kill(self.mpp["nzbparser"].pid, signal.SIGKILL)
+                    self.mpp["nzbparser"].join()
+                except Exception as e:
+                    self.logger.debug(str(e))
+        except Exception as e:
+            self.logger.warning(lpref + whoami() + ": " + str(e))
+        # 10. threads + servers
         if self.ct.threads:
-            self.logger.warning("signalhandler: stopping download threads")
+            self.logger.warning(lpref + whoami() + ": stopping download threads")
             for t, _ in self.ct.threads:
                 t.stop()
                 t.join()
         try:
             if self.ct.servers:
-                self.logger.warning("signalhandler: closing all server connections")
+                self.logger.warning(lpref + whoami() + ": closing all server connections")
                 self.servers.close_all_connections()
         except Exception:
             pass
-        # write resultqueue to file
-        if self.main_dir:
-            self.logger.warning(lpref + whoami() + ": writing resultqueue to .gzbx file")
-            time.sleep(0.5)
-            write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
-        self.logger.warning("signalhandler: exiting")
+        self.logger.warning(lpref + whoami() + ": exiting")
         sys.exit()
 
     def sighandler(self, a, b):
@@ -151,7 +193,7 @@ class NZBHandler(logging.Handler):
 
 
 class GUI_Connector(Thread):
-    def __init__(self, pwdb, lock, nzboutqueue, logger, port="36601"):
+    def __init__(self, pwdb, lock, nzboutqueue, logger, port="36603"):
         Thread.__init__(self)
         self.daemon = True
         self.pwdb = pwdb
@@ -374,14 +416,14 @@ class Downloader():
                     art_nr, art_name, art_bytescount = art0
                     art_found = False
                     if self.resqlist:
-                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r in self.resqlist:
+                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, _ in self.resqlist:
                             if art_name == art_name_r:
                                 art_found = True
                                 break
                     if art_found:
                         # put to resultqueue:
                         self.logger.debug(lpref + "-----> " + art_name + " / " + str(art_bytescount))
-                        self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r))
+                        self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
                     else:
                         bytescount0 += art_bytescount
                         q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
@@ -405,13 +447,15 @@ class Downloader():
             try:
                 resultarticle = self.resultqueue.get_nowait()
                 self.resultqueue.task_done()
-                filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0 = resultarticle
-                bytesdownloaded = sum(len(i) for i in inf0)
+                filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
                 if inf0 == "failed":
                     failed += 1
                     inf0 = empty_yenc_article
                     self.logger.error(filename + "/" + art_name + ": failed!!")
-                avgmiblist.append((time.time(), bytesdownloaded, download_server))
+                bytesdownloaded = 0
+                if add_bytes:
+                    bytesdownloaded = sum(len(i) for i in inf0)
+                    avgmiblist.append((time.time(), bytesdownloaded, download_server))
                 try:
                     infolist[filename][art_nr - 1] = inf0
                     newresult = True
@@ -433,6 +477,8 @@ class Downloader():
                 pass
             except (queue.Empty, EOFError):
                 break
+        if len(avgmiblist) > 50:
+            avgmiblist = avgmiblist[:50]
         return newresult, avgmiblist, infolist, files, failed
 
     def connection_thread_health(self):
@@ -473,13 +519,22 @@ class Downloader():
 
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
-        # self.sighandler.shutdown()
         self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing")
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
-        # self.display_console_connection_data(bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
-        #                                      article_health, overall_size, already_downloaded_size)
-        self.resultqueue.join()
+        while True:
+            try:
+                self.articlequeue.get_nowait()
+                self.articlequeue.task_done()
+            except (queue.Empty, EOFError):
+                break
         self.articlequeue.join()
+        while True:
+            try:
+                self.resultqueue.get_nowait()
+                self.resultqueue.task_done()
+            except (queue.Empty, EOFError):
+                break
+        self.resultqueue.join()
         # join renamer
         if self.mpp["renamer"]:
             try:
@@ -746,8 +801,14 @@ class Downloader():
         self.make_dirs(nzbname)
         self.sighandler.main_dir = self.main_dir
 
+        # start decoder mpp
+        self.logger.debug(lpref + "starting decoder process ...")
+        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.pwdb, self.logger, ))
+        self.mpp_decoder.start()
+        self.mpp["decoder"] = self.mpp_decoder
+
         # start renamer
-        self.logger.debug(lpref + "starting renamer process for NZB ")
+        self.logger.debug(lpref + "starting renamer process ...")
         self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
         self.mpp_renamer.start()
         self.mpp["renamer"] = self.mpp_renamer
@@ -1135,7 +1196,7 @@ def write_resultqueue_to_file(resultqueue, maindir, logger):
 def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger):
     # join all queues
     logger.debug(lpref + "clearing articlequeue")
-    # clear articlequeue
+    # 1. clear articlequeue
     while True:
         try:
             articlequeue.get_nowait()
@@ -1143,7 +1204,7 @@ def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger
         except (queue.Empty, EOFError):
             break
     articlequeue.join()
-    # wait for all remaining articles to be downloaded
+    # 2. wait for all remaining articles to be downloaded
     logger.debug(lpref + "waiting for all remaining articles to be downloaded")
     dl_not_done_yet = True
     while dl_not_done_yet:
@@ -1154,64 +1215,81 @@ def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger
                 break
         if dl_not_done_yet:
             time.sleep(0.2)
-    write_resultqueue_to_file(resultqueue, maindir, logger)
-    # clear resultqueue
-    logger.debug(lpref + "clearing resultqueue")
-    while True:
-        try:
-            resultqueue.get_nowait()
-            resultqueue.task_done()
-        except (queue.Empty, EOFError):
-            break
-    # clear mp_work_queue
+    # 3. stop article_decoder
+    mpid = None
+    try:
+        if dl.mpp["decoder"]:
+            mpid = dl.mpp["decoder"].pid
+        if mpid:
+            logger.warning("terminating decoder")
+            try:
+                os.kill(dl.mpp["decoder"].pid, signal.SIGKILL)
+                dl.mpp["decoder"].join()
+                dl.mpp["decoder"] = None
+                dl.sighandler.mpp = dl.mpp
+            except Exception as e:
+                logger.debug(str(e))
+    except Exception as e:
+        logger.debug(lpref + whoami() + ": " + str(e))
+    # 4. clear mp_work_queue
     logger.debug(lpref + "clearing mp_work_queue")
     while True:
         try:
             mp_work_queue.get_nowait()
         except (queue.Empty, EOFError):
             break
-    # kill all mpps
-    # stop unrarer
+    # 5. save resultqueue
+    write_resultqueue_to_file(resultqueue, maindir, logger)
+    # 6. stop unrarer
     mpid = None
-    if dl.mpp["unrarer"]:
-        mpid = dl.mpp["unrarer"].pid
-    if mpid:
-        # if self.mpp["unrarer"].pid:
-        logger.warning("terminating unrarer")
-        try:
-            os.kill(dl.mpp["unrarer"].pid, signal.SIGKILL)
-            dl.mpp["unrarer"].join()
-            dl.mpp["unrarer"] = None
-            dl.sighandler.mpp = dl.mpp
-        except Exception as e:
-            logger.debug(str(e))
-    # stop rar_verifier
+    try:
+        if dl.mpp["unrarer"]:
+            mpid = dl.mpp["unrarer"].pid
+        if mpid:
+            # if self.mpp["unrarer"].pid:
+            logger.warning("terminating unrarer")
+            try:
+                os.kill(dl.mpp["unrarer"].pid, signal.SIGKILL)
+                dl.mpp["unrarer"].join()
+                dl.mpp["unrarer"] = None
+                dl.sighandler.mpp = dl.mpp
+            except Exception as e:
+                logger.debug(str(e))
+    except Exception as e:
+        logger.debug(lpref + whoami() + ": " + str(e))
+    # 7. stop rar_verifier
     mpid = None
-    if dl.mpp["verifier"]:
-        mpid = dl.mpp["verifier"].pid
-    if mpid:
-        logger.warning("terminating rar_verifier")
-        try:
-            os.kill(dl.mpp["verifier"].pid, signal.SIGKILL)
-            dl.mpp["verifier"].join()
-            dl.mpp["verifier"] = None
-            dl.sighandler.mpp = dl.mpp
-        except Exception as e:
-            logger.debug(str(e))
-    # stop mpp_renamer
+    try:
+        if dl.mpp["verifier"]:
+            mpid = dl.mpp["verifier"].pid
+        if mpid:
+            logger.warning("terminating rar_verifier")
+            try:
+                os.kill(dl.mpp["verifier"].pid, signal.SIGKILL)
+                dl.mpp["verifier"].join()
+                dl.mpp["verifier"] = None
+                dl.sighandler.mpp = dl.mpp
+            except Exception as e:
+                logger.debug(str(e))
+    except Exception as e:
+        logger.debug(lpref + whoami() + ": " + str(e))
+    # 8. stop mpp_renamer
     mpid = None
-    if dl.mpp["renamer"]:
-        mpid = dl.mpp["renamer"].pid
-    if mpid:
-        logger.warning("terminating renamer")
-        try:
-            os.kill(dl.mpp["renamer"].pid, signal.SIGTERM)
-            dl.mpp["renamer"].join()
-            dl.mpp["renamer"].join()
-            dl.mpp["renamer"] = None
-            dl.sighandler.mpp = dl.mpp
-        except Exception as e:
-            logger.debug(str(e))
+    try:
+        if dl.mpp["renamer"]:
+            mpid = dl.mpp["renamer"].pid
+        if mpid:
+            logger.warning("terminating renamer")
+            try:
+                os.kill(dl.mpp["renamer"].pid, signal.SIGTERM)
+                dl.mpp["renamer"].join()
+                dl.mpp["renamer"].join()
+                dl.mpp["renamer"] = None
+                dl.sighandler.mpp = dl.mpp
+            except Exception as e:
+                logger.debug(str(e))
+    except Exception as e:
+        logger.debug(lpref + whoami() + ": " + str(e))
 
 
 # main loop for ginzibix downloader
@@ -1226,7 +1304,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     # init sighandler
     logger.debug(lpref + "initializing sighandler")
     mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None}
-    sh = SigHandler_Main(mpp, ct, mp_work_queue, resultqueue, logger)
+    sh = SigHandler_Main(mpp, ct, mp_work_queue, resultqueue, articlequeue, logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
@@ -1236,21 +1314,16 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
-    # start decoder mpp
-    logger.debug(lpref + "starting decoder process ...")
-    mpp_decoder = mp.Process(target=decode_articles, args=(mp_work_queue, pwdb, logger, ))
-    mpp_decoder.start()
-    mpp["decoder"] = mpp_decoder
-
     sh.mpp = mpp
 
-    # logging.handlers.NZBHandler = NZBHandler
-
-    logger.debug(lpref + "starting guiconnector process ...")
-    lock = threading.Lock()
-    guiconnector = GUI_Connector(pwdb, lock, nzboutqueue, logger, port="36601")
-    guiconnector.start()
-    logger.debug(lpref + "guiconnector process started!")
+    try:
+        logger.debug(lpref + "starting guiconnector process ...")
+        lock = threading.Lock()
+        guiconnector = GUI_Connector(pwdb, lock, nzboutqueue, logger, port="36603")
+        guiconnector.start()
+        logger.debug(lpref + "guiconnector process started!")
+    except Exception as e:
+        logger.warning(lpref + whoami() + str(e))
 
     dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     servers_shut_down = True
@@ -1313,4 +1386,4 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         elif stat0 == 3:
             logger.info(lpref + "postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
-
+            clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)

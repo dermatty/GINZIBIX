@@ -13,14 +13,17 @@ import sys
 
 lpref = __name__.split("lib.")[-1] + " - "
 
+TERMINATED = False
+
 
 class SigHandler_Verifier:
     def __init__(self, logger):
         self.logger = logger
 
     def sighandler_verifier(self, a, b):
-        self.logger.info(lpref + "terminated!")
-        sys.exit()
+        global TERMINATED
+        self.logger.info(lpref + "terminating ...")
+        TERMINATED = True
 
 
 def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pwdb, nzbname, pvmode):
@@ -73,7 +76,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
     inotify.add_watch(renamed_dir, watch_flags)
 
-    while True:
+    while not TERMINATED:
         allparstatus = pwdb.db_file_getallparstatus(0)
         if 0 not in allparstatus:
             logger.info(lpref + "all renamed rars checked, exiting par_verifier")
@@ -117,6 +120,10 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             break
         time.sleep(1)
 
+    if TERMINATED:
+        logger.info(lpref + "terminated!")
+        return
+
     logger.debug(lpref + "all rars are verified")
     par2name = pwdb.db_get_renamed_par2(nzbname)
     corruptrars = pwdb.get_all_corrupt_rar_files(nzbname)
@@ -143,6 +150,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     else:
         logger.warning(lpref + "some rars are corrupt but cannot repair (no par2 files)")
         pwdb.db_nzb_update_verify_status(nzbname, 2)
+    logger.info(lpref + "terminated!")
 
 
 def get_inotify_events(inotify):

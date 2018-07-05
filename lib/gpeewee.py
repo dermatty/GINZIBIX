@@ -696,15 +696,15 @@ class PWDB:
                         self.logger.debug(lpref + "par2 found: " + full_filename_downloaded)
                         filename0 = full_filename_downloaded
                     else:
-                        self.logger.error("Processing par2 file, but not found in dirs; this should not occur!!")
-                        return None, None, None, None, None, None, None, None
+                        self.logger.error("Processing par2 file, but not found in dirs; this should not occur - will download again!!")
+                        # return None, None, None, None, None, None, None, None
                 else:
                     if os.path.isfile(full_filename_renamed):
                         filename0 = full_filename_renamed
                     elif os.path.isfile(full_filename_downloaded):
                         filename0 = full_filename_downloaded
                 if not filename0:
-                    self.logger.warning(lpref + "processing " + f0.orig_name + ", but not found in dirs; this should not occur!!")
+                    self.logger.warning(lpref + "processing " + f0.orig_name + ", but not found in dirs; this should not occur - will download again!!")
                 else:
                     filetypecounter[f0.ftype]["counter"] += 1
                     md5 = calc_file_md5hash(filename0)
@@ -726,7 +726,7 @@ class PWDB:
                     allfilelist[idx].append((a.number, a.name, a.size))
                     if resqlist:
                         art_found = False
-                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r in resqlist:
+                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, add_bytes in resqlist:
                             if a.name == art_name_r:
                                 art_found = True
                                 break

@@ -10,14 +10,17 @@ import signal
 
 lpref = __name__ + " - "
 
+TERMINATED = False
+
 
 class SigHandler_Parser:
     def __init__(self, logger):
         self.logger = logger
 
     def sighandler(self, a, b):
-        self.logger.info(lpref + "terminated!")
-        sys.exit()
+        global TERMINATED
+        self.logger.info(lpref + "terminating ...")
+        TERMINATED = True
 
 
 def decompose_nzb(nzb, logger):
@@ -96,6 +99,7 @@ def get_inotify_events(inotify):
 
 
 def ParseNZB(pwdb, nzbdir, nzboutqueue, logger):
+    global TERMINATED
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
@@ -109,7 +113,7 @@ def ParseNZB(pwdb, nzbdir, nzboutqueue, logger):
 
     isfirstrun = True
 
-    while True:
+    while not TERMINATED:
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
             if isfirstrun:
@@ -156,8 +160,8 @@ def ParseNZB(pwdb, nzbdir, nzboutqueue, logger):
                             logger.debug(lpref + "Added NZB: " + infostr + " to GUI")
                             pwdb.send_nzbqueue_to_gui(nzboutqueue)
             isfirstrun = False
-    logger.warning(lpref + "exiting")
     os.chdir(cwd0)
+    logger.warning(lpref + "terminated!")
 
 
 '''nzbdir = "/home/stephan/.ginzibix/nzb/"

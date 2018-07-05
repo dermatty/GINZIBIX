@@ -117,7 +117,7 @@ class AppWindow(Gtk.ApplicationWindow):
             print("Cannot find icon file!" + GBXICON)
 
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36601")
+        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36603")
         self.guipoller.start()
 
         # self.filepoller = File_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger)
@@ -574,9 +574,7 @@ class AppWindow(Gtk.ApplicationWindow):
             avgmiblist = avgmiblist00
             mbitseccurr = 0
             # get Mib downloaded
-            if len(avgmiblist) > 50:
-                del avgmiblist[0]
-            if len(avgmiblist) > 10:
+            if len(avgmiblist) > 5:
                 avgmib_dic = {}
                 for (server_name, _, _, _, _, _, _, _, _) in server_config:
                     bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
@@ -729,11 +727,11 @@ class Application(Gtk.Application):
 # connects to GUI_Connector in main.py and gets data for displaying
 class GUI_Poller(Thread):
 
-    def __init__(self, lock, appdata, update_mainwindow, logger, port="36601"):
+    def __init__(self, lock, appdata, update_mainwindow, logger, port="36603"):
         Thread.__init__(self)
         self.daemon = True
         self.context = zmq.Context()
-        self.host = "127.0.0.1"
+        self.host = "localhost"
         self.port = port
         self.lock = lock
         self.data = None
