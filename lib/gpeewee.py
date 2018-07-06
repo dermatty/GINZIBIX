@@ -76,6 +76,7 @@ class PWDB:
             loadpar2vols = BooleanField(default=False)
             is_pw = BooleanField(default=False)
             password = CharField(default="N/A")
+            bytes_in_resultqueue = IntegerField(default=0)
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -206,6 +207,10 @@ class PWDB:
             self.logger.warning(str(e))
             return False
 
+    def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
+        query = self.NZB.update(bytes_in_resultqueue=resqueue_size).where(self.NZB.name == nzbname)
+        query.execute()
+
     def db_nzb_update_loadpar2vols(self, name0, lp2):
         query = self.NZB.update(loadpar2vols=lp2).where(self.NZB.name == name0)
         query.execute()
@@ -254,7 +259,8 @@ class PWDB:
         for n in query:
             # only return nzbs with valid status
             if n.status in [1, 2, 3]:
-                nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name)))
+                resqueue_size = n.bytes_in_resultqueue
+                nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), resqueue_size + self.db_nzb_get_downloadedsize(n.name)))
         return sorted(nzbs, key=lambda nzb: nzb[1])
 
     def db_nzb_set_password(self, nzbname, pw):
@@ -583,8 +589,6 @@ class PWDB:
                 mi_overflow += 1
             query = self.NZB.update(priority=matchidx+1).where(self.NZB.name == onzb)
             query.execute()
-            # nnzb = self.NZB.select().where(self.NZB.name == onzb)[0]
-            # print(matchidx, onzb, nnzb.name, nnzb.priority)
         return first_has_changed
 
     # ---- send nzbqueue to gui ----

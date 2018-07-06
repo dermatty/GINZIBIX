@@ -27,6 +27,7 @@ from .connections import ConnectionWorker
 from .server import Servers
 import inspect
 import dill
+from statistics import mean
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -39,7 +40,7 @@ def whoami():
 
 class SigHandler_Main:
 
-    def __init__(self, mpp, ct, mp_work_queue, resultqueue, articlequeue, logger):
+    def __init__(self, mpp, ct, mp_work_queue, resultqueue, articlequeue, pwdb, logger):
         self.logger = logger
         self.ct = ct
         self.mpp = mpp
@@ -47,6 +48,8 @@ class SigHandler_Main:
         self.resultqueue = resultqueue
         self.articlequeue = articlequeue
         self.main_dir = None
+        self.nzbname = None
+        self.pwdb = pwdb
 
     def shutdown(self):
         f = open('/dev/null', 'w')
@@ -100,10 +103,11 @@ class SigHandler_Main:
             except (queue.Empty, EOFError):
                 break
         # 5. write resultqueue to file
-        if self.main_dir:
+        if self.main_dir and self.nzbname:
             self.logger.warning(lpref + whoami() + ": writing resultqueue to .gzbx file")
             time.sleep(0.5)
-            write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
+            bytes_in_resultqueue = write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
+            self.pwdb.db_nzb_set_bytes_in_resultqueue(self.nzbname, bytes_in_resultqueue)
         # 6. stop unrarer
         try:
             mpid = None
@@ -214,19 +218,26 @@ class GUI_Connector(Thread):
         self.first_has_changed = False
         self.old_t = 0
         self.oldbytes0 = 0
+        self.send_data = True
+        self.netstatlist = []
 
     def set_data(self, data, threads, server_config, status):
-        with self.lock:
-            bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
-            self.data = data
-            self.nzbname = nzbname
-            self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
-            self.server_config = server_config
-            self.status = status
-            self.threads = []
-            for k, (t, last_timestamp) in enumerate(threads):
-                append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
-                self.threads.append(append_tuple)
+        if data:
+            with self.lock:
+                bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
+                self.data = data
+                self.nzbname = nzbname
+                self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
+                self.server_config = server_config
+                self.status = status
+                self.threads = []
+                for k, (t, last_timestamp) in enumerate(threads):
+                    append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
+                    self.threads.append(append_tuple)
+                self.send_data = True
+        else:
+            with self.lock:
+                self.send_data = False
 
     def get_netstat(self):
         pid = os.getpid()
@@ -247,18 +258,22 @@ class GUI_Connector(Thread):
             self.old_t = time.time()
             mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
             self.oldbytes0 = bytes0
-            return mbitcurr
+            self.netstatlist.append(mbitcurr)
+            if len(self.netstatlist) > 4:
+                del self.netstatlist[0]
+            return mean(self.netstatlist)
         else:
             return 0
 
     def get_data(self):
-        ret0 = ("NOOK", None, None, None, None)
-        with self.lock:
-            try:
-                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status, self.get_netstat())
-                # self.logger.debug("GUI_Connector: " + str(ret0))
-            except Exception as e:
-                self.logger.error("GUI_Connector: " + str(e))
+        ret0 = (None, None, None, None, None, None, None)
+        if self.send_data:
+            with self.lock:
+                try:
+                    ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status, self.get_netstat())
+                    # self.logger.debug("GUI_Connector: " + str(ret0))
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
         return ret0
 
     def has_first_nzb_changed(self):
@@ -286,7 +301,12 @@ class GUI_Connector(Thread):
                 if ret_queue:
                     sendtuple = ("NZB_DATA", ret_queue)
                 else:
-                    sendtuple = ("DL_DATA", self.get_data())
+                    getdata = self.get_data()
+                    gd1, _, _, _, _, _, _ = getdata
+                    if gd1:
+                        sendtuple = ("DL_DATA", getdata)
+                    else:
+                        sendtuple = ("NOOK", getdata)
                 try:
                     self.socket.send_pyobj(sendtuple)
                 except Exception as e:
@@ -458,7 +478,7 @@ class Downloader():
                                 break
                     if art_found:
                         # put to resultqueue:
-                        self.logger.debug(lpref + "-----> " + art_name + " / " + str(art_bytescount))
+                        self.logger.debug(lpref + "-----> " + art_name + " / " + str(fn_r))
                         self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
                     else:
                         bytescount0 += art_bytescount
@@ -849,6 +869,7 @@ class Downloader():
         self.mpp_renamer.start()
         self.mpp["renamer"] = self.mpp_renamer
         self.sighandler.mpp = self.mpp
+        self.sighandler.nzbname = nzbname
 
         if servers_shut_down:
             # start download threads
@@ -1047,6 +1068,8 @@ class Downloader():
                     # self.logger.debug(lpref + "--- " + filetype + ": " + str(filetypecounter[filetype]["counter"]) + " / "
                     #                   + str(filetypecounter[filetype]["max"]))
                     break
+            # if first check for complete download ok: now check if all filenames correct
+            
 
             # check if > 25% of connections are down
             if self.connection_thread_health() < 0.75:
@@ -1096,7 +1119,7 @@ class Downloader():
 
 
 def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
-    pwdb.send_nzbqueue_to_gui(nzbqueue)
+    # pwdb.send_nzbqueue_to_gui(nzbqueue)
     # wait for new nzbs to arrive
     logger.debug(lpref + "looking for new NZBs ...")
     try:
@@ -1211,13 +1234,19 @@ class ConnectionThreads:
 def write_resultqueue_to_file(resultqueue, maindir, logger):
     logger.debug(lpref + "reading resultqueue and writing to " + maindir)
     resqlist = []
+    bytes_in_resultqueue = 0
     while True:
         try:
             res = resultqueue.get_nowait()
+            _, _, _, _, _, _, _, inf0, _ = res
+            if inf0 != "failed":
+                bytes_in_resultqueue += sum(len(i) for i in inf0)
             resultqueue.task_done()
             resqlist.append(res)
         except (queue.Empty, EOFError):
             break
+        except Exception as e:
+            logger.info(lpref + whoami() + ": " + str(e))
     fn = maindir + "resqueue.gzbx"
     if resqlist:
         try:
@@ -1230,9 +1259,10 @@ def write_resultqueue_to_file(resultqueue, maindir, logger):
             os.remove(fn)
         except Exception as e:
             logger.warning(lpref + str(e) + ": cannot remove resqueue.gzbx")
+    return bytes_in_resultqueue
 
 
-def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger):
+def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger):
     # join all queues
     logger.debug(lpref + "clearing articlequeue")
     # 1. clear articlequeue
@@ -1278,7 +1308,8 @@ def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger
         except (queue.Empty, EOFError):
             break
     # 5. save resultqueue
-    write_resultqueue_to_file(resultqueue, maindir, logger)
+    bytes_in_resultqueue = write_resultqueue_to_file(resultqueue, maindir, logger)
+    pwdb.db_nzb_set_bytes_in_resultqueue(nzbname, bytes_in_resultqueue)
     # 6. stop unrarer
     mpid = None
     try:
@@ -1329,6 +1360,7 @@ def clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger
                 logger.debug(str(e))
     except Exception as e:
         logger.debug(lpref + whoami() + ": " + str(e))
+    return
 
 
 # main loop for ginzibix downloader
@@ -1343,7 +1375,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     # init sighandler
     logger.debug(lpref + "initializing sighandler")
     mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None}
-    sh = SigHandler_Main(mpp, ct, mp_work_queue, resultqueue, articlequeue, logger)
+    sh = SigHandler_Main(mpp, ct, mp_work_queue, resultqueue, articlequeue, pwdb, logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
@@ -1367,6 +1399,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     servers_shut_down = True
     while True:
+        sh.nzbname = None
+        sh.main_dir = None
         with lock:
             if not guiconnector.dl_running:
                 time.sleep(1)
@@ -1377,13 +1411,6 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         if not nzbname:
             break
         logger.info(lpref + "got next NZB: " + str(nzbname))
-        while True:
-            try:
-                nzboutqueue.get_nowait()
-            except (queue.Empty, EOFError):
-                break
-        all_sorted_nzbs = pwdb.db_nzb_getall_sorted()
-        nzboutqueue.put(all_sorted_nzbs)
 
         nzbname, downloaddata, return_reason, maindir = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
                                                                     overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist)
@@ -1392,11 +1419,11 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         if stat0 == 2:
             if return_reason == "nzbs_reordered":
                 logger.info(lpref + whoami() + "NZBs have been reordered")
-                clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 continue
             elif return_reason == "dl_stopped":
                 logger.info(lpref + "download paused")
-                clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 # idle until start or nzbs_reordered signal comes from gtkgui
                 idlestart = time.time()
                 servers_shut_down = False
@@ -1427,4 +1454,6 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         elif stat0 == 3:
             logger.info(lpref + "postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
-            clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+            guiconnector.set_data(None, None, None, None)
+            pwdb.send_nzbqueue_to_gui(nzboutqueue)

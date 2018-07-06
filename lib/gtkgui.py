@@ -1,4 +1,3 @@
-import sys
 import inotify_simple
 import os
 import signal
@@ -8,7 +7,6 @@ import datetime
 import zmq
 import time
 import inspect
-from statistics import mean
 from threading import Thread
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
@@ -148,13 +146,13 @@ class AppWindow(Gtk.ApplicationWindow):
         self.stacknzb_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         stack.add_titled(self.stacknzb_box, "nzbs", "NZBs")
         self.show_nzb_stack(self.stacknzb_box)
-
         self.stackdetails_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
-        stack.add_titled(self.stackdetails_box, "stats", "Stats")
-        self.stacksettings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
-        stack.add_titled(self.stacksettings_box, "settings", "Settings")
+        stack.add_titled(self.stackdetails_box, "database", "DataBase")
         self.stacklogs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
         stack.add_titled(self.stacklogs_box, "logs", "Logs")
+        self.stacksearch_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
+        stack.add_titled(self.stacksearch_box, "search", "Search")
+
         stack_switcher = Gtk.StackSwitcher()
         stack_switcher.set_stack(stack)
         stack_switcher.set_property("halign", Gtk.Align.CENTER)
@@ -429,7 +427,6 @@ class AppWindow(Gtk.ApplicationWindow):
             self.toggle_buttons()
 
     def update_liststore(self, only_eta=False):
-        self.logger.debug(lpref + "updating nzbs in liststore")
         # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
         if only_eta:
             for i, nzb in enumerate(self.appdata.nzbs):
