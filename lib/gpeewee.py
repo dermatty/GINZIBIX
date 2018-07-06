@@ -574,13 +574,17 @@ class PWDB:
         for n in self.NZB.select().order_by(self.NZB.priority):
             old_nzb_list.append(n.name)
 
+        mi_overflow = 1
         for i, onzb in enumerate(old_nzb_list):
             try:
-                matchidx = [j for j, name in enumerate(new_nzb_list)][0]
-                query = self.NZB.update(priority=matchidx + 1).where(self.NZB.name == onzb)
-                query.execute()
+                matchidx = [j for j, name in enumerate(new_nzb_list) if name == onzb][0]
             except Exception as e:
-                self.logger(lpref + whoami() + ": " + str(e))
+                matchidx = len(new_nzb_list) + mi_overflow
+                mi_overflow += 1
+            query = self.NZB.update(priority=matchidx+1).where(self.NZB.name == onzb)
+            query.execute()
+            # nnzb = self.NZB.select().where(self.NZB.name == onzb)[0]
+            # print(matchidx, onzb, nnzb.name, nnzb.priority)
         return first_has_changed
 
     # ---- send nzbqueue to gui ----

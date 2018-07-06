@@ -24,6 +24,7 @@ class ConnectionWorker(Thread):
         self.last_timestamp = 0
         self.mode = "download"
         self.download_done = True
+        self.bandwidth_bytes = 0
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
@@ -78,6 +79,7 @@ class ConnectionWorker(Thread):
             self.logger.error(lpref + str(e) + self.idn + " for article " + article_name)
             status = -2
             info0 = None
+        self.bandwidth_bytes += bytesdownloaded
         return status, bytesdownloaded, info0
 
     def retry_connect(self):
@@ -94,6 +96,7 @@ class ConnectionWorker(Thread):
                 self.logger.debug(lpref + "Server " + idn + " connected!")
                 self.last_timestamp = time.time()
                 self.bytesdownloaded = 0
+                self.bandwidth_bytes = 0
                 self.connectionstate = 1
                 time.sleep(1)
                 return

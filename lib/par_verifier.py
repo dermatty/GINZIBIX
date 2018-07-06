@@ -106,14 +106,15 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                             shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
                             pwdb.db_file_update_parstatus(f0.orig_name, 1)
             if pvmode == "copy":
-                rar0 = rar.split("/")[-1]
-                f0 = pwdb.db_file_get_renamed(rar0)
-                if not f0:
-                    continue
-                if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
-                    logger.debug(lpref + "copying " + f0.renamed_name.split("/")[-1] + " to verified_rar dir")
-                    shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
-                    pwdb.db_file_update_parstatus(f0.orig_name, 1)
+                for rar in glob.glob(renamed_dir + "*.rar"):
+                    rar0 = rar.split("/")[-1]
+                    f0 = pwdb.db_file_get_renamed(rar0)
+                    if not f0:
+                        continue
+                    if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
+                        logger.debug(lpref + "copying " + f0.renamed_name.split("/")[-1] + " to verified_rar dir")
+                        shutil.copy(renamed_dir + f0.renamed_name, verifiedrar_dir)
+                        pwdb.db_file_update_parstatus(f0.orig_name, 1)
         allrarsverified, rvlist = pwdb.db_only_verified_rars(nzbname)
         # logger.debug(str(rvlist))
         if allrarsverified:

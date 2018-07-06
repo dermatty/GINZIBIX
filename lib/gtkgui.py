@@ -7,6 +7,8 @@ import threading
 import datetime
 import zmq
 import time
+import inspect
+from statistics import mean
 from threading import Thread
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
@@ -41,6 +43,10 @@ MENU_XML = """
   </menu>
 </interface>
 """
+
+
+def whoami():
+    return str(inspect.getouterframes(inspect.currentframe())[1].function)
 
 
 def get_bg_color(n_status_s):
@@ -89,6 +95,9 @@ class AppData:
         self.order_changed = False
         self.mbit_min = 0
         self.mbit_max = 150
+        self.old_mbitdown = 0
+        self.old_mbitdown_tt = 0
+        self.mbitdownlist = []
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -117,7 +126,7 @@ class AppWindow(Gtk.ApplicationWindow):
             print("Cannot find icon file!" + GBXICON)
 
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, port="36603")
+        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow_dl, self.update_mainwindow_sortednzbs, self.logger, port="36603")
         self.guipoller.start()
 
         # self.filepoller = File_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger)
@@ -165,7 +174,8 @@ class AppWindow(Gtk.ApplicationWindow):
         self.box_levelbar.pack_start(self.levelbar, True, True, 0)
         self.mbitlabel2 = Gtk.Label(None)
         if self.appdata.mbitsec > 0:
-            self.mbitlabel2.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+            mbitstr = str(int(self.appdata.mbitsec)) + " MBit/s"
+            self.mbitlabel2.set_text(mbitstr.rjust(11))
         else:
             self.mbitlabel2.set_text("")
         self.box_levelbar.pack_start(self.mbitlabel2, False, False, 0)
@@ -357,7 +367,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.appdata.nzbs = newnzbs[:]
             self.update_liststore()
             self.toggle_buttons()
-            self.order_changed = True
+            self.appdata.order_changed = True
 
     def on_buttonup_clicked(self, button):
         with self.lock:
@@ -368,8 +378,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 oldval = self.appdata.nzbs[i - 1]
                 self.appdata.nzbs[i - 1] = r
                 self.appdata.nzbs[i] = oldval
-            self.update_liststore()
-            self.order_changed = True
+            # self.update_liststore()
+            self.appdata.order_changed = True
 
     def on_buttondown_clicked(self, button):
         with self.lock:
@@ -380,8 +390,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 oldval = self.appdata.nzbs[i + 1]
                 self.appdata.nzbs[i + 1] = r
                 self.appdata.nzbs[i] = oldval
-            self.update_liststore()
-            self.order_changed = True
+            # self.update_liststore()
+            self.appdata.order_changed = True
 
     def on_buttonfullup_clicked(self, button):
         with self.lock:
@@ -393,8 +403,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 if not ro[6]:
                     newnzbs.append(self.appdata.nzbs[i])
             self.appdata.nzbs = newnzbs[:]
-            self.update_liststore()
-            self.order_changed = True
+            # self.update_liststore()
+            self.appdata.order_changed = True
 
     def on_buttonfulldown_clicked(self, button):
         with self.lock:
@@ -406,8 +416,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 if ro[6]:
                     newnzbs.append(self.appdata.nzbs[i])
             self.appdata.nzbs = newnzbs[:]
-            self.update_liststore()
-            self.order_changed = True
+            # self.update_liststore()
+            self.appdata.order_changed = True
 
     def on_inverted_toggled(self, widget, path):
         with self.lock:
@@ -418,8 +428,30 @@ class AppWindow(Gtk.ApplicationWindow):
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
 
-    def update_liststore(self):
+    def update_liststore(self, only_eta=False):
         self.logger.debug(lpref + "updating nzbs in liststore")
+        # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
+        if only_eta:
+            for i, nzb in enumerate(self.appdata.nzbs):
+                # skip first one as it will be updated anyway
+                if i == 0:
+                    continue
+                try:
+                    path = Gtk.TreePath(i)
+                    iter = self.liststore.get_iter(path)
+                except Exception as e:
+                    print(str(e))
+                    continue
+                if self.appdata.mbitsec > 0 and self.dl_running:
+                    overall_size = nzb[3]
+                    gbdown = nzb[2]
+                    eta0 = (((overall_size - gbdown) * 1024) / (self.appdata.mbitsec / 8))
+                    etastr = str(datetime.timedelta(seconds=int(eta0)))
+                else:
+                    etastr = "-"
+                self.liststore.set_value(iter, 4, etastr)
+            return
+
         self.liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs):
             nzb_as_list = list(nzb)
@@ -499,7 +531,8 @@ class AppWindow(Gtk.ApplicationWindow):
         # if self.appdata.mbitsec > 0:
         if self.appdata.mbitsec > 0 and self.appdata.dl_running:
             self.levelbar.set_value(int(self.appdata.mbitsec))
-            self.mbitlabel2.set_text(str(int(self.appdata.mbitsec)) + " MBit/s")
+            mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
+            self.mbitlabel2.set_text(mbitsecstr.rjust(11))
         else:
             self.levelbar.set_value(0)
             self.mbitlabel2.set_text("")
@@ -566,52 +599,7 @@ class AppWindow(Gtk.ApplicationWindow):
             os.kill(self.mpp_main.pid, signal.SIGTERM)
             self.mpp_main.join()
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, sortednzblist0):
-        nzbname = None
-        if data:
-            bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
-            # calc mbitsec current
-            avgmiblist = avgmiblist00
-            mbitseccurr = 0
-            # get Mib downloaded
-            if len(avgmiblist) > 5:
-                avgmib_dic = {}
-                for (server_name, _, _, _, _, _, _, _, _) in server_config:
-                    bytescountlist = [bytescount for (_, bytescount, download_server0) in avgmiblist if server_name == download_server0]
-                    if len(bytescountlist) > 2:
-                        avgmib_db = sum(bytescountlist)
-                        avgmib_mint = min([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
-                        avgmib_maxt = max([tt for (tt, _, download_server0) in avgmiblist if server_name == download_server0])
-                        avgmib_dic[server_name] = (avgmib_db / (avgmib_maxt - avgmib_mint)) / (1024 * 1024) * 8
-                    else:
-                        avgmib_dic[server_name] = 0
-                mbitseccurr = sum([av for _, av in avgmib_dic.items()])
-            # calc gbdown, mbitsec_avg
-            gbdown0 = 0
-            # mbitsec0 = 0
-            for t_bytesdownloaded, t_last_timestamp, t_idn in threads:
-                gbdown = t_bytesdownloaded / (1024 * 1024 * 1024)
-                gbdown0 += gbdown
-                # mbitsec0 += (t_bytesdownloaded / (time.time() - t_last_timestamp)) / (1024 * 1024) * 8
-            gbdown0 += already_downloaded_size
-            if not dl_running:
-                mbitseccurr = 0
-                self.dl_running = False
-            else:
-                self.dl_running = True
-            self.nzb_status_string = nzb_status_string
-            with self.lock:
-                self.appdata.nzbname = nzbname
-                if nzb_status_string == "postprocessing" or nzb_status_string == "success":
-                    self.appdata.overall_size = overall_size
-                    self.appdata.gbdown = overall_size
-                    self.appdata.mbitsec = 0
-                else:
-                    self.appdata.overall_size = overall_size
-                    self.appdata.gbdown = gbdown0
-                    self.appdata.mbitsec = mbitseccurr
-                self.update_liststore_dldata()
-
+    def update_mainwindow_sortednzbs(self, sortednzblist0):
         if sortednzblist0:
             if sortednzblist0[0] == -1:
                 sortednzblist0 = []
@@ -640,12 +628,12 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.appdata.nzbs = []
                 for idx1, (n_name, n_prio, n_ts, n_status, n_siz, n_downloaded) in enumerate(sortednzblist):
                     # if first nzb is unchanged just change size in case
-                    if nzbs_copy and idx1 == 0 and n_name == nzbs_copy[0][0]:
+                    if False:   # nzbs_copy and idx1 == 0 and n_name == nzbs_copy[0][0]:
                         n_name0, n_perc0, n_dl0, n_size0, etastr0, n_percstr0, selected0, status0 = nzbs_copy[0]
                         self.appdata.nzbs.append((n_name0, n_perc0, n_dl0, n_siz / gibdivisor, etastr0, n_percstr0, selected0, status0))
                     else:
                         try:
-                            n_perc = min(int((n_siz/n_downloaded) * 100), 100)
+                            n_perc = min(int((n_downloaded/n_siz) * 100), 100)
                         except ZeroDivisionError:
                             n_perc = 0
                         n_dl = n_downloaded / gibdivisor
@@ -662,6 +650,49 @@ class AppWindow(Gtk.ApplicationWindow):
                         self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
                 if nzbs_copy != self.appdata.nzbs:
                     self.update_liststore()
+        return False
+
+    def update_mainwindow_dl(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur):
+        nzbname = None
+        if data:
+            bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
+            mbitseccurr = 0
+            # calc gbdown, mbitsec_avg
+            gbdown0 = 0
+            mbitdown_bandw = 0
+            for t_bytesdownloaded, t_last_timestamp, t_idn, t_bandwbytes in threads:
+                gbdown = t_bytesdownloaded / (1024 * 1024 * 1024)
+                gbdown0 += gbdown
+                mbitdown_bandw += t_bandwbytes / (1024 * 1024) * 8
+            gbdown0 += already_downloaded_size
+            mbitdown_delta = max(mbitdown_bandw - self.appdata.old_mbitdown, 0)
+            self.appdata.old_mbitdown = mbitdown_bandw
+            mbitdown_dt = max(time.time() - self.appdata.old_mbitdown_tt, 0.01)
+            self.appdata.old_mbitdown_tt = time.time()
+            mbitseccurr0 = mbitdown_delta / mbitdown_dt
+            self.appdata.mbitdownlist.append(mbitseccurr0)
+            if len(self.appdata.mbitdownlist) > 5:
+                del self.appdata.mbitdownlist[0]
+            mbitseccurr = netstat_mbitcur    # mean(self.appdata.mbitdownlist)
+            if not dl_running:
+                # mbitseccurr = 0
+                self.dl_running = False
+            else:
+                self.dl_running = True
+            self.nzb_status_string = nzb_status_string
+            with self.lock:
+                self.appdata.nzbname = nzbname
+                if nzb_status_string == "postprocessing" or nzb_status_string == "success":
+                    self.appdata.overall_size = overall_size
+                    self.appdata.gbdown = overall_size
+                    self.appdata.mbitsec = 0
+                else:
+                    self.appdata.overall_size = overall_size
+                    self.appdata.gbdown = gbdown0
+                    self.appdata.mbitsec = mbitseccurr
+                self.update_liststore_dldata()
+                self.update_liststore(only_eta=True)
+
         return False
 
 
@@ -727,7 +758,7 @@ class Application(Gtk.Application):
 # connects to GUI_Connector in main.py and gets data for displaying
 class GUI_Poller(Thread):
 
-    def __init__(self, lock, appdata, update_mainwindow, logger, port="36603"):
+    def __init__(self, lock, appdata, update_mainwindow_dl, update_mainwindow_sortednzbs, logger, port="36603"):
         Thread.__init__(self)
         self.daemon = True
         self.context = zmq.Context()
@@ -738,8 +769,8 @@ class GUI_Poller(Thread):
         self.nzbname = None
         self.delay = 1
         self.appdata = appdata
-        self.update_mainwindow = update_mainwindow
-
+        self.update_mainwindow_dl = update_mainwindow_dl
+        self.update_mainwindow_sortednzbs = update_mainwindow_sortednzbs
         self.socket = self.context.socket(zmq.REQ)
         self.logger = logger
 
@@ -784,14 +815,17 @@ class GUI_Poller(Thread):
                     if datatype == "NOOK":
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string = datarec
+                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr = datarec
+                        try:
+                            GLib.idle_add(self.update_mainwindow_dl, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr)
+                        except Exception as e:
+                            self.logger.debug(lpref + whoami() + ": " + str(e))
                     elif datatype == "NZB_DATA":
                         sortednzblist = datarec
-                    try:
-                        GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, sortednzblist)
-                    except Exception:
-                        pass
-                    # self.gui_drawer.draw(data, pwdb_msg, server_config, threads, sortednzblist)
+                        try:
+                            GLib.idle_add(self.update_mainwindow_sortednzbs, sortednzblist)
+                        except Exception as e:
+                            self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
             time.sleep(self.delay)

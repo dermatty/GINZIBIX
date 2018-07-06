@@ -212,6 +212,8 @@ class GUI_Connector(Thread):
         self.dl_running = True
         self.status = "idle"
         self.first_has_changed = False
+        self.old_t = 0
+        self.oldbytes0 = 0
 
     def set_data(self, data, threads, server_config, status):
         with self.lock:
@@ -223,13 +225,37 @@ class GUI_Connector(Thread):
             self.status = status
             self.threads = []
             for k, (t, last_timestamp) in enumerate(threads):
-                    self.threads.append((t.bytesdownloaded, t.last_timestamp, t.idn))
+                append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
+                self.threads.append(append_tuple)
+
+    def get_netstat(self):
+        pid = os.getpid()
+        with open("/proc/" + str(pid) + "/net/netstat", "r") as f:
+            bytes0 = None
+            for line in f:
+                if line.startswith("IpExt"):
+                    line0 = line.split(" ")
+                    try:
+                        bytes0 = int(line0[7])
+                        break
+                    except Exception:
+                        pass
+        if bytes0:
+            dt = time.time() - self.old_t
+            if dt == 0:
+                dt = 0.001
+            self.old_t = time.time()
+            mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
+            self.oldbytes0 = bytes0
+            return mbitcurr
+        else:
+            return 0
 
     def get_data(self):
         ret0 = ("NOOK", None, None, None, None)
         with self.lock:
             try:
-                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status)
+                ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status, self.get_netstat())
                 # self.logger.debug("GUI_Connector: " + str(ret0))
             except Exception as e:
                 self.logger.error("GUI_Connector: " + str(e))
@@ -284,6 +310,16 @@ class GUI_Connector(Thread):
                 try:
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
                     self.first_has_changed = self.pwdb.set_nzbs_prios(datarec)
+                    # clear nzboutqueue
+                    while True:
+                        try:
+                            self.nzboutqueue.get_nowait()
+                        except (queue.Empty, EOFError):
+                            break
+                    # only refresh now if first has not changed, else: stop all, reorder, restart
+                    if not self.first_has_changed:
+                        all_sorted_nzbs = self.pwdb.db_nzb_getall_sorted()
+                        self.nzboutqueue.put(all_sorted_nzbs)
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
                 continue
@@ -857,7 +893,8 @@ class Downloader():
                 if not self.guiconnector.dl_running:
                     return_reason = "dl_stopped"
                 if self.guiconnector.has_first_nzb_changed():
-                        return_reason = "nzbs_reordered"
+                    self.logger.debug(lpref + whoami() + "NZBs have been reorderd, exiting download loop")
+                    return_reason = "nzbs_reordered"
             if return_reason:
                 return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                   overall_size, already_downloaded_size)), return_reason, self.main_dir
@@ -1008,7 +1045,7 @@ class Downloader():
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     getnextnzb = False
                     # self.logger.debug(lpref + "--- " + filetype + ": " + str(filetypecounter[filetype]["counter"]) + " / "
-                    #                  + str(filetypecounter[filetype]["max"]))
+                    #                   + str(filetypecounter[filetype]["max"]))
                     break
 
             # check if > 25% of connections are down
@@ -1167,6 +1204,8 @@ class ConnectionThreads:
             for t, _ in self.threads:
                 t.bytesdownloaded = 0
                 t.last_timestamp = 0
+                t.bandwidth_bytes = 0
+                t.bandwidth_lasttt = 0
 
 
 def write_resultqueue_to_file(resultqueue, maindir, logger):
@@ -1343,7 +1382,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 nzboutqueue.get_nowait()
             except (queue.Empty, EOFError):
                 break
-        nzboutqueue.put(pwdb.db_nzb_getall_sorted())
+        all_sorted_nzbs = pwdb.db_nzb_getall_sorted()
+        nzboutqueue.put(all_sorted_nzbs)
 
         nzbname, downloaddata, return_reason, maindir = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
                                                                     overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist)
@@ -1351,6 +1391,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
         if stat0 == 2:
             if return_reason == "nzbs_reordered":
+                logger.info(lpref + whoami() + "NZBs have been reordered")
                 clear_download(articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 continue
             elif return_reason == "dl_stopped":
