@@ -1451,9 +1451,9 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 continue
 
         # if download success, postprocess
-        elif stat0 == 3:
+        '''elif stat0 == 3:
             logger.info(lpref + "postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             guiconnector.set_data(None, None, None, None)
-            pwdb.send_nzbqueue_to_gui(nzboutqueue)
+            pwdb.send_nzbqueue_to_gui(nzboutqueue)'''

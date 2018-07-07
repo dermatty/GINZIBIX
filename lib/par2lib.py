@@ -64,13 +64,17 @@ def check_for_par_filetype(fname):
         return -1
     # check if PAR 2.0\0Creator\0 in last 50 bytes
     # if not -> it's no par file
-    lastcontent = content[-50:]
+    if len(content) > 100:
+        cut0 = 100
+    else:
+        cut0 = len(content)
+    lastcontent = content[-cut0:]
     bstr0 = b"PAR 2.0\0Creator\0"
     if bstr0 not in lastcontent:
         return 0
     # check for PAR2\x00 in first 50 bytes
     # if no -> it's par2vol, else: could be par2
-    firstcontent = content[:100]
+    firstcontent = content[:cut0]
     bstr0 = b"PAR2\x00"             # PAR2\x00
     bstr1 = b"PAR 2.0\x00FileDesc"  # PAR 2.0\x00FileDesc'
     if bstr0 not in firstcontent:
@@ -275,3 +279,12 @@ def get_file_type(filename):
     else:
         filetype0 = "etc"
     return filetype0
+
+
+fn = "/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2"
+a = check_for_par_filetype(fn)
+print(a)
+
+#a = Par2File("/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2")
+#b = a.filenames()
+#print(b)
