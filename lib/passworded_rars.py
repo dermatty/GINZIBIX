@@ -5,15 +5,41 @@ import logging
 import logging.handlers
 import sys
 import glob
+from .par2lib import get_file_type
+
 
 lpref = __name__ + " - "
 
 
 def get_sorted_rar_list(directory):
     rarlist = []
-    for rarf in glob.glob(directory + "*.rar"):
-        gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
-        rarlist.append((int(gg.group().split(".")[0]), rarf))
+    minnr = -1000
+    for rarf in glob.glob(directory + "*"):
+        ftype = get_file_type(rarf)
+        # gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
+        if ftype == "rar":
+            # first the easy way: *.part01.rar
+            gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
+            if gg:
+                rarlist.append((int(gg.group().split(".")[0]), rarf))
+                continue
+            # then: only .rar
+            gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
+            if gg:
+                rarlist.append((minnr, rarf))
+                minnr += 1
+                continue
+            # then: ".r00"
+            gg = re.search(r"[.]r+[0-9]*", rarf, flags=re.IGNORECASE)
+            if gg:
+                try:
+                    nr = int(gg.group().split(".r")[-1])
+                    rarlist.append((nr, rarf))
+                except Exception as e:
+                    pass
+            # todo: then: ".rar01"
+
+            # rarlist.append((int(gg.group().split(".")[0]), rarf))
     rar_sortedlist = []
     if rarlist:
         rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
@@ -26,31 +52,38 @@ def is_rar_password_protected(directory, logger):
     #    0 ... is not a rar file
     #    -1 .. is not pw protected
     #    -2 .. no rars in dir!
+    #    -3 .. do restart (first volume in archive not found)
     cwd0 = os.getcwd()
     if directory[-1] != "/":
         directory += "/"
     rars = get_sorted_rar_list(directory)
     if not rars:
         return -2
-    rarname0 = rars[0][1]
-    rarname = rarname0.split("/")[-1]
     os.chdir(directory)
-    logger.info(lpref + "checking if rar is passworded")
-    gg = re.search(r"[.]rar$", rarname)
-    if not gg:
-        logger.info(lpref + rarname + "is not a rar file!")
-        return 0
-    ssh = subprocess.Popen(["unrar", "t", "-p-", rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-    ssherr = ssh.stderr.readlines()
-    is_pw_protected = False
-    for ss in ssherr:
-        ss0 = ss.decode("utf-8")
-        if "Corrupt file or wrong password" in ss0:
-            logger.info(rarname + " is password protected")
-            is_pw_protected = True
+    do_restart = False
+    for _, rarname0 in rars:
+        rarname = rarname0.split("/")[-1]
+        ssh = subprocess.Popen(["unrar", "t", "-p-", rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+        ssherr = ssh.stderr.readlines()
+        is_pw_protected = False
+        do_restart = False
+        for ss in ssherr:
+            ss0 = ss.decode("utf-8")
+            if "You need to start from a" in ss0:
+                do_restart = True
+                break
+            if "Corrupt file or wrong password" in ss0:
+                logger.info(rarname + " is password protected")
+                is_pw_protected = True
+                do_restart = False
+                break
+        if not do_restart:
             break
+
     os.chdir(cwd0)
-    if is_pw_protected:
+    if do_restart:
+        return -3
+    elif is_pw_protected:
         return 1
     else:
         return -1
@@ -131,7 +164,7 @@ if __name__ == "__main__":
     logger.addHandler(fh)
 
     # test if password protected
-    directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_unpack0"
+    directory = "/home/stephan/.ginzibix/incomplete/Captain.Underpants.Der.supertolle.erste.Film.2017.German.DTS.DL.720p.BluR{{HoU_uv68FZdz3s}}/_verifiedrars0"
     ipw = is_rar_password_protected(directory, logger)
     if ipw == 1:
         print("is pw protected!")
@@ -144,12 +177,12 @@ if __name__ == "__main__":
 
     if ipw != 1:
         sys.exit()
-    # try passwords
+    '''# try passwords
     directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_verifiedrars0"
     pw_file = "/home/stephan/.ginzibix/PW_2"
     nzbname0 = "therainS01E01.nzb"
     pw = get_password(directory, pw_file, nzbname0, logger)
-    print("Password: " + str(pw))
+    print("Password: " + str(pw))'''
 
     # test if password protected
     '''directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_unpack0"

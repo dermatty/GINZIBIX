@@ -86,10 +86,13 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             if pvmode == "verify" and not p2:
                 p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
             if pvmode == "verify" and p2:
-                for rar in glob.glob(renamed_dir + "*.rar"):
+                for rar in glob.glob(renamed_dir + "*"):
                     rar0 = rar.split("/")[-1]
                     f0 = pwdb.db_file_get_renamed(rar0)
+                    # print(f0.renamed_name, f0.ftype)
                     if not f0:
+                        continue
+                    if not f0.ftype == "rar":
                         continue
                     if pwdb.db_file_getparstatus(rar0) == 0 and f0.renamed_name != "N/A":
                         f_short = f0.renamed_name.split("/")[-1]

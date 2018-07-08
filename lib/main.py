@@ -457,37 +457,46 @@ class Downloader():
         infolist = infolist0
         bytescount0 = bytescount0_0
         article_count = 0
-        for j, file_articles in enumerate(reversed(filelist)):
-            # iterate over all articles in file
-            filename, age, filetype, nr_articles = file_articles[0]
-            # check if file already exists in "incomplete"
-            if filetype in ftypes:
-                level_servers = self.get_level_servers(age)
-                files[filename] = (nr_articles, age, filetype, False, True)
-                infolist[filename] = [None] * nr_articles
-                self.pwdb.db_file_update_status(filename, 1)   # status do downloading
-                for i, art0 in enumerate(file_articles):
-                    if i == 0:
-                        continue
-                    art_nr, art_name, art_bytescount = art0
-                    art_found = False
-                    if self.resqlist:
-                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, _ in self.resqlist:
-                            if art_name == art_name_r:
-                                art_found = True
-                                break
-                    if art_found:
-                        # put to resultqueue:
-                        self.logger.debug(lpref + "-----> " + art_name + " / " + str(fn_r))
-                        self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
-                    else:
-                        bytescount0 += art_bytescount
-                        q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
-                        self.articlequeue.put(q)
-                    article_count += 1
+        self.logger.debug("----- INFOLIST -----")
+        for f in ftypes:
+            for j, file_articles in enumerate(reversed(filelist)):
+                # iterate over all articles in file
+                filename, age, filetype, nr_articles = file_articles[0]
+                if filetype == f:
+                    level_servers = self.get_level_servers(age)
+                    files[filename] = (nr_articles, age, filetype, False, True)
+                    infolist[filename] = [None] * nr_articles
+                    self.pwdb.db_file_update_status(filename, 1)   # status do downloading
+                    bytescount_file = 0
+                    for i, art0 in enumerate(file_articles):
+                        if i == 0:
+                            continue
+                        art_nr, art_name, art_bytescount = art0
+                        art_found = False
+                        if self.resqlist:
+                            for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, _ in self.resqlist:
+                                if art_name == art_name_r:
+                                    art_found = True
+                                    break
+                        if art_found:
+                            # put to resultqueue:
+                            self.logger.debug(lpref + "-----> " + art_name + " / " + str(fn_r))
+                            self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
+                        else:
+                            bytescount0 += art_bytescount
+                            bytescount_file += art_bytescount
+                            q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
+                            self.articlequeue.put(q)
+                        article_count += 1
+                    self.logger.debug("------ " + filename + " " + str(filetype) + " " + str(bytescount_file / (1024 * 1024 * 1024)))
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
-        self.logger.debug("Art. Count: " + str(article_count))
         return files, infolist, bytescount0, article_count
+
+    def all_queues_are_empty(self):
+        articlequeue_empty = self.articlequeue.empty()
+        resultqueue_empty = self.resultqueue.empty()
+        mpworkqueue_empty = self.mp_work_queue.empty()
+        return (articlequeue_empty and resultqueue_empty and mpworkqueue_empty)
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):
         # read resultqueue + distribute to files
@@ -577,6 +586,7 @@ class Downloader():
     def postprocess_nzb(self, nzbname, downloaddata):
         self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing")
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
+        
         while True:
             try:
                 self.articlequeue.get_nowait()
@@ -815,6 +825,9 @@ class Downloader():
 
     # main download routine
     def download(self, allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist):
+        # for filetype, item in filetypecounter.items():
+        #    print(filetype, item)
+
         self.logger.info(lpref + "downloading " + nzbname)
         self.pwdb.log(nzbname, lpref + "starting download", "info", self.logger)
 
@@ -846,10 +859,10 @@ class Downloader():
         if filetypecounter["par2"]["max"] > 0 and filetypecounter["par2"]["max"] > filetypecounter["par2"]["counter"]:
             inject_set0 = ["par2"]
         elif self.pwdb.db_nzb_loadpar2vols(nzbname):
-            inject_set0 = ["par2vol", "rar", "sfv", "nfo", "etc"]
+            inject_set0 = ["etc", "par2vol", "rar", "sfv", "nfo"]
             loadpar2vols = True
         else:
-            inject_set0 = ["rar", "sfv", "nfo", "etc"]
+            inject_set0 = ["etc", "sfv", "nfo", "rar"]
         self.logger.info(lpref + "Overall_Size: " + str(overall_size) + ", incl. par2vols: " + str(overall_size_wparvol))
 
         # make dirs
@@ -906,6 +919,7 @@ class Downloader():
         self.ct.reset_timestamps()
 
         # download loop until articles downloaded
+        oldrarcounter = 0
         while True:
 
             # check if dl_stopped or nzbs_reordered signal received from gui
@@ -938,6 +952,7 @@ class Downloader():
                         filetypecounter[filetype]["filelist"].append(filename)
                         filetypecounter[old_filetype]["max"] -= 1
                         filetypecounter[filetype]["counter"] += 1
+                        filetypecounter[filetype]["max"] += 1
                         filetypecounter[filetype]["loadedfiles"].append((filename, full_filename))
                         # update allfileslist
                         for i, o_lists in enumerate(allfileslist):
@@ -953,7 +968,7 @@ class Downloader():
                         self.logger.info(lpref + "found first par2 file")
                     if inject_set0 == ["par2"] and (filetype == "par2" or filetypecounter["par2"]["max"] == 0):
                         self.logger.debug(lpref + "injecting rars etc.")
-                        inject_set0 = ["rar", "sfv", "nfo", "etc"]
+                        inject_set0 = ["etc", "sfv", "nfo", "rar"]
                         files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, allfileslist, files, infolist, bytescount0)
                         bytescount0 += bytescount00
                         article_count += article_count0
@@ -976,12 +991,22 @@ class Downloader():
                     bytescount0 += bytescount00
                     article_count += article_count0
 
-            if filetypecounter["rar"]["counter"] >= 1 and not self.pwdb.db_nzb_get_ispw(nzbname) and not self.mpp["unrarer"]:
+            # check if unrarer is dead due to wrong rar on start
+            if self.mpp["unrarer"] and self.pwdb.db_nzb_get_unrarstatus(nzbname) == -2:
+                self.mpp["unrarer"] = None
+                self.sighandler.mpp = self.mpp
+
+            if self.mpp["verifier"] and self.pwdb.db_nzb_get_verifystatus(nzbname) == 2:
+                self.mpp["verifier"] = None
+                self.sighandler.mpp = self.mpp
+
+            if not self.mpp["unrarer"] and filetypecounter["rar"]["counter"] > oldrarcounter and not self.pwdb.db_nzb_get_ispw(nzbname):
                 # testing if pw protected
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
                 # if no rar files in verified_rardir: skip as we cannot test for password
                 if rf:
-                    self.logger.info(lpref + "first verified rar file appeared, testing if pw protected")
+                    oldrarcounter = filetypecounter["rar"]["counter"]
+                    self.logger.debug(lpref + whoami() + ": first/new verified rar file appeared, testing if pw protected")
                     is_pwp = is_rar_password_protected(self.verifiedrar_dir, self.logger)
                     if is_pwp in [0, -2]:
                         self.logger.warning(lpref + "cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
@@ -996,7 +1021,7 @@ class Downloader():
                         # if pw protected -> postpone password test + unrar
                         self.pwdb.db_nzb_set_ispw(nzbname, True)
                         self.logger.info(lpref + "rar archive is pw protected, postponing unrar to postprocess ...")
-                    else:
+                    elif is_pwp == -1:
                         # if not pw protected -> normal unrar
                         self.logger.info(lpref + "rar archive is not pw protected, starting unrarer ...")
                         self.pwdb.db_nzb_set_ispw(nzbname, False)
@@ -1005,23 +1030,28 @@ class Downloader():
                         self.mpp_unrarer.start()
                         self.mpp["unrarer"] = self.mpp_unrarer
                         self.sighandler.mpp = self.mpp
+                    elif is_pwp == -3:
+                        self.logger.info(lpref + whoami() + ": cannot check for pw protection as first rar not present yet")
                 else:
                     self.logger.debug(lpref + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
 
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.mpp["verifier"]:
-                pvmode = None
-                if p2:
-                    pvmode = "verify"
-                elif not p2 and filetypecounter["par2"]["max"] == 0:
-                    pvmode = "copy"
-                if pvmode:
-                    self.logger.debug(lpref + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
-                    self.mpp_verifier = mp.Process(target=par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
-                                                                              self.main_dir, self.logger, self.pwdb, nzbname, pvmode, ))
-                    self.mpp_verifier.start()
-                    self.mpp["verifier"] = self.mpp_verifier
-                    self.sighandler.mpp = self.mpp
+                # todo: check if all rars are verified
+                all_rars_are_verified, _ = self.pwdb.db_only_verified_rars(nzbname)
+                if not all_rars_are_verified:
+                    pvmode = None
+                    if p2:
+                        pvmode = "verify"
+                    elif not p2 and filetypecounter["par2"]["max"] == 0:
+                        pvmode = "copy"
+                    if pvmode:
+                        self.logger.debug(lpref + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
+                        self.mpp_verifier = mp.Process(target=par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
+                                                                                  self.main_dir, self.logger, self.pwdb, nzbname, pvmode, ))
+                        self.mpp_verifier.start()
+                        self.mpp["verifier"] = self.mpp_verifier
+                        self.sighandler.mpp = self.mpp
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
@@ -1058,23 +1088,30 @@ class Downloader():
             except Exception as e:
                 self.logger.warning(lpref + "set_data error " + str(e))
 
-            # if all downloaded postprocess
+            # check if all files are downloaded
             getnextnzb = True
             for filetype, item in filetypecounter.items():
                 if filetype == "par2vol" and not loadpar2vols:
                     continue
                 if filetypecounter[filetype]["counter"] < filetypecounter[filetype]["max"]:
                     getnextnzb = False
-                    # self.logger.debug(lpref + "--- " + filetype + ": " + str(filetypecounter[filetype]["counter"]) + " / "
-                    #                   + str(filetypecounter[filetype]["max"]))
                     break
-            # if first check for complete download ok: now check if all filenames correct
-            
+
+            # if all files are downloaded and still articles in queue --> inconsistency, exit!
+            if getnextnzb and not self.all_queues_are_empty:
+                self.pwdb.db_nzb_update_status(nzbname, -2)
+                self.logger.warning(lpref + whoami() + ": records say dl is done, but still some articles in queue, exiting ...")
+                self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
+                                            article_health, overall_size, already_downloaded_size), self.ct.threads,
+                                           self.ct.servers.server_config, "failed")
+                return_reason = "dl_failed"
+                return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                  overall_size, already_downloaded_size)), return_reason, self.main_dir
 
             # check if > 25% of connections are down
-            if self.connection_thread_health() < 0.75:
+            if self.connection_thread_health() < 0.65:
                 # self.logger.debug(lpref + ">>>> " + str(self.connection_thread_health()))
-                self.logger.info(lpref + "connections are unstable, restarting")
+                self.logger.info(lpref + whoami() + "connections are unstable, restarting")
                 # clear article queue
                 remainingarticles = []
                 self.logger.debug(lpref + "clearing articlequeue")
@@ -1451,9 +1488,14 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 continue
 
         # if download success, postprocess
-        '''elif stat0 == 3:
-            logger.info(lpref + "postprocessing NZB " + nzbname)
+        elif stat0 == 3:
+            logger.info(lpref + whoami() + ": postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             guiconnector.set_data(None, None, None, None)
-            pwdb.send_nzbqueue_to_gui(nzboutqueue)'''
+            pwdb.send_nzbqueue_to_gui(nzboutqueue)
+        elif stat0 == -2:
+            logger.info(lpref + whoami() + ": download failed for NZB " + nzbname)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+            guiconnector.set_data(None, None, None, None)
+            pwdb.send_nzbqueue_to_gui(nzboutqueue)

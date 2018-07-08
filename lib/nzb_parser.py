@@ -65,6 +65,7 @@ def decompose_nzb(nzb, logger):
         for s in r:
             filelist = []
             segfound = True
+            filelist_numbers = []
             for i, r0 in enumerate(s):
                 if r0.tag[-5:] == "group":
                     segfound = False
@@ -72,7 +73,9 @@ def decompose_nzb(nzb, logger):
                 nr0 = r0.attrib["number"]
                 filename = "<" + r0.text + ">"
                 bytescount = int(r0.attrib["bytes"])
-                bytescount0 += bytescount
+                if int(nr0) not in filelist_numbers:
+                    bytescount0 += bytescount
+                filelist_numbers.append(int(nr0))
                 filelist.append((filename, int(nr0), bytescount))
             i -= 1
             if segfound:

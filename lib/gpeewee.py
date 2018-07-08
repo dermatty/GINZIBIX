@@ -40,6 +40,9 @@ class PWDB:
             class Meta:
                 database = self.db
 
+        class CONFIG(BaseModel):
+            connection_health_threshold = IntegerField(default=65)
+
         class MSG(BaseModel):
             nzbname = CharField()
             timestamp = TimeField()
@@ -66,6 +69,7 @@ class PWDB:
             #    1 ... unrar running
             #    2 ... unrar done + success
             #    -1 .. unrar done + failure
+            #    -2 .. unrar needs to start from a previous volume
             unrar_status = IntegerField(default=0)
             # verify_status:
             #    0 ... idle / not started
@@ -497,6 +501,14 @@ class PWDB:
         try:
             query = self.FILE.get(self.FILE.renamed_name == filename)
             return query.parverify_state
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            return None
+
+    def db_file_get_orig_filetype(self, filename):
+        try:
+            query = self.FILE.get(self.FILE.orig_name == filename)
+            return query.ftype
         except Exception as e:
             self.logger.warning(lpref + str(e))
             return None

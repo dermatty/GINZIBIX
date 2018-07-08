@@ -85,6 +85,22 @@ def check_for_par_filetype(fname):
         return 2
 
 
+def check_for_rar_filetype(fname):
+    # return: 1 ... rar file
+    #         0 ... no rar file
+    #         -1 .. file no exist err.
+    try:
+        with open(fname, "rb") as f:
+            content = f.read()
+    except Exception as e:
+        return -1
+    firstcontent = content[:20]
+    bstr0 = b"Rar!"
+    if bstr0 in firstcontent:
+        return 1
+    return 0
+
+
 signatures = {
     'par2': 'PAR2\x00',
     'zip': 'PK\x03\x04',  # empty is \x05\x06, multi-vol is \x07\x08
@@ -218,6 +234,10 @@ class Par2File(object):
             offset += header.length
         return packets
 
+    def filenames_only(self):
+        """Returns the filenames that this par2 file repairs."""
+        return [p.name.decode("utf-8") for p in self.packets if isinstance(p, FileDescriptionPacket)]
+
     def filenames(self):
         """Returns the filenames that this par2 file repairs."""
         return [(p.name.decode("utf-8"), p.file_hashfull) for p in self.packets if isinstance(p, FileDescriptionPacket)]
@@ -265,6 +285,8 @@ def calc_file_md5hash_16k(fn):
 
 
 def get_file_type(filename):
+    if check_for_rar_filetype(filename) == 1:
+        return "rar"
     if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
         filetype0 = "rar"
     elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE) or re.search(r"[.]nfo.txt$", filename, flags=re.IGNORECASE):
@@ -281,9 +303,9 @@ def get_file_type(filename):
     return filetype0
 
 
-fn = "/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2"
-a = check_for_par_filetype(fn)
-print(a)
+#fn = "/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2"
+#a = check_for_par_filetype(fn)
+#print(a)
 
 #a = Par2File("/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2")
 #b = a.filenames()

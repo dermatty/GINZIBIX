@@ -82,11 +82,12 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
     if not_renamed_par2list:
         for pname, ptype, phash in not_renamed_par2list:
             pp = (pname, phash)
+            oldft = pwdb.db_file_get_orig_filetype(pname)
             if ptype == "par2":
                 shutil.copyfile(source_dir + pname, dest_dir + pname)
                 pwdb.db_file_set_renamed_name(pname, pname)
                 pwdb.db_file_set_file_type(pname, "par2")
-                mp_result_queue.put((pname, dest_dir + pname, "par2", pname, get_file_type(pname)))
+                mp_result_queue.put((pname, dest_dir + pname, "par2", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
@@ -99,7 +100,7 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 shutil.copyfile(source_dir + pname, dest_dir + pname2)
                 pwdb.db_file_set_renamed_name(pname, pname2)
                 pwdb.db_file_set_file_type(pname, "par2vol")
-                mp_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, get_file_type(pname)))
+                mp_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
@@ -123,9 +124,10 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                 else:
                     shutil.copyfile(source_dir + a_name, dest_dir + a_name)
                     r_name = a_name
+                oldft = pwdb.db_file_get_orig_filetype(a_name)
                 pwdb.db_file_set_renamed_name(a_name, r_name)
                 pwdb.db_file_set_file_type(a_name, "rar")
-                mp_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, get_file_type(a_name)))
+                mp_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
                 # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
                 os.remove(source_dir + a_name)
                 notrenamedfiles.remove(pp)
