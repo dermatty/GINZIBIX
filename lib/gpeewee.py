@@ -26,13 +26,8 @@ def lists_are_equal(list1, list2):
 
 
 class PWDB:
-    def __init__(self, logger):
-        maindir = os.environ.get("GINZIBIX_MAINDIR")
-        if not maindir:
-            userhome = expanduser("~")
-            maindir = userhome + "/.ginzibix/"
-        if maindir[-1] != "/":
-            maindir += "/"
+    def __init__(self, dirs, logger):
+        maindir = dirs["main"]
         self.db = SqliteDatabase(maindir + "ginzibix.db")
         self.logger = logger
 
@@ -582,8 +577,9 @@ class PWDB:
         self.db.drop_tables(self.tablelist)
 
     # ---- set new prios acc. to nzb list ----
-    def set_nzbs_prios(self, new_nzb_list):
+    def set_nzbs_prios(self, new_nzb_list, delete=False):
         oldnzb_0 = self.NZB.select().order_by(self.NZB.priority)[0]
+
         first_has_changed = True
         if oldnzb_0.name == new_nzb_list[0]:
             first_has_changed = False
@@ -591,6 +587,18 @@ class PWDB:
         old_nzb_list = []
         for n in self.NZB.select().order_by(self.NZB.priority):
             old_nzb_list.append(n.name)
+
+        del_nzb_name = None
+        if delete:
+            del_nzb_name = None
+            del_nzb_index = -1
+            for i, onzb in enumerate(old_nzb_list):
+                if onzb not in new_nzb_list:
+                    del_nzb_name = onzb
+                    del_nzb_index = i
+                    break
+            if del_nzb_name:
+                del old_nzb_list[del_nzb_index]
 
         mi_overflow = 1
         for i, onzb in enumerate(old_nzb_list):
@@ -601,7 +609,7 @@ class PWDB:
                 mi_overflow += 1
             query = self.NZB.update(priority=matchidx+1).where(self.NZB.name == onzb)
             query.execute()
-        return first_has_changed
+        return first_has_changed, del_nzb_name
 
     # ---- send nzbqueue to gui ----
     def send_nzbqueue_to_gui(self, nzbqueue):

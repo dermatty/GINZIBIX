@@ -197,9 +197,10 @@ class NZBHandler(logging.Handler):
 
 
 class GUI_Connector(Thread):
-    def __init__(self, pwdb, lock, nzboutqueue, logger, port="36603"):
+    def __init__(self, pwdb, lock, nzboutqueue, dirs, logger, port="36603"):
         Thread.__init__(self)
         self.daemon = True
+        self.dirs = dirs
         self.pwdb = pwdb
         self.port = port
         self.data = None
@@ -216,6 +217,7 @@ class GUI_Connector(Thread):
         self.dl_running = True
         self.status = "idle"
         self.first_has_changed = False
+        self.deleted_nzb_name = None
         self.old_t = 0
         self.oldbytes0 = 0
         self.send_data = True
@@ -281,6 +283,11 @@ class GUI_Connector(Thread):
         self.first_has_changed = False
         return res
 
+    def has_nzb_been_deleted(self):
+        res = self.deleted_nzb_name
+        self.deleted_nzb_name = None
+        return res
+
     def run(self):
         while True:
             try:
@@ -326,20 +333,35 @@ class GUI_Connector(Thread):
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
                 continue
+            elif msg == "SET_DELETE":
+                try:
+                    self.socket.send_pyobj(("SET_DELETE_OK", None))
+                    first_has_changed0, deleted_nzb_name0 = self.pwdb.set_nzbs_prios(datarec, delete=True)
+                    if deleted_nzb_name0:
+                        nzbdirname = re.sub(r"[.]nzb$", "", self.nzb, flags=re.IGNORECASE) + "/"
+                        # delete nzb from .ginzibix/nzb0
+                        try:
+                            os.remove(self.dirs["incomplete"] + nzbdirname + deleted_nzb_name0)
+                            self.logger.debug(lpref + whoami() + ": deleted NZB " + deleted_nzb_name0 + " from NZB dir")
+                        except Exception as e:
+                            self.logger.debug(lpref + whoami() + str(e))
+                        # remove from db
+                        self.pwdb.db_nzb_delete(deleted_nzb_name0)
+                        # remove incomplete/$nzb_name
+                        try:
+                            shutil.rmtree(self.dirs["incomplete"] + nzbdirname)
+                            self.logger.debug(lpref + whoami() + ": deleted incomplete dir for " + deleted_nzb_name0)
+                        except Exception as e:
+                            self.logger.debug(lpref + whoami() + str(e))
+                except Exception as e:
+                    self.logger.error("GUI_Connector: " + str(e))
+                self.first_has_changed = first_has_changed0
+                self.deleted_nzb_name = deleted_nzb_name0
+                continue
             elif msg == "SET_NZB_ORDER":
                 try:
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
-                    self.first_has_changed = self.pwdb.set_nzbs_prios(datarec)
-                    # clear nzboutqueue
-                    while True:
-                        try:
-                            self.nzboutqueue.get_nowait()
-                        except (queue.Empty, EOFError):
-                            break
-                    # only refresh now if first has not changed, else: stop all, reorder, restart
-                    if not self.first_has_changed:
-                        all_sorted_nzbs = self.pwdb.db_nzb_getall_sorted()
-                        self.nzboutqueue.put(all_sorted_nzbs)
+                    self.first_has_changed, _ = self.pwdb.set_nzbs_prios(datarec, delete=False)
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
                 continue
@@ -926,7 +948,7 @@ class Downloader():
             return_reason = None
             with self.guiconnector.lock:
                 if not self.guiconnector.dl_running:
-                    return_reason = "dl_stopped"
+                    return_reason = "dl_stopped"                    
                 if self.guiconnector.has_first_nzb_changed():
                     self.logger.debug(lpref + whoami() + "NZBs have been reorderd, exiting download loop")
                     return_reason = "nzbs_reordered"
@@ -1427,7 +1449,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     try:
         logger.debug(lpref + "starting guiconnector process ...")
         lock = threading.Lock()
-        guiconnector = GUI_Connector(pwdb, lock, nzboutqueue, logger, port="36603")
+        guiconnector = GUI_Connector(pwdb, lock, nzboutqueue, dirs, logger, port="36603")
         guiconnector.start()
         logger.debug(lpref + "guiconnector process started!")
     except Exception as e:

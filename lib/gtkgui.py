@@ -90,6 +90,7 @@ class AppData:
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
         self.dl_running = True
+        self.nzb_deleted = False
         self.order_changed = False
         self.mbit_min = 0
         self.mbit_max = 150
@@ -365,30 +366,40 @@ class AppWindow(Gtk.ApplicationWindow):
             self.appdata.nzbs = newnzbs[:]
             self.update_liststore()
             self.toggle_buttons()
-            self.appdata.order_changed = True
+            self.appdata.nzb_deleted = True
 
     def on_buttonup_clicked(self, button):
+        do_update_dldata = False
         with self.lock:
             ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
             for i, r in ros:
+                if i == 1:
+                    do_update_dldata = True
                 if i == 0:
                     break
                 oldval = self.appdata.nzbs[i - 1]
                 self.appdata.nzbs[i - 1] = r
                 self.appdata.nzbs[i] = oldval
-            # self.update_liststore()
+            self.update_liststore()
+            if do_update_dldata:
+                self.update_liststore_dldata()
             self.appdata.order_changed = True
 
     def on_buttondown_clicked(self, button):
+        do_update_dldata = False
         with self.lock:
             ros = [(i, self.appdata.nzbs[i]) for i, ro in enumerate(self.liststore) if ro[6]]
             for i, r in reversed(ros):
+                if i == 0:
+                    do_update_dldata = True
                 if i == len(self.appdata.nzbs) - 1:
                     break
                 oldval = self.appdata.nzbs[i + 1]
                 self.appdata.nzbs[i + 1] = r
                 self.appdata.nzbs[i] = oldval
-            # self.update_liststore()
+            self.update_liststore()
+            if do_update_dldata:
+                self.update_liststore_dldata()
             self.appdata.order_changed = True
 
     def on_buttonfullup_clicked(self, button):
@@ -401,7 +412,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 if not ro[6]:
                     newnzbs.append(self.appdata.nzbs[i])
             self.appdata.nzbs = newnzbs[:]
-            # self.update_liststore()
+            self.update_liststore()
+            self.update_liststore_dldata()
             self.appdata.order_changed = True
 
     def on_buttonfulldown_clicked(self, button):
@@ -414,7 +426,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 if ro[6]:
                     newnzbs.append(self.appdata.nzbs[i])
             self.appdata.nzbs = newnzbs[:]
-            # self.update_liststore()
+            self.update_liststore()
+            self.update_liststore_dldata()
             self.appdata.order_changed = True
 
     def on_inverted_toggled(self, widget, path):
@@ -783,6 +796,7 @@ class GUI_Poller(Thread):
             with self.lock:
                 dl_running_new = self.appdata.dl_running
                 order_changed = self.appdata.order_changed
+                nzb_deleted = self.appdata.order_changed
             # if download state switched -> send to main.py
             if dl_running_new != dl_running:
                 dl_running = dl_running_new
@@ -805,6 +819,16 @@ class GUI_Poller(Thread):
                     except Exception as e:
                         self.logger.error("GUI_ConnectorMain: " + str(e))
                     self.appdata.order_changed = False
+            elif nzb_deleted:
+                with self.lock:
+                    msg0 = "SET_DELETE"
+                    orderednzbs = [nzb[0] for nzb in self.appdata.nzbs]
+                    try:
+                        self.socket.send_pyobj((msg0, orderednzbs))
+                        datatype, datarec = self.socket.recv_pyobj()
+                    except Exception as e:
+                        self.logger.error("GUI_ConnectorMain: " + str(e))
+                    self.appdata.nzb_deleted = False
             else:
                 try:
                     self.socket.send_pyobj(("REQ", None))

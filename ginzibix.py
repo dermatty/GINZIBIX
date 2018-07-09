@@ -74,7 +74,7 @@ if __name__ == '__main__':
     logger.addHandler(fh)
 
     # init peewee db
-    pwdb = lib.PWDB(logger)
+    pwdb = lib.PWDB(dirs, logger)
 
     # init download threads
     articlequeue = queue.LifoQueue()
