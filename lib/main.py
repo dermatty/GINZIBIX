@@ -1468,8 +1468,18 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 while True:
                     dobreak = False
                     with guiconnector.lock:
-                        if guiconnector.dl_running or guiconnector.has_first_nzb_changed():
+                        if guiconnector.dl_running:
                             dobreak = True
+                        if guiconnector.has_first_nzb_changed():
+                            # clear nzboutqueue
+                            while True:
+                                try:
+                                    nzboutqueue.get_nowait()
+                                except (queue.Empty, EOFError):
+                                    break
+                            # only refresh now if first has not changed, else: stop all, reorder, restart
+                            all_sorted_nzbs = pwdb.db_nzb_getall_sorted()
+                            nzboutqueue.put(all_sorted_nzbs)
                     if dobreak:
                         break
                     time.sleep(1)

@@ -764,7 +764,7 @@ class GUI_Poller(Thread):
         self.lock = lock
         self.data = None
         self.nzbname = None
-        self.delay = 1
+        self.delay = 0.5
         self.appdata = appdata
         self.update_mainwindow_dl = update_mainwindow_dl
         self.update_mainwindow_sortednzbs = update_mainwindow_sortednzbs
