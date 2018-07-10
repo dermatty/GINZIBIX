@@ -796,7 +796,7 @@ class GUI_Poller(Thread):
             with self.lock:
                 dl_running_new = self.appdata.dl_running
                 order_changed = self.appdata.order_changed
-                nzb_deleted = self.appdata.order_changed
+                nzb_deleted = self.appdata.nzb_deleted
             # if download state switched -> send to main.py
             if dl_running_new != dl_running:
                 dl_running = dl_running_new

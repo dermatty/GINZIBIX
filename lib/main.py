@@ -38,6 +38,24 @@ def whoami():
     return str(inspect.getouterframes(inspect.currentframe())[1].function)
 
 
+def remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger):
+    nzbdirname = re.sub(r"[.]nzb$", "", deleted_nzb_name0, flags=re.IGNORECASE) + "/"
+    # delete nzb from .ginzibix/nzb0
+    try:
+        os.remove(dirs["nzb"] + deleted_nzb_name0)
+        logger.debug(lpref + whoami() + ": deleted NZB " + deleted_nzb_name0 + " from NZB dir")
+    except Exception as e:
+        logger.debug(lpref + whoami() + str(e))
+    # remove from db
+    pwdb.db_nzb_delete(deleted_nzb_name0)
+    # remove incomplete/$nzb_name
+    try:
+        shutil.rmtree(dirs["incomplete"] + nzbdirname)
+        logger.debug(lpref + whoami() + ": deleted incomplete dir for " + deleted_nzb_name0)
+    except Exception as e:
+        logger.debug(lpref + whoami() + str(e))
+
+
 class SigHandler_Main:
 
     def __init__(self, mpp, ct, mp_work_queue, resultqueue, articlequeue, pwdb, logger):
@@ -283,9 +301,10 @@ class GUI_Connector(Thread):
         self.first_has_changed = False
         return res
 
-    def has_nzb_been_deleted(self):
+    def has_nzb_been_deleted(self, delete=False):
         res = self.deleted_nzb_name
-        self.deleted_nzb_name = None
+        if delete:
+            self.deleted_nzb_name = None
         return res
 
     def run(self):
@@ -324,52 +343,39 @@ class GUI_Connector(Thread):
                     with self.lock:
                         self.dl_running = False
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.error(lpref + whoami() + ": " + str(e))
                 continue
             elif msg == "SET_RESUME":    # resume downloads
                 try:
                     self.socket.send_pyobj(("SET_RESUME_OK", None))
                     self.dl_running = True
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.error(lpref + whoami() + ": " + str(e))
                 continue
             elif msg == "SET_DELETE":
                 try:
                     self.socket.send_pyobj(("SET_DELETE_OK", None))
                     first_has_changed0, deleted_nzb_name0 = self.pwdb.set_nzbs_prios(datarec, delete=True)
-                    if deleted_nzb_name0:
-                        nzbdirname = re.sub(r"[.]nzb$", "", self.nzb, flags=re.IGNORECASE) + "/"
-                        # delete nzb from .ginzibix/nzb0
-                        try:
-                            os.remove(self.dirs["incomplete"] + nzbdirname + deleted_nzb_name0)
-                            self.logger.debug(lpref + whoami() + ": deleted NZB " + deleted_nzb_name0 + " from NZB dir")
-                        except Exception as e:
-                            self.logger.debug(lpref + whoami() + str(e))
-                        # remove from db
-                        self.pwdb.db_nzb_delete(deleted_nzb_name0)
-                        # remove incomplete/$nzb_name
-                        try:
-                            shutil.rmtree(self.dirs["incomplete"] + nzbdirname)
-                            self.logger.debug(lpref + whoami() + ": deleted incomplete dir for " + deleted_nzb_name0)
-                        except Exception as e:
-                            self.logger.debug(lpref + whoami() + str(e))
+                    if deleted_nzb_name0 and not first_has_changed0:
+                        remove_nzb_files_and_db(deleted_nzb_name0, self.dirs, self.pwdb, self.logger)
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
-                self.first_has_changed = first_has_changed0
-                self.deleted_nzb_name = deleted_nzb_name0
+                    self.logger.error(lpref + whoami() + ": " + str(e))
+                if first_has_changed0:
+                    self.first_has_changed = first_has_changed0
+                    self.deleted_nzb_name = deleted_nzb_name0
                 continue
             elif msg == "SET_NZB_ORDER":
                 try:
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
                     self.first_has_changed, _ = self.pwdb.set_nzbs_prios(datarec, delete=False)
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.error(lpref + whoami() + ": " + str(e))
                 continue
             else:
                 try:
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.error(lpref + whoami() + ": " + str(e))
                 continue
 
 
@@ -948,10 +954,14 @@ class Downloader():
             return_reason = None
             with self.guiconnector.lock:
                 if not self.guiconnector.dl_running:
-                    return_reason = "dl_stopped"                    
+                    return_reason = "dl_stopped"
                 if self.guiconnector.has_first_nzb_changed():
-                    self.logger.debug(lpref + whoami() + "NZBs have been reorderd, exiting download loop")
-                    return_reason = "nzbs_reordered"
+                    if not self.guiconnector.has_nzb_been_deleted():
+                        self.logger.debug(lpref + whoami() + "NZBs have been reorderd, exiting download loop")
+                        return_reason = "nzbs_reordered"
+                    else:
+                        self.logger.debug(lpref + whoami() + "NZBs have been deleted, exiting download loop")
+                        return_reason = "nzbs_deleted"
             if return_reason:
                 return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                   overall_size, already_downloaded_size)), return_reason, self.main_dir
@@ -1189,6 +1199,7 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
+        print(logger.debug("polling for 30 sec. for new NZB before closing connections if alive ..."))
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = make_allfilelist_inotify(pwdb, dirs, logger, 30 * 1000)
         if not nzbname:
@@ -1202,6 +1213,7 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
                 ct.threads = []
                 del ct.servers
             logger.debug(lpref + "polling for new NZBs now in blocking mode!")
+            print(logger.debug(lpref + "polling for new NZBs now in blocking mode!"))
             try:
                 allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
@@ -1464,8 +1476,10 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             if not guiconnector.dl_running:
                 time.sleep(1)
                 continue
+        print("1" * 80)
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = get_next_nzb(pwdb, dirs, ct, nzboutqueue, logger)
+        print("2" * 80)
         ct.reset_timestamps_bdl()
         if not nzbname:
             break
@@ -1480,6 +1494,12 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 logger.info(lpref + whoami() + "NZBs have been reordered")
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 continue
+            elif return_reason == "nzbs_deleted":
+                logger.info(lpref + whoami() + "NZBs have been deleted")
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
+                remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
+                continue
             elif return_reason == "dl_stopped":
                 logger.info(lpref + "download paused")
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
@@ -1493,6 +1513,9 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                         if guiconnector.dl_running:
                             dobreak = True
                         if guiconnector.has_first_nzb_changed():
+                            deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
+                            if deleted_nzb_name0:
+                                remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
                             # clear nzboutqueue
                             while True:
                                 try:

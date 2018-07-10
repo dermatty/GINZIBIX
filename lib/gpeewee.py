@@ -778,8 +778,9 @@ class PWDB:
     #      to download threads
     def make_allfilelist(self, dir0, nzbdir):
         try:
-            nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
-                                          | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+            with self.db.atomic():
+                nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
+                                              | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
             return None, None, None, None, None, None, None, None
@@ -951,8 +952,6 @@ if __name__ == "__main__":
 
     import logging
     import logging.handlers
-
-
 
     logger = logging.getLogger("ginzibix")
     logger.setLevel(logging.DEBUG)
