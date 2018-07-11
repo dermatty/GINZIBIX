@@ -35,7 +35,11 @@ _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
 
 
 def whoami():
-    return str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + " - " + outer_func_name + " / #" + outer_func_linenr + ": "
+    # return str(inspect.getouterframes(inspect.currentframe())[1].function)
 
 
 def remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger):
@@ -1188,8 +1192,22 @@ class Downloader():
 
 
 def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
-    # pwdb.send_nzbqueue_to_gui(nzbqueue)
-    # wait for new nzbs to arrive
+    # waiting for nzb_parser to insert all nzbs in nzbdir into db
+    try:
+        nzbs_in_nzbdirs = [n.split("/")[-1] for n in glob.glob(dirs["nzb"] + "*")]
+        if nzbs_in_nzbdirs:
+            while True:
+                all_nzbs_exist_in_db = True
+                for n in nzbs_in_nzbdirs:
+                    if not pwdb.db_nzb_exists(n):
+                        all_nzbs_exist_in_db = False
+                        break
+                if all_nzbs_exist_in_db:
+                    break
+                time.sleep(1)
+    except Exception as e:
+        logger.error(whoami() + str(e))
+
     logger.debug(lpref + "looking for new NZBs ...")
     try:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
@@ -1444,7 +1462,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
-    logger.debug(lpref + "initializing sighandler")
+    logger.debug(whoami() + "initializing sighandler")
     mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None}
     sh = SigHandler_Main(mpp, ct, mp_work_queue, resultqueue, articlequeue, pwdb, logger)
     signal.signal(signal.SIGINT, sh.sighandler)
@@ -1476,10 +1494,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             if not guiconnector.dl_running:
                 time.sleep(1)
                 continue
-        print("1" * 80)
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = get_next_nzb(pwdb, dirs, ct, nzboutqueue, logger)
-        print("2" * 80)
         ct.reset_timestamps_bdl()
         if not nzbname:
             break
