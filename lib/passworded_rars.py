@@ -72,7 +72,7 @@ def is_rar_password_protected(directory, logger):
             if "You need to start from a" in ss0:
                 do_restart = True
                 break
-            if "Corrupt file or wrong password" in ss0:
+            if "Corrupt file or wrong password" in ss0 or "password is incorrect" in ss0:
                 logger.info(rarname + " is password protected")
                 is_pw_protected = True
                 do_restart = False
@@ -89,7 +89,7 @@ def is_rar_password_protected(directory, logger):
         return -1
 
 
-def get_password(directory, pw_file, nzbname0, logger):
+def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     if directory[-1] != "/":
         directory += "/"
     rars = get_sorted_rar_list(directory)
@@ -98,6 +98,17 @@ def get_password(directory, pw_file, nzbname0, logger):
     rarname0 = rars[0][1]
     rarname = rarname0.split("/")[-1]
     nzbname = nzbname0.split(".nzb")[0]
+ 
+    if get_pw_direct:
+        gg = re.search(r"}}.nzb$", nzbname0, flags=re.IGNORECASE)
+        if gg:
+            try:
+                PW = nzbname0[:gg.start()].split("{{")[-1]
+                return PW    # to do: check password
+            except Exception as e:
+                logger.debug(str(e) + ": cannot get pw from nzb string")
+        logger.debug("Cannot get pw from nzb string")
+    
     # PW file format:
     #  a)  pw
     #      pw

@@ -103,7 +103,7 @@ def partial_unrar(directory, unpack_dir, pwdb, nzbname, logger, password):
             str0 = ""
             while True:
                 try:
-                    a = child.read_nonblocking().decode("utf-8")
+                    a = child.read_nonblocking(timeout=120).decode("utf-8")
                     str0 += a
                 except pexpect.exceptions.EOF:
                     break

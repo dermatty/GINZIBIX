@@ -329,9 +329,9 @@ class GUI_Connector(Thread):
                     self.logger.error(whoami() + str(e))
                 with self.lock:
                     self.sorted_nzbs = datarec
-            if msg == "REQ":
+            elif msg == "REQ":
                 getdata = self.get_data()
-                gd1, _, _, _, _, _, _, _ = getdata
+                gd1, _, _, _, _, _, _, sortednzbs = getdata
                 if gd1:
                     sendtuple = ("DL_DATA", getdata)
                 else:
@@ -378,7 +378,7 @@ class GUI_Connector(Thread):
                 try:
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
-                    self.logger.error(lpref + whoami() + ": " + str(e))
+                    self.logger.error(whoami() + str(e) + "received msg: " + str(msg))
                 continue
 
 
@@ -667,9 +667,14 @@ class Downloader():
         # if pw protected -> get pw and start unrarer
         ispw = self.pwdb.db_nzb_get_ispw(nzbname)
         if ispw:
+            get_pw_direct0 = False
+            try:
+                get_pw_direct0 = (self.cfg["OPTIONS"]["GET_PW_DIRECTLY"].lower() == "yes")
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
             if self.pwdb.db_nzb_get_password(nzbname) == "N/A":
                 self.logger.info("Trying to get password from file for NZB " + nzbname)
-                pw = get_password(self.verifiedrar_dir, self.pw_file, nzbname, self.logger)
+                pw = get_password(self.verifiedrar_dir, self.pw_file, nzbname, self.logger, get_pw_direct=get_pw_direct0)
                 if pw:
                     self.logger.info("Found password " + pw + " for NZB " + nzbname)
                     self.pwdb.db_nzb_set_password(nzbname, pw)
@@ -1216,7 +1221,6 @@ def get_next_nzb(pwdb, dirs, ct, logger):
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
-        print(logger.debug("polling for 30 sec. for new NZB before closing connections if alive ..."))
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = make_allfilelist_inotify(pwdb, dirs, logger, 30 * 1000)
         if not nzbname:
@@ -1230,7 +1234,6 @@ def get_next_nzb(pwdb, dirs, ct, logger):
                 ct.threads = []
                 del ct.servers
             logger.debug(lpref + "polling for new NZBs now in blocking mode!")
-            print(logger.debug(lpref + "polling for new NZBs now in blocking mode!"))
             try:
                 allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
@@ -1553,10 +1556,10 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             logger.info(lpref + whoami() + ": postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
-            guiconnector.set_data(None, None, None, None)
+            stat0_0 = pwdb.db_nzb_getstatus(nzbname)
             pwdb.send_sorted_nzbs_to_guiconnector()
+            logger.info(whoami() + nzbname + " finished with status " + str(stat0_0))
         elif stat0 == -2:
             logger.info(lpref + whoami() + ": download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
-            guiconnector.set_data(None, None, None, None)
             pwdb.send_sorted_nzbs_to_guiconnector()

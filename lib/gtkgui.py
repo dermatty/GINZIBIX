@@ -501,6 +501,8 @@ class AppWindow(Gtk.ApplicationWindow):
                     overall_size = nzb[3]
                     gbdown = nzb[2]
                     eta0 = (((overall_size - gbdown) * 1024) / (self.appdata.mbitsec / 8))
+                    if eta0 < 0:
+                        eta0 = 0
                     etastr = str(datetime.timedelta(seconds=int(eta0)))
                 else:
                     etastr = "-"
@@ -572,6 +574,8 @@ class AppWindow(Gtk.ApplicationWindow):
         # print(self.liststore.get_value(iter, 5))
         if self.appdata.mbitsec > 0 and self.dl_running:
             eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
+            if eta0 < 0:
+                eta0 = 0
             etastr = str(datetime.timedelta(seconds=int(eta0)))
         else:
             etastr = "-"
@@ -656,14 +660,13 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0):
 
-        if sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist:
+        if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
             # sort again just to make sure
-            sortednzblist = sorted(sortednzblist0, key=lambda prio: prio[1])
-
-            self.logger.debug(lpref + str(sortednzblist))
-            self.logger.debug(lpref + "got new sortedlist")
-            self.logger.debug(lpref + str(self.appdata.nzbs))
-            self.logger.debug(lpref + str(sortednzblist))
+            # print(sortednzblist0, self.appdata.sortednzblist)
+            if sortednzblist0 == [-1]:
+                sortednzblist = []
+            else:
+                sortednzblist = sorted(sortednzblist0, key=lambda prio: prio[1])
             gibdivisor = (1024 * 1024 * 1024)
             nzbs_copy = self.appdata.nzbs.copy()
             self.appdata.nzbs = []
@@ -676,6 +679,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 n_size = n_siz / gibdivisor
                 if self.appdata.mbitsec > 0 and self.dl_running:
                     eta0 = (((n_size - n_dl) * 1024) / (self.appdata.mbitsec / 8))
+                    if eta0 < 0:
+                        eta0 = 0
                     etastr = str(datetime.timedelta(seconds=int(eta0)))
                 else:
                     etastr = "-"
@@ -693,7 +698,6 @@ class AppWindow(Gtk.ApplicationWindow):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
             is_locked = False
             try:
-                print(nzbname, sortednzblist0[0][0])
                 if nzbname != sortednzblist0[0][0] or self.appdata.block_update_dldata:
                     is_locked = True
             except Exception:
@@ -807,7 +811,7 @@ class GUI_Poller(Thread):
         self.lock = lock
         self.data = None
         self.nzbname = None
-        self.delay = delay
+        self.delay = float(delay)
         self.appdata = appdata
         self.update_mainwindow = update_mainwindow
         self.socket = self.context.socket(zmq.REQ)
@@ -863,6 +867,7 @@ class GUI_Poller(Thread):
                     self.socket.send_pyobj(("REQ", None))
                     datatype, datarec = self.socket.recv_pyobj()
                     if datatype == "NOOK":
+                        time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
                         data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist = datarec

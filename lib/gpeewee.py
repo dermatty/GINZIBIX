@@ -633,6 +633,8 @@ class PWDB:
                 return None
 
         sortednzbs = self.db_nzb_getall_sorted()
+        if sortednzbs == []:
+            sortednzbs = [-1]
         try:
             self.socket.send_pyobj(("PWDB", sortednzbs))
             datatype, datarec = self.socket.recv_pyobj()
