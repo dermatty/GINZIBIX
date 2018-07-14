@@ -7,7 +7,6 @@ import signal
 import multiprocessing as mp
 import logging
 import logging.handlers
-from logging import getLoggerClass, addLevelName, setLoggerClass, NOTSET
 import lib
 import queue
 import gi
@@ -99,6 +98,6 @@ if __name__ == '__main__':
     # Gtk.main()
     # mpp_main = None
 
-    app = lib.Application(mpp_main, dirs, logger)
+    app = lib.Application(mpp_main, dirs, cfg, logger)
     exit_status = app.run(sys.argv)
     sys.exit(exit_status)

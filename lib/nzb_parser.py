@@ -101,7 +101,7 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(pwdb, nzbdir, nzboutqueue, logger):
+def ParseNZB(pwdb, nzbdir, logger):
     global TERMINATED
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
@@ -161,7 +161,7 @@ def ParseNZB(pwdb, nzbdir, nzboutqueue, logger):
                             logger.info(lpref + "Added NZB: " + infostr + " to database / queue")
                             pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
                             logger.debug(lpref + "Added NZB: " + infostr + " to GUI")
-                            pwdb.send_nzbqueue_to_gui(nzboutqueue)
+                            pwdb.send_sorted_nzbs_to_guiconnector()
             isfirstrun = False
     os.chdir(cwd0)
     logger.warning(lpref + "terminated!")

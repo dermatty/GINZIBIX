@@ -38,7 +38,7 @@ def whoami():
     outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
     outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
     lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + " - " + outer_func_name + " / #" + outer_func_linenr + ": "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
     # return str(inspect.getouterframes(inspect.currentframe())[1].function)
 
 
@@ -219,7 +219,7 @@ class NZBHandler(logging.Handler):
 
 
 class GUI_Connector(Thread):
-    def __init__(self, pwdb, lock, nzboutqueue, dirs, logger, port="36603"):
+    def __init__(self, pwdb, lock, dirs, logger, port="36603"):
         Thread.__init__(self)
         self.daemon = True
         self.dirs = dirs
@@ -235,7 +235,6 @@ class GUI_Connector(Thread):
         self.socket.bind("tcp://*:" + self.port)
         self.threads = []
         self.server_config = None
-        self.nzboutqueue = nzboutqueue
         self.dl_running = True
         self.status = "idle"
         self.first_has_changed = False
@@ -243,6 +242,7 @@ class GUI_Connector(Thread):
         self.old_t = 0
         self.oldbytes0 = 0
         self.send_data = True
+        self.sorted_nzbs = None
         self.netstatlist = []
 
     def set_data(self, data, threads, server_config, status):
@@ -290,11 +290,12 @@ class GUI_Connector(Thread):
             return 0
 
     def get_data(self):
-        ret0 = (None, None, None, None, None, None, None)
+        ret0 = (None, None, None, None, None, None, None, None)
         if self.send_data:
             with self.lock:
                 try:
-                    ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status, self.get_netstat())
+                    ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
+                            self.get_netstat(), self.sorted_nzbs)
                     # self.logger.debug("GUI_Connector: " + str(ret0))
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
@@ -321,22 +322,20 @@ class GUI_Connector(Thread):
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
+            if msg == "PWDB":
+                try:
+                    self.socket.send_pyobj(("OK", None))
+                except Exception as e:
+                    self.logger.error(whoami() + str(e))
+                with self.lock:
+                    self.sorted_nzbs = datarec
             if msg == "REQ":
-                ret_queue = None
-                while True:
-                    try:
-                        ret_queue = self.nzboutqueue.get_nowait()
-                    except (queue.Empty, EOFError):
-                        break
-                if ret_queue:
-                    sendtuple = ("NZB_DATA", ret_queue)
+                getdata = self.get_data()
+                gd1, _, _, _, _, _, _, _ = getdata
+                if gd1:
+                    sendtuple = ("DL_DATA", getdata)
                 else:
-                    getdata = self.get_data()
-                    gd1, _, _, _, _, _, _ = getdata
-                    if gd1:
-                        sendtuple = ("DL_DATA", getdata)
-                    else:
-                        sendtuple = ("NOOK", getdata)
+                    sendtuple = ("NOOK", getdata)
                 try:
                     self.socket.send_pyobj(sendtuple)
                 except Exception as e:
@@ -405,7 +404,7 @@ class Downloader():
         self.guiconnector = guiconnector
         self.resqlist = []
         try:
-            self.pw_file = self.dirs["main"] + self.cfg["FOLDERS"]["PW_FILE"]
+            self.pw_file = self.dirs["main"] + self.cfg["OPTIONS"]["PW_FILE"]
             self.logger.debug("Password file is: " + self.pw_file)
         except Exception as e:
             self.logger.warning(str(e) + ": no pw file provided!")
@@ -1191,7 +1190,7 @@ class Downloader():
         return le_serv0
 
 
-def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
+def get_next_nzb(pwdb, dirs, ct, logger):
     # waiting for nzb_parser to insert all nzbs in nzbdir into db
     try:
         nzbs_in_nzbdirs = [n.split("/")[-1] for n in glob.glob(dirs["nzb"] + "*")]
@@ -1237,7 +1236,7 @@ def get_next_nzb(pwdb, dirs, ct, nzbqueue, logger):
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(lpref + whoami() + str(e))
-    pwdb.send_nzbqueue_to_gui(nzbqueue)
+    pwdb.send_sorted_nzbs_to_guiconnector()
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
 
@@ -1458,7 +1457,6 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
-    nzboutqueue = mp.Queue()
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
@@ -1470,7 +1468,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(lpref + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], nzboutqueue, logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
@@ -1479,7 +1477,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     try:
         logger.debug(lpref + "starting guiconnector process ...")
         lock = threading.Lock()
-        guiconnector = GUI_Connector(pwdb, lock, nzboutqueue, dirs, logger, port="36603")
+        guiconnector = GUI_Connector(pwdb, lock, dirs, logger, port="36603")
         guiconnector.start()
         logger.debug(lpref + "guiconnector process started!")
     except Exception as e:
@@ -1495,7 +1493,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                 time.sleep(1)
                 continue
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-            = get_next_nzb(pwdb, dirs, ct, nzboutqueue, logger)
+            = get_next_nzb(pwdb, dirs, ct, logger)
         ct.reset_timestamps_bdl()
         if not nzbname:
             break
@@ -1532,15 +1530,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                             deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                             if deleted_nzb_name0:
                                 remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
-                            # clear nzboutqueue
-                            while True:
-                                try:
-                                    nzboutqueue.get_nowait()
-                                except (queue.Empty, EOFError):
-                                    break
-                            # only refresh now if first has not changed, else: stop all, reorder, restart
-                            all_sorted_nzbs = pwdb.db_nzb_getall_sorted()
-                            nzboutqueue.put(all_sorted_nzbs)
+                            pwdb.send_sorted_nzbs_to_guiconnector()
                     if dobreak:
                         break
                     time.sleep(1)
@@ -1564,9 +1554,9 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             guiconnector.set_data(None, None, None, None)
-            pwdb.send_nzbqueue_to_gui(nzboutqueue)
+            pwdb.send_sorted_nzbs_to_guiconnector()
         elif stat0 == -2:
             logger.info(lpref + whoami() + ": download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             guiconnector.set_data(None, None, None, None)
-            pwdb.send_nzbqueue_to_gui(nzboutqueue)
+            pwdb.send_sorted_nzbs_to_guiconnector()

@@ -8,6 +8,7 @@ import re
 import dill
 import queue
 import inspect
+import zmq
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -30,6 +31,7 @@ class PWDB:
         maindir = dirs["main"]
         self.db = SqliteDatabase(maindir + "ginzibix.db")
         self.logger = logger
+        self.context = None
 
         class BaseModel(Model):
             class Meta:
@@ -260,7 +262,10 @@ class PWDB:
             if n.status in [1, 2, 3]:
                 resqueue_size = n.bytes_in_resultqueue
                 nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), resqueue_size + self.db_nzb_get_downloadedsize(n.name)))
-        return sorted(nzbs, key=lambda nzb: nzb[1])
+        if nzbs:
+            return sorted(nzbs, key=lambda nzb: nzb[1])
+        else:
+            return []
 
     def db_nzb_set_password(self, nzbname, pw):
         query = self.NZB.update(password=pw).where(self.NZB.name == nzbname)
@@ -611,22 +616,33 @@ class PWDB:
             query.execute()
         return first_has_changed, del_nzb_name
 
-    # ---- send nzbqueue to gui ----
-    def send_nzbqueue_to_gui(self, nzbqueue):
-        self.logger.debug(lpref + "putting sorted nzbs into queue")
+    # ---- send sorted nzbs to guiconnector ---
+    def send_sorted_nzbs_to_guiconnector(self):
+        if not self.context:
+            try:
+                self.context = zmq.Context()
+                self.host = "localhost"
+                self.port = "36603"
+                self.socket = self.context.socket(zmq.REQ)
+                self.socket.setsockopt(zmq.LINGER, 0)
+                socketurl = "tcp://" + self.host + ":" + self.port
+                self.socket.connect(socketurl)
+            except Exception as e:
+                self.logger.warning(lpref + str(e))
+                self.context = None
+                return None
+
+        sortednzbs = self.db_nzb_getall_sorted()
         try:
-            while True:
-                try:
-                    nzbqueue.get_nowait()
-                except (queue.Empty, EOFError):
-                    break
-            sortednzbs = self.db_nzb_getall_sorted()
-            if not sortednzbs:
-                self.logger.debug(lpref + "putting -1 in nzbqueue")
-                sortednzbs = [-1]
-            nzbqueue.put(sortednzbs)
+            self.socket.send_pyobj(("PWDB", sortednzbs))
+            datatype, datarec = self.socket.recv_pyobj()
+            if datatype == "NOOK":
+                return None
+            return True
         except Exception as e:
-            self.logger.warning(lpref + "ParseNZB: " + str(e))
+            self.logger.warning(lpref + str(e))
+            self.context = None
+            return None
 
     # ---- log info for nzb in db ###
     def log(self, nzbname, logmsg, loglevel, logger):
