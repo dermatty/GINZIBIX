@@ -368,50 +368,6 @@ class AppWindow(Gtk.ApplicationWindow):
         button_add.set_tooltip_text("Add NZB from File")
         box_media.pack_end(button_add, box_media_expand, box_media_fill, box_media_padd)
 
-        '''# listbox / treeview for server speed
-        scrolled_window_s = Gtk.ScrolledWindow()
-        scrolled_window_s.set_border_width(2)
-        scrolled_window_s.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        # scrolled_window_s.set_property("min-content-height", 30)
-        grid.attach(scrolled_window_s, 22, 0, 80, 3)
-
-        # listbox for server speeds
-        listbox_s = Gtk.ListBox()
-        row_s = Gtk.ListBoxRow()
-        self.liststore_s = Gtk.ListStore(str, int)
-        for i, server in enumerate(self.appdata.servers):
-            if i == 0:
-                self.current_iter = self.liststore_s.append(list(server))
-            else:
-                self.liststore_s.append(list(server))
-        treeview_s = Gtk.TreeView(model=self.liststore_s)
-        renderer_text_s = Gtk.CellRendererText()
-        column_text_s = Gtk.TreeViewColumn(None, renderer_text_s, text=0)
-        custom_header = Gtk.Label('Server Name')
-        column_text_s.set_widget(custom_header)
-        column_text_s.get_widget().override_font(Pango.FontDescription.from_string('10'))
-        column_text_s.get_widget().show_all()
-
-        column_text_s.set_cell_data_func(renderer_text_s, lambda col, cell, model, iter, unused:
-                                         cell.set_property("scale", 0.8))
-        column_text_s.set_expand(True)
-        treeview_s.append_column(column_text_s)
-
-        renderer_text_s2 = Gtk.CellRendererText()
-        column_text_s2 = Gtk.TreeViewColumn("Speed Mbit/s", renderer_text_s2, text=1)
-        custom_header1 = Gtk.Label('Speed Mbit/s')
-        column_text_s2.set_widget(custom_header1)
-        column_text_s2.get_widget().override_font(Pango.FontDescription.from_string('10'))
-        column_text_s2.get_widget().show_all()
-        column_text_s2.set_cell_data_func(renderer_text_s2, lambda col, cell, model, iter, unused:
-                                          cell.set_property("scale", 0.8))
-        column_text_s2.set_expand(True)
-        treeview_s.append_column(column_text_s2)
-
-        row_s.add(treeview_s)
-        listbox_s.add(row_s)
-        scrolled_window_s.add(listbox_s)'''
-
     def on_buttondelete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
         dialog = ConfirmDialog(self, "Do you really want to delete these NZBs ?")
