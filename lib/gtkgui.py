@@ -18,6 +18,8 @@ __version__ = "0.01 pre-alpha"
 __author__ = "dermatty"
 
 GBXICON = "lib/gzbx1.png"
+MAX_NZB_LEN = 50
+MAX_MSG_LEN = 120
 
 MENU_XML = """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -48,6 +50,20 @@ def whoami():
     outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
     lpref = __name__.split("lib.")[-1] + " - "
     return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+
+
+def get_cut_nzbname(nzbname):
+    if len(nzbname) <= MAX_NZB_LEN:
+        return nzbname
+    else:
+        return nzbname[:MAX_NZB_LEN - 8] + "[..]" + nzbname[-4:]
+
+
+def get_cut_msg(msg):
+    if len(msg) <= MAX_MSG_LEN:
+        return msg
+    else:
+        return msg[:MAX_MSG_LEN - 8] + "[..]" + msg[-4:]
 
 
 def get_bg_color(n_status_s):
@@ -271,33 +287,36 @@ class AppWindow(Gtk.ApplicationWindow):
 
         # treeview for logs
         loglistbox = Gtk.ListBox()
+        loglistbox.set_property("margin-left", 8)
+        loglistbox.set_property("margin-right", 8)
         logrow = Gtk.ListBoxRow()
         stacknzb_box.pack_start(loglistbox, True, True, 0)
 
-        self.logliststore = Gtk.ListStore(str, str, str, str, str)
+        self.logliststore = Gtk.ListStore(str, str, str, str, str, str)
         logtreeview = Gtk.TreeView(model=self.logliststore)
 
         renderer_log1 = Gtk.CellRendererText()
-        column_log1 = Gtk.TreeViewColumn("NZB", renderer_log1, text=0, background=4)
+
+        column_log1 = Gtk.TreeViewColumn("NZB", renderer_log1, text=0, background=4, foreground=5)
         column_log1.set_min_width(320)
         column_log1.set_expand(True)
         logtreeview.append_column(column_log1)
 
-        renderer_log2 = Gtk.CellRendererText()
-        column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=1, background=4)
-        column_log2.set_expand(True)
-        column_log2.set_min_width(460)
-        logtreeview.append_column(column_log2)
+        renderer_log4 = Gtk.CellRendererText()
+        column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=3, background=4, foreground=5)
+        column_log4.set_min_width(80)
+        logtreeview.append_column(column_log4)
 
         renderer_log3 = Gtk.CellRendererText()
-        column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=2, background=4)
+        column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=2, background=4, foreground=5)
         column_log3.set_min_width(80)
         logtreeview.append_column(column_log3)
 
-        renderer_log4 = Gtk.CellRendererText()
-        column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=3, background=4)
-        column_log4.set_min_width(80)
-        logtreeview.append_column(column_log4)
+        renderer_log2 = Gtk.CellRendererText()
+        column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=1, background=4, foreground=5)
+        column_log2.set_expand(True)
+        column_log2.set_min_width(460)
+        logtreeview.append_column(column_log2)
 
         logrow.add(logtreeview)
         loglistbox.add(logrow)
@@ -484,15 +503,25 @@ class AppWindow(Gtk.ApplicationWindow):
                 log_as_list[3] = ""
             else:
                 log_as_list[3] = str(datetime.datetime.fromtimestamp(log_as_list[3]).strftime('%Y-%m-%d %H:%M:%S'))
+            log_as_list[0] = get_cut_nzbname(log_as_list[0])
+            log_as_list[1] = get_cut_msg(log_as_list[1])
+            fg = "black"
             if log_as_list[2] == "info":
-                bg = "green"
+                bg = "royal Blue"
+                fg = "white"
             elif log_as_list[2] == "warning":
                 bg = "orange"
+                fg = "white"
             elif log_as_list[2] == "error":
                 bg = "red"
+                fg = "white"
+            elif log_as_list[2] == "success":
+                bg = "green"
+                fg = "white"
             else:
                 bg = "white"
             log_as_list.append(bg)
+            log_as_list.append(fg)
             self.logliststore.append(log_as_list)
 
     def update_liststore(self, only_eta=False):
@@ -523,6 +552,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs):
             nzb_as_list = list(nzb)
+            nzb_as_list[0] = get_cut_nzbname(nzb_as_list[0])
             n_status = nzb_as_list[7]
             if n_status == 0:
                 n_status_s = "preprocessing"
@@ -582,7 +612,6 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore.set_value(iter, 7, self.nzb_status_string)
         self.liststore.set_value(iter, 8, n_bgcolor)
 
-        # print(self.liststore.get_value(iter, 5))
         if self.appdata.mbitsec > 0 and self.dl_running:
             eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
             if eta0 < 0:
@@ -591,14 +620,9 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             etastr = "-"
         self.liststore.set_value(iter, 4, etastr)
-        # (n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected))
         newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
         self.appdata.nzbs[0] = newnzb
 
-        # levelbar_is_hidden = not self.box_levelbar.get_property("visible")
-        # if self.appdata.mbitsec == 0 and not levelbar_is_hidden:
-        #    self.box_levelbar.hide()
-        # if self.appdata.mbitsec > 0:
         if self.appdata.mbitsec > 0 and self.appdata.dl_running:
             self.levelbar.set_value(int(self.appdata.mbitsec))
             mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
@@ -606,8 +630,6 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             self.levelbar.set_value(0)
             self.mbitlabel2.set_text("")
-            # if levelbar_is_hidden:
-            #    self.box_levelbar.show_all()
 
     def toggle_buttons(self):
         one_is_selected = False
@@ -671,14 +693,8 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0, logdata):
 
-        try:
-            first_appdata_logdata = self.appdata.logdata[0]
-        except Exception:
-            first_appdata_logdata = None
-        if logdata != first_appdata_logdata:
-            self.appdata.logdata.insert(0, logdata)
-            if len(self.appdata.logdata) > 5:
-                del self.appdata.logdata[5]
+        if logdata != self.appdata.logdata:
+            self.appdata.logdata = logdata
             self.update_logstore()
 
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):

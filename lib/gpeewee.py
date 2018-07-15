@@ -7,6 +7,7 @@ import re
 import dill
 import inspect
 import zmq
+import threading
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -31,6 +32,8 @@ class PWDB:
         self.logger = logger
         self.context = None
         self.cfg = cfg
+        self.lock = threading.Lock()
+
         try:
             self.host = self.cfg["OPTIONS"]["HOST"]
         except Exception as e:
@@ -656,28 +659,29 @@ class PWDB:
 
     # ---- send log to guiconnector ----
     def sendlog(self, nzbname, logmsg, loglevel):
-        if not self.context:
+        with self.lock:
+            if not self.context:
+                try:
+                    self.context = zmq.Context()
+                    self.socket = self.context.socket(zmq.REQ)
+                    self.socket.setsockopt(zmq.LINGER, 0)
+                    socketurl = "tcp://" + self.host + ":" + self.port
+                    self.socket.connect(socketurl)
+                except Exception as e:
+                    self.logger.warning(lpref + str(e))
+                    self.context = None
+                    return None
+            msg = (nzbname, logmsg, loglevel, time.time())
             try:
-                self.context = zmq.Context()
-                self.socket = self.context.socket(zmq.REQ)
-                self.socket.setsockopt(zmq.LINGER, 0)
-                socketurl = "tcp://" + self.host + ":" + self.port
-                self.socket.connect(socketurl)
+                self.socket.send_pyobj(("LOG", msg))
+                datatype, datarec = self.socket.recv_pyobj()
+                if datatype == "NOOK":
+                    return None
+                return True
             except Exception as e:
                 self.logger.warning(lpref + str(e))
                 self.context = None
                 return None
-        msg = (nzbname, logmsg, loglevel, time.time())
-        try:
-            self.socket.send_pyobj(("LOG", msg))
-            datatype, datarec = self.socket.recv_pyobj()
-            if datatype == "NOOK":
-                return None
-            return True
-        except Exception as e:
-            self.logger.warning(lpref + str(e))
-            self.context = None
-            return None
 
     # ---- log info for nzb in db ###
     def log(self, nzbname, logmsg, loglevel, logger):

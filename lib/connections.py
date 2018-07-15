@@ -7,7 +7,7 @@ lpref = __name__.split("lib.")[-1] + " - "
 
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
-    def __init__(self, lock, connection, articlequeue, resultqueue, servers, logger):
+    def __init__(self, lock, connection, articlequeue, resultqueue, servers, pwdb, logger):
         Thread.__init__(self)
         self.daemon = True
         self.logger = logger
@@ -25,6 +25,7 @@ class ConnectionWorker(Thread):
         self.mode = "download"
         self.download_done = True
         self.bandwidth_bytes = 0
+        self.pwdb = pwdb
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
