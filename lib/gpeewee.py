@@ -1,12 +1,10 @@
 from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
 import os
 import shutil
-from os.path import expanduser
 import time
 import glob
 import re
 import dill
-import queue
 import inspect
 import zmq
 
@@ -27,11 +25,23 @@ def lists_are_equal(list1, list2):
 
 
 class PWDB:
-    def __init__(self, dirs, logger):
+    def __init__(self, cfg, dirs, logger):
         maindir = dirs["main"]
         self.db = SqliteDatabase(maindir + "ginzibix.db")
         self.logger = logger
         self.context = None
+        self.cfg = cfg
+        try:
+            self.host = self.cfg["OPTIONS"]["HOST"]
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting host to default 127.0.0.1")
+            self.host = "127.0.0.1"
+        try:
+            self.port = self.cfg["OPTIONS"]["PORT"]
+            assert(int(self.port) > 1024 and int(self.port) <= 65535)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
+            self.port = "36603"
 
         class BaseModel(Model):
             class Meta:
@@ -621,8 +631,6 @@ class PWDB:
         if not self.context:
             try:
                 self.context = zmq.Context()
-                self.host = "localhost"
-                self.port = "36603"
                 self.socket = self.context.socket(zmq.REQ)
                 self.socket.setsockopt(zmq.LINGER, 0)
                 socketurl = "tcp://" + self.host + ":" + self.port
@@ -637,6 +645,31 @@ class PWDB:
             sortednzbs = [-1]
         try:
             self.socket.send_pyobj(("PWDB", sortednzbs))
+            datatype, datarec = self.socket.recv_pyobj()
+            if datatype == "NOOK":
+                return None
+            return True
+        except Exception as e:
+            self.logger.warning(lpref + str(e))
+            self.context = None
+            return None
+
+    # ---- send log to guiconnector ----
+    def sendlog(self, nzbname, logmsg, loglevel):
+        if not self.context:
+            try:
+                self.context = zmq.Context()
+                self.socket = self.context.socket(zmq.REQ)
+                self.socket.setsockopt(zmq.LINGER, 0)
+                socketurl = "tcp://" + self.host + ":" + self.port
+                self.socket.connect(socketurl)
+            except Exception as e:
+                self.logger.warning(lpref + str(e))
+                self.context = None
+                return None
+        msg = (nzbname, logmsg, loglevel, time.time())
+        try:
+            self.socket.send_pyobj(("LOG", msg))
             datatype, datarec = self.socket.recv_pyobj()
             if datatype == "NOOK":
                 return None
@@ -716,6 +749,7 @@ class PWDB:
         overall_size_wparvol = 0
         already_downloaded_size = 0
         p2 = None
+        resqlist_size = 0
         for f0 in files:
             articles = [articles0 for articles0 in f0.articles]
             f0size = sum([a.size for a in articles])
@@ -777,7 +811,10 @@ class PWDB:
                                 art_found = True
                                 break
                         if art_found:
-                            already_downloaded_size += a.size
+                            if inf0_r != "failed":
+                                asize0 = sum(len(i) for i in inf0_r)
+                                resqlist_size += asize0
+                                already_downloaded_size += asize0
             idx += 1
         if allfilelist:
             self.db_nzb_update_status(nzbname, 1)

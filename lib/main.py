@@ -219,12 +219,18 @@ class NZBHandler(logging.Handler):
 
 
 class GUI_Connector(Thread):
-    def __init__(self, pwdb, lock, dirs, logger, port="36603"):
+    def __init__(self, pwdb, lock, dirs, logger, cfg):
         Thread.__init__(self)
         self.daemon = True
         self.dirs = dirs
         self.pwdb = pwdb
-        self.port = port
+        self.cfg = cfg
+        try:
+            self.port = self.cfg["OPTIONS"]["PORT"]
+            assert(int(self.port) > 1024 and int(self.port) <= 65535)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
+            self.port = "36603"
         self.data = None
         self.nzbname = None
         self.pwdb_msg = (None, None)
@@ -244,6 +250,7 @@ class GUI_Connector(Thread):
         self.send_data = True
         self.sorted_nzbs = None
         self.netstatlist = []
+        self.logdata = None
 
     def set_data(self, data, threads, server_config, status):
         if data:
@@ -290,13 +297,12 @@ class GUI_Connector(Thread):
             return 0
 
     def get_data(self):
-        ret0 = (None, None, None, None, None, None, None, None)
+        ret0 = (None, None, None, None, None, None, None, None, None)
         if self.send_data:
             with self.lock:
                 try:
                     ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
-                            self.get_netstat(), self.sorted_nzbs)
-                    # self.logger.debug("GUI_Connector: " + str(ret0))
+                            self.get_netstat(), self.sorted_nzbs, self.logdata)
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
         return ret0
@@ -329,9 +335,16 @@ class GUI_Connector(Thread):
                     self.logger.error(whoami() + str(e))
                 with self.lock:
                     self.sorted_nzbs = datarec
+            elif msg == "LOG":
+                try:
+                    self.socket.send_pyobj(("OK", None))
+                except Exception as e:
+                    self.logger.error(whoami() + str(e))
+                with self.lock:
+                    self.logdata = datarec
             elif msg == "REQ":
                 getdata = self.get_data()
-                gd1, _, _, _, _, _, _, sortednzbs = getdata
+                gd1, _, _, _, _, _, _, sortednzbs, _ = getdata
                 if gd1:
                     sendtuple = ("DL_DATA", getdata)
                 else:
@@ -511,7 +524,6 @@ class Downloader():
                                     break
                         if art_found:
                             # put to resultqueue:
-                            self.logger.debug(lpref + "-----> " + art_name + " / " + str(fn_r))
                             self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
                         else:
                             bytescount0 += art_bytescount
@@ -519,7 +531,7 @@ class Downloader():
                             q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
                             self.articlequeue.put(q)
                         article_count += 1
-                    self.logger.debug("------ " + filename + " " + str(filetype) + " " + str(bytescount_file / (1024 * 1024 * 1024)))
+                    # self.logger.debug("------ " + filename + " " + str(filetype) + " " + str(bytescount_file / (1024 * 1024 * 1024)))
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 
@@ -865,7 +877,7 @@ class Downloader():
         #    print(filetype, item)
 
         self.logger.info(lpref + "downloading " + nzbname)
-        self.pwdb.log(nzbname, lpref + "starting download", "info", self.logger)
+        self.pwdb.sendlog(nzbname, "starting download", "info")
 
         self.resqlist = resqlist
 
@@ -1329,9 +1341,12 @@ def write_resultqueue_to_file(resultqueue, maindir, logger):
     while True:
         try:
             res = resultqueue.get_nowait()
-            _, _, _, _, _, _, _, inf0, _ = res
+            # (fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False)
+            _, _, _, _, _, art_name, _, inf0, _ = res
+            art_size = 0
             if inf0 != "failed":
-                bytes_in_resultqueue += sum(len(i) for i in inf0)
+                art_size = sum(len(i) for i in inf0)
+            bytes_in_resultqueue += art_size
             resultqueue.task_done()
             resqlist.append(res)
         except (queue.Empty, EOFError):
@@ -1480,7 +1495,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     try:
         logger.debug(lpref + "starting guiconnector process ...")
         lock = threading.Lock()
-        guiconnector = GUI_Connector(pwdb, lock, dirs, logger, port="36603")
+        guiconnector = GUI_Connector(pwdb, lock, dirs, logger, cfg)
         guiconnector.start()
         logger.debug(lpref + "guiconnector process started!")
     except Exception as e:

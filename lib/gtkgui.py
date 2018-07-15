@@ -104,6 +104,7 @@ class AppData:
         self.sortednzblist = None
         self.dldata = None
         self.netstat_mbitcur = None
+        self.logdata = [("", "", "", 0) for n in range(4)]
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -232,6 +233,7 @@ class AppWindow(Gtk.ApplicationWindow):
         renderer_text0 = Gtk.CellRendererText()
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
         column_text0.set_expand(True)
+        column_text0.set_min_width(320)
         treeview.append_column(column_text0)
         # 2nd: progressbar
         renderer_progress = Gtk.CellRendererProgress()
@@ -262,12 +264,46 @@ class AppWindow(Gtk.ApplicationWindow):
         column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
         column_text7.set_min_width(80)
         treeview.append_column(column_text7)
-        
         # final
         row.add(treeview)
         listbox.add(row)
         scrolled_window.add(listbox)
-        
+
+        # treeview for logs
+        loglistbox = Gtk.ListBox()
+        logrow = Gtk.ListBoxRow()
+        stacknzb_box.pack_start(loglistbox, True, True, 0)
+
+        self.logliststore = Gtk.ListStore(str, str, str, str, str)
+        logtreeview = Gtk.TreeView(model=self.logliststore)
+
+        renderer_log1 = Gtk.CellRendererText()
+        column_log1 = Gtk.TreeViewColumn("NZB", renderer_log1, text=0, background=4)
+        column_log1.set_min_width(320)
+        column_log1.set_expand(True)
+        logtreeview.append_column(column_log1)
+
+        renderer_log2 = Gtk.CellRendererText()
+        column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=1, background=4)
+        column_log2.set_expand(True)
+        column_log2.set_min_width(460)
+        logtreeview.append_column(column_log2)
+
+        renderer_log3 = Gtk.CellRendererText()
+        column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=2, background=4)
+        column_log3.set_min_width(80)
+        logtreeview.append_column(column_log3)
+
+        renderer_log4 = Gtk.CellRendererText()
+        column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=3, background=4)
+        column_log4.set_min_width(80)
+        logtreeview.append_column(column_log4)
+
+        logrow.add(logtreeview)
+        loglistbox.add(logrow)
+
+        # self.update_logstore()
+
         # box for record/stop/.. selected
         box_media = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box_media.set_property("margin-left", 8)
@@ -484,6 +520,25 @@ class AppWindow(Gtk.ApplicationWindow):
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
 
+    def update_logstore(self):
+        self.logliststore.clear()
+        for i, log in enumerate(self.appdata.logdata):
+            log_as_list = list(log)
+            if log_as_list[3] == 0:
+                log_as_list[3] = ""
+            else:
+                log_as_list[3] = str(datetime.datetime.fromtimestamp(log_as_list[3]).strftime('%Y-%m-%d %H:%M:%S'))
+            if log_as_list[2] == "info":
+                bg = "green"
+            elif log_as_list[2] == "warning":
+                bg = "orange"
+            elif log_as_list[2] == "error":
+                bg = "red"
+            else:
+                bg = "white"
+            log_as_list.append(bg)
+            self.logliststore.append(log_as_list)
+
     def update_liststore(self, only_eta=False):
         # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
         if only_eta:
@@ -658,7 +713,17 @@ class AppWindow(Gtk.ApplicationWindow):
             os.kill(self.mpp_main.pid, signal.SIGTERM)
             self.mpp_main.join()
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0):
+    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0, logdata):
+
+        try:
+            first_appdata_logdata = self.appdata.logdata[0]
+        except Exception:
+            first_appdata_logdata = None
+        if logdata != first_appdata_logdata:
+            self.appdata.logdata.insert(0, logdata)
+            if len(self.appdata.logdata) > 5:
+                del self.appdata.logdata[5]
+            self.update_logstore()
 
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
             # sort again just to make sure
@@ -870,10 +935,10 @@ class GUI_Poller(Thread):
                         time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist = datarec
+                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, logdata = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
-                                          netstat_mbitcurr, sortednzblist)
+                                          netstat_mbitcurr, sortednzblist, logdata)
                         except Exception as e:
                             self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:
