@@ -60,8 +60,9 @@ class SigHandler_Ginzibix:
 if __name__ == '__main__':
 
     # init config
+    cfg_file = dirs["config"] + "/ginzibix.config"
     cfg = configparser.ConfigParser()
-    cfg.read(dirs["config"] + "/ginzibix.config")
+    cfg.read(cfg_file)
 
     # init logger
     logger = logging.getLogger("ginzibix")
@@ -98,6 +99,6 @@ if __name__ == '__main__':
     # Gtk.main()
     # mpp_main = None
 
-    app = lib.Application(mpp_main, dirs, cfg, logger)
+    app = lib.Application(mpp_main, dirs, cfg_file, logger)
     exit_status = app.run(sys.argv)
     sys.exit(exit_status)

@@ -250,10 +250,16 @@ class GUI_Connector(Thread):
         self.oldbytes0 = 0
         self.send_data = True
         self.sorted_nzbs = None
+        self.dlconfig = None
         self.netstatlist = []
         self.logdata = []
 
-    def set_data(self, data, threads, server_config, status):
+    def set_health(self, article_health, connection_health):
+        with self.lock:
+            self.article_health = article_health
+            self.connection_health = connection_health
+
+    def set_data(self, data, threads, server_config, status, dlconfig):
         if data:
             with self.lock:
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
@@ -262,6 +268,7 @@ class GUI_Connector(Thread):
                 self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
                 self.server_config = server_config
                 self.status = status
+                self.dlconfig = dlconfig
                 self.threads = []
                 for k, (t, last_timestamp) in enumerate(threads):
                     append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
@@ -298,12 +305,12 @@ class GUI_Connector(Thread):
             return 0
 
     def get_data(self):
-        ret0 = (None, None, None, None, None, None, None, None, None)
+        ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
         if self.send_data:
             with self.lock:
                 try:
                     ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
-                            self.get_netstat(), self.sorted_nzbs, self.logdata)
+                            self.get_netstat(), self.sorted_nzbs, self.logdata, self.article_health, self.connection_health, self.dlconfig)
                 except Exception as e:
                     self.logger.error("GUI_Connector: " + str(e))
         return ret0
@@ -343,11 +350,11 @@ class GUI_Connector(Thread):
                     self.logger.error(whoami() + str(e))
                 with self.lock:
                     self.logdata.insert(0, datarec)
-                    if len(self.logdata) > 5:
+                    if len(self.logdata) > 25:
                         del self.logdata[-1]
             elif msg == "REQ":
                 getdata = self.get_data()
-                gd1, _, _, _, _, _, _, sortednzbs, _ = getdata
+                gd1, _, _, _, _, _, _, sortednzbs, _, _, _, _ = getdata
                 if gd1:
                     sendtuple = ("DL_DATA", getdata)
                 else:
@@ -420,12 +427,10 @@ class Downloader():
         self.guiconnector = guiconnector
         self.resqlist = []
         self.ls = Logsender(self.cfg)
-        try:
-            self.pw_file = self.dirs["main"] + self.cfg["OPTIONS"]["PW_FILE"]
-            self.logger.debug("Password file is: " + self.pw_file)
-        except Exception as e:
-            self.logger.warning(str(e) + ": no pw file provided!")
-            self.pw_file = None
+        self.article_health = 1
+        self.connection_health = 1
+        self.contains_par_files = False
+        self.read_cfg()
         if self.pw_file:
             try:
                 self.logger.debug("As a first test, open pw_file")
@@ -435,6 +440,43 @@ class Downloader():
             except Exception as e:
                 self.logger.warning(str(e) + ": cannot open pw file, setting to None")
                 self.pw_file = None
+
+    def read_cfg(self):
+        # pw_file
+        try:
+            self.pw_file = self.dirs["main"] + self.cfg["OPTIONS"]["PW_FILE"]
+            self.logger.debug("Password file is: " + self.pw_file)
+        except Exception as e:
+            self.logger.warning(str(e) + ": no pw file provided!")
+            self.pw_file = None
+        # critical connection health
+        try:
+            self.crit_conn_health = float(self.cfg["OPTIONS"]["crit_conn_health"])
+            assert(self.crit_conn_health > 0 and self.crit_conn_health <= 1)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            self.crit_conn_health = 0.70
+
+        # critical health with par files avail.
+        try:
+            self.crit_art_health_w_par = float(self.cfg["OPTIONS"]["crit_art_health_w_par"])
+            assert(self.crit_art_health_w_par > 0 and self.crit_art_health_w_par <= 1)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            self.crit_art_health_w_par = 0.98
+        # critical health without par files avail.
+        try:
+            self.crit_art_health_wo_par = float(self.cfg["OPTIONS"]["crit_art_health_wo_par"])
+            assert(self.crit_art_health_wo_par > 0 and self.crit_art_health_wo_par <= 1)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            self.crit_art_health_wo_par = 0.999
+
+    def serverconfig(self):
+        if self.contains_par_files:
+            return (self.crit_art_health_w_par, self.crit_conn_health)
+        else:
+            return (self.crit_art_health_wo_par, self.crit_conn_health)
 
     def make_dirs(self, nzb):
         self.nzb = nzb
@@ -631,7 +673,7 @@ class Downloader():
 
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata):
-        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing")
+        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
         self.ls.sendlog(nzbname, "starting postprocess", "info")
         while True:
@@ -841,11 +883,11 @@ class Downloader():
         if self.pwdb.db_nzb_getstatus(nzbname) == -4:
             self.logger.info("Copy/Move of NZB " + nzbname + " failed!")
             self.ls.sendlog(nzbname, "postprocessing failed!", "error")
-            self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "failed")
+            self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "failed", self.serverconfig())
             return -1
         else:
             self.logger.info("Copy/Move of NZB " + nzbname + " success!")
-            self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "success")
+            self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "success", self.serverconfig())
             self.pwdb.db_nzb_update_status(nzbname, 4)
             self.ls.sendlog(nzbname, "postprocessing success!", "success")
             self.logger.info("Postprocess of NZB " + nzbname + " ok!")
@@ -913,6 +955,9 @@ class Downloader():
             return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                               overall_size, already_downloaded_size)), "dl_finished", self.main_dir
         self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
+
+        if filetypecounter["par2vol"]["max"] > 0:
+            self.contains_par_files = True
 
         # which set of filetypes should I download
         self.logger.debug(lpref + "download: define inject set")
@@ -1079,7 +1124,7 @@ class Downloader():
                         self.pwdb.db_nzb_update_status(nzbname, -2)  # status download failed
                         self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                                     article_health, overall_size, already_downloaded_size), self.ct.threads,
-                                                   self.ct.servers.server_config, "failed")
+                                                   self.ct.servers.server_config, "failed", self.serverconfig())
                         return_reason = "dl_failed"
                         self.ls.sendlog(nzbname, "download failed due to pw test not possible", "error")
                         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
@@ -1128,15 +1173,17 @@ class Downloader():
                 article_health = 1 - article_failed / article_count
             else:
                 article_health = 0
+            self.article_health = article_health
             if failed != 0:
                 self.logger.warning(lpref + str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health))
                 # if too many missing articles: exit download
-                if (article_health < 0.98 and filetypecounter["par2vol"]["max"] == 0) or (filetypecounter["parvols"]["max"] > 0 and article_health <= 0.95):
+                if (article_health < self.crit_art_health_wo_par and filetypecounter["par2vol"]["max"] == 0) \
+                   or (filetypecounter["parvols"]["max"] > 0 and article_health <= self.crit_art_health_w_par):
                     self.logger.info(lpref + "articles missing and cannot repair, exiting download")
                     self.pwdb.db_nzb_update_status(nzbname, -2)
                     self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                                 article_health, overall_size, already_downloaded_size), self.ct.threads,
-                                               self.ct.servers.server_config, "failed")
+                                               self.ct.servers.server_config, "failed", self.serverconfig())
                     self.ls.sendlog(nzbname, "critical health threashold exceeded", "error")
 
                     return_reason = "dl_failed"
@@ -1154,7 +1201,7 @@ class Downloader():
             try:
                 self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                             article_health, overall_size, already_downloaded_size), self.ct.threads,
-                                           self.ct.servers.server_config, "downloading")
+                                           self.ct.servers.server_config, "downloading", self.serverconfig())
             except Exception as e:
                 self.logger.warning(lpref + "set_data error " + str(e))
 
@@ -1174,13 +1221,15 @@ class Downloader():
                 self.logger.warning(lpref + whoami() + ": records say dl is done, but still some articles in queue, exiting ...")
                 self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                             article_health, overall_size, already_downloaded_size), self.ct.threads,
-                                           self.ct.servers.server_config, "failed")
+                                           self.ct.servers.server_config, "failed", self.serverconfig())
                 return_reason = "dl_failed"
                 return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                   overall_size, already_downloaded_size)), return_reason, self.main_dir
 
             # check if > 25% of connections are down
-            if self.connection_thread_health() < 0.65:
+            self.connection_health = self.connection_thread_health()
+            self.guiconnector.set_health(self.article_health, self.connection_health)
+            if self.connection_health < 0.65:
                 # self.logger.debug(lpref + ">>>> " + str(self.connection_thread_health()))
                 self.logger.info(lpref + whoami() + "connections are unstable, restarting")
                 self.ls.sendlog(nzbname, "connections are unstable, restarting", "warning")
@@ -1528,6 +1577,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     while True:
         sh.nzbname = None
         sh.main_dir = None
+        guiconnector.set_health(0, 0)
         with lock:
             if not guiconnector.dl_running:
                 time.sleep(1)
@@ -1590,6 +1640,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
         # if download success, postprocess
         elif stat0 == 3:
+            guiconnector.set_health(0, 0)
             logger.info(lpref + whoami() + ": postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
@@ -1597,6 +1648,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             pwdb.send_sorted_nzbs_to_guiconnector()
             logger.info(whoami() + nzbname + " finished with status " + str(stat0_0))
         elif stat0 == -2:
+            guiconnector.set_health(0, 0)
             logger.info(lpref + whoami() + ": download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             pwdb.send_sorted_nzbs_to_guiconnector()

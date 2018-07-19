@@ -7,6 +7,7 @@ import datetime
 import zmq
 import time
 import inspect
+import configparser
 from threading import Thread
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
@@ -111,51 +112,46 @@ class AppData:
         self.dl_running = True
         self.nzb_deleted = False
         self.order_changed = False
-        self.mbit_min = 0
-        self.mbit_max = 150
+        self.max_mbitsec = 100
+        self.autocal_mmbit = False
         self.block_update_dldata = False
-        # self.old_mbitdown = 0
-        # self.old_mbitdown_tt = 0
-        # self.mbitdownlist = []
+        # crit_art_health is taken from server
+        self.crit_art_health = 0.98
+        self.crit_conn_health = 0.7
         self.sortednzblist = None
         self.dldata = None
         self.netstat_mbitcur = None
         self.logdata = [("", "", "", 0) for n in range(4)]
+        self.article_health = 0
+        self.connection_health = 0
 
 
 class AppWindow(Gtk.ApplicationWindow):
 
-    def __init__(self, app, mpp_main, dirs, cfg, logger):
+    def __init__(self, app, mpp_main, dirs, cfg_file, logger):
         # data
         self.logger = logger
+        self.cfg_file = cfg_file
+        self.cfg = configparser.ConfigParser()
         self.dirs = dirs
-        self.cfg = cfg
         self.lock = threading.Lock()
         self.liststore = None
         self.liststore_s = None
         self.mbitlabel2 = None
         self.single_selected = None
         self.mpp_main = mpp_main
+        try:
+            self.cfg.read(cfg_file)
+        except Exception as e:
+            self.logger.error(whoami() + str(e) + ", exiting!")
+            if self.mpp_main:
+                os.kill(self.mpp_main.pid, signal.SIGTERM)
+                self.mpp_main.join()
+            Gtk.main_quit()
         self.appdata = AppData(self.lock)
+        self.read_config_file()
         self.dl_running = True
         self.nzb_status_string = ""
-        # read cfg file: update_delay, host, port
-        try:
-            self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting update_delay to default 0.5")
-            self.update_delay = 0.5
-        try:
-            self.host = self.cfg["OPTIONS"]["HOST"]
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting host to default 127.0.0.1")
-            self.host = "127.0.0.1"
-        try:
-            self.port = self.cfg["OPTIONS"]["PORT"]
-            assert(int(self.port) > 1024 and int(self.port) <= 65535)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
-            self.port = "36603"
 
         self.win = Gtk.Window.__init__(self, title=__appname__, application=app)
 
@@ -170,12 +166,8 @@ class AppWindow(Gtk.ApplicationWindow):
         self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, delay=self.update_delay, host=self.host, port=self.port)
         self.guipoller.start()
 
-        # self.filepoller = File_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger)
-        # self.filepoller.start()
-
         # init main window
         self.set_border_width(10)
-        # self.set_default_size(600, 200)
         self.set_wmclass(__appname__, __appname__)
         self.header_bar()
         box_main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -202,15 +194,23 @@ class AppWindow(Gtk.ApplicationWindow):
         stack_switcher.set_property("valign", Gtk.Align.START)
         box_main.pack_start(stack_switcher, False, False, 0)
 
-        self.box_levelbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # levelbars; Mbit, article_health, connection_health
+        frame1 = Gtk.Frame()
+        frame1.set_label("Speed / Health")
+        box_main.pack_start(frame1, False, False, 10)
+
+        boxvertical = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        frame1.add(boxvertical)
+
+        self.box_levelbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.box_levelbar.set_property("margin-left", 20)
         self.box_levelbar.set_property("margin-right", 20)
-        box_main.pack_start(self.box_levelbar, False, False, 10)
 
-        self.levelbar = Gtk.LevelBar()
+        # levelbar "Speed mbit"
+        speedlabel = Gtk.Label("Speed ")
+        self.box_levelbar.pack_start(speedlabel, False, False, 0)
+        self.levelbar = Gtk.LevelBar.new_for_interval(0, 1)
         self.levelbar.set_mode(Gtk.LevelBarMode.CONTINUOUS)
-        self.levelbar.set_min_value(self.appdata.mbit_min)
-        self.levelbar.set_max_value(self.appdata.mbit_max)
         self.levelbar.set_value(0)
         self.box_levelbar.pack_start(self.levelbar, True, True, 0)
         self.mbitlabel2 = Gtk.Label(None)
@@ -220,16 +220,43 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             self.mbitlabel2.set_text("")
         self.box_levelbar.pack_start(self.mbitlabel2, False, False, 0)
+        boxvertical.pack_start(self.box_levelbar, True, True, 0)
+
+        # levelbars "article health"
+        self.box_health = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.box_health.set_property("margin-left", 20)
+        self.box_health.set_property("margin-right", 20)
+        self.box_health.pack_start(Gtk.Label("Article health "), False, False, 0)
+        self.levelbar_arthealth = Gtk.LevelBar.new_for_interval(0, 1)
+        self.box_health.pack_start(self.levelbar_arthealth, True, True, 0)
+        self.arthealth_label = Gtk.Label(None)
+        self.box_health.pack_start(self.arthealth_label, False, False, 0)
+        self.levelbar_arthealth.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+
+        self.artconn_label = Gtk.Label(None)
+        self.box_health.pack_end(self.artconn_label, False, False, 0)
+        self.levelbar_connhealth = Gtk.LevelBar.new_for_interval(0, 1)
+        self.box_health.pack_end(self.levelbar_connhealth, True, True, 0)
+        self.levelbar_connhealth.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        self.levelbar_connhealth.set_value(0)
+        self.box_health.pack_end(Gtk.Label("   Conn. health "), False, False, 0)
+        self.levelbar_arthealth.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        self.update_health()
+
+        boxvertical.pack_start(self.box_health, True, True, 0)
 
         box_main.pack_start(stack, True, True, 0)
 
     def show_nzb_stack(self, stacknzb_box):
+        frame2 = Gtk.Frame()
+        frame2.set_label("NZB queue")
+        stacknzb_box.pack_start(frame2, True, True, 0)
         # scrolled window
         scrolled_window = Gtk.ScrolledWindow()
         scrolled_window.set_border_width(10)
         scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled_window.set_property("min-content-height", 380)
-        stacknzb_box.pack_start(scrolled_window, True, True, 0)
+        frame2.add(scrolled_window)
         # listbox
         listbox = Gtk.ListBox()
         row = Gtk.ListBoxRow()
@@ -286,11 +313,17 @@ class AppWindow(Gtk.ApplicationWindow):
         scrolled_window.add(listbox)
 
         # treeview for logs
+        frame3 = Gtk.Frame()
+        frame3.set_label("Logs")
+        stacknzb_box.pack_start(frame3, True, True, 0)
+        scrolled_window_log = Gtk.ScrolledWindow()
+        scrolled_window_log.set_border_width(10)
+        scrolled_window_log.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled_window_log.set_property("min-content-height", 140)
+        frame3.add(scrolled_window_log)
+
         loglistbox = Gtk.ListBox()
-        loglistbox.set_property("margin-left", 8)
-        loglistbox.set_property("margin-right", 8)
         logrow = Gtk.ListBoxRow()
-        stacknzb_box.pack_start(loglistbox, True, True, 0)
 
         self.logliststore = Gtk.ListStore(str, str, str, str, str, str)
         logtreeview = Gtk.TreeView(model=self.logliststore)
@@ -320,6 +353,7 @@ class AppWindow(Gtk.ApplicationWindow):
 
         logrow.add(logtreeview)
         loglistbox.add(logrow)
+        scrolled_window_log.add(loglistbox)
 
         # self.update_logstore()
 
@@ -386,6 +420,40 @@ class AppWindow(Gtk.ApplicationWindow):
         button_add.add(image7)
         button_add.set_tooltip_text("Add NZB from File")
         box_media.pack_end(button_add, box_media_expand, box_media_fill, box_media_padd)
+
+    def read_config_file(self):
+        # update_delay
+        try:
+            self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting update_delay to default 0.5")
+            self.update_delay = 0.5
+        # host ip
+        try:
+            self.host = self.cfg["OPTIONS"]["HOST"]
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting host to default 127.0.0.1")
+            self.host = "127.0.0.1"
+        # host port
+        try:
+            self.port = self.cfg["OPTIONS"]["PORT"]
+            assert(int(self.port) > 1024 and int(self.port) <= 65535)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
+            self.port = "36603"
+        # max. mbit/seconds
+        try:
+            self.appdata.max_mbitsec = int(self.cfg["GTKGUI"]["MAX_MBITSEC"])
+            assert(self.appdata.max_mbitsec > 1 and self.appdata.max_mbitsec <= 10000)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting max_mbitsec to default 100")
+            self.appdata.max_mbitsec = 100
+        # autocal_mmbit
+        try:
+            self.appdata.autocal_mmbit = True if self.cfg["GTKGUI"]["AUTOCAL_MMBIT"].lower() == "yes" else False
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting autocal_mmbit to default False")
+            self.appdata.autocal_mmbit = False
 
     def on_buttondelete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
@@ -494,6 +562,20 @@ class AppWindow(Gtk.ApplicationWindow):
             newnzb[6] = self.liststore[path][6]
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
+
+    def update_health(self):
+        self.levelbar_connhealth.set_value(self.appdata.connection_health)
+        self.levelbar_arthealth.set_value(self.appdata.article_health)
+        if self.appdata.article_health > 0:
+            arth_str = str(int(self.appdata.article_health * 100)) + "%"
+            self.arthealth_label.set_text(arth_str.rjust(5))
+        else:
+            self.arthealth_label.set_text(" " * 5)
+        if self.appdata.connection_health > 0:
+            conn_str = str(int(self.appdata.connection_health * 100)) + "%"
+            self.artconn_label.set_text(conn_str.rjust(5))
+        else:
+            self.artconn_label.set_text(" " * 5)
 
     def update_logstore(self):
         self.logliststore.clear()
@@ -624,7 +706,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.appdata.nzbs[0] = newnzb
 
         if self.appdata.mbitsec > 0 and self.appdata.dl_running:
-            self.levelbar.set_value(int(self.appdata.mbitsec))
+            self.levelbar.set_value(self.appdata.mbitsec / self.appdata.max_mbitsec)
             mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
             self.mbitlabel2.set_text(mbitsecstr.rjust(11))
         else:
@@ -687,11 +769,29 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def closeall(self, a):
         # Gtk.main_quit()
+        if self.appdata.autocal_mmbit:
+            self.cfg["GTKGUI"]["MAX_MBITSEC"] = str(int(self.appdata.max_mbitsec))
+            with open(self.cfg_file, 'w') as configfile:
+                self.cfg.write(configfile)
         if self.mpp_main:
             os.kill(self.mpp_main.pid, signal.SIGTERM)
             self.mpp_main.join()
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0, logdata):
+    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0, logdata,
+                          article_health, connection_health, dlconfig):
+
+        if dlconfig:
+            crit_art_health, crit_conn_health = dlconfig
+            if crit_art_health != self.appdata.crit_art_health:
+                self.appdata.crit_art_health = crit_art_health
+            if crit_conn_health != self.appdata.crit_conn_health:
+                self.appdata.crit_conn_health = crit_conn_health
+            # self.update.health_levelbars()
+
+        if self.appdata.article_health != article_health or self.appdata.connection_health != connection_health:
+            self.appdata.article_health = article_health
+            self.appdata.connection_health = connection_health
+            self.update_health()
 
         if logdata != self.appdata.logdata:
             self.appdata.logdata = logdata
@@ -754,6 +854,8 @@ class AppWindow(Gtk.ApplicationWindow):
                     self.dl_running = True
                 self.nzb_status_string = nzb_status_string
                 with self.lock:
+                    if mbitseccurr > self.appdata.max_mbitsec:
+                        self.appdata.max_mbitsec = mbitseccurr
                     self.appdata.nzbname = nzbname
                     if nzb_status_string == "postprocessing" or nzb_status_string == "success":
                         self.appdata.overall_size = overall_size
@@ -778,16 +880,16 @@ class AppWindow(Gtk.ApplicationWindow):
 
 class Application(Gtk.Application):
 
-    def __init__(self, mpp_main, dirs, cfg, logger):
+    def __init__(self, mpp_main, dirs, cfg_file, logger):
         Gtk.Application.__init__(self)
         self.mpp_main = mpp_main
         self.window = None
         self.logger = logger
         self.dirs = dirs
-        self.cfg = cfg
+        self.cfg_file = cfg_file
 
     def do_activate(self):
-        self.window = AppWindow(self, self.mpp_main, self.dirs, self.cfg, self.logger)
+        self.window = AppWindow(self, self.mpp_main, self.dirs, self.cfg_file, self.logger)
         self.window.show_all()
         # self.window.box_levelbar.hide()
 
@@ -907,10 +1009,11 @@ class GUI_Poller(Thread):
                         time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, logdata = datarec
+                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, logdata, \
+                            article_health, connection_health, dlconfig = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
-                                          netstat_mbitcurr, sortednzblist, logdata)
+                                          netstat_mbitcurr, sortednzblist, logdata, article_health, connection_health, dlconfig)
                         except Exception as e:
                             self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:
