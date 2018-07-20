@@ -75,6 +75,7 @@ class SigHandler_Main:
         self.pwdb = pwdb
 
     def shutdown(self):
+        self.logger.info(whoami() + "starting shutdown sequence ...")
         f = open('/dev/null', 'w')
         sys.stdout = f
         # just log mpp pids
@@ -83,9 +84,9 @@ class SigHandler_Main:
                 item_pid = str(item.pid)
             else:
                 item_pid = "-"
-            self.logger.debug("MPP " + key + ", pid = " + item_pid)
+            self.logger.debug(whoami() + "MPP " + key + ", pid = " + item_pid)
         # 1. clear articlequeue
-        self.logger.warning(lpref + whoami() + ": clearing articlequeue")
+        self.logger.debug(whoami() + "clearing articlequeue")
         while True:
             try:
                 self.articlequeue.get_nowait()
@@ -94,7 +95,7 @@ class SigHandler_Main:
                 break
         self.articlequeue.join()
         # 2. wait for all downloads to be finished
-        self.logger.warning(lpref + whoami() + ": waiting for all remaining articles to be downloaded")
+        self.logger.debug(whoami() + "waiting for all remaining articles to be downloaded")
         dl_not_done_yet = True
         while dl_not_done_yet:
             dl_not_done_yet = False
@@ -110,16 +111,16 @@ class SigHandler_Main:
             if self.mpp["decoder"]:
                 mpid = self.mpp["decoder"].pid
             if mpid:
-                self.logger.warning(lpref + whoami() + ": terminating decoder")
+                self.logger.debug(whoami() + "terminating decoder")
                 try:
                     os.kill(self.mpp["decoder"].pid, signal.SIGKILL)
                     self.mpp["decoder"].join()
                 except Exception as e:
-                    self.logger.debug(str(e))
+                    self.logger.debug(whoami() + str(e))
         except Exception as e:
-            self.logger.warning(lpref + whoami() + ": " + str(e))
+            self.logger.debug(whoami() + str(e))
         # 4. clear mp_work_queue
-        self.logger.warning(lpref + whoami() + ": clearing mp_work_queue")
+        self.logger.debug(whoami() + "clearing mp_work_queue")
         while True:
             try:
                 self.mp_work_queue.get_nowait()
@@ -127,7 +128,7 @@ class SigHandler_Main:
                 break
         # 5. write resultqueue to file
         if self.main_dir and self.nzbname:
-            self.logger.warning(lpref + whoami() + ": writing resultqueue to .gzbx file")
+            self.logger.debug(whoami() + "writing resultqueue to .gzbx file")
             time.sleep(0.5)
             bytes_in_resultqueue = write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
             self.pwdb.db_nzb_set_bytes_in_resultqueue(self.nzbname, bytes_in_resultqueue)
@@ -138,69 +139,69 @@ class SigHandler_Main:
                 mpid = self.mpp["unrarer"].pid
             if mpid:
                 # if self.mpp["unrarer"].pid:
-                self.logger.warning(lpref + whoami() + ": terminating unrarer")
+                self.logger.debug(whoami() + "terminating unrarer")
                 try:
                     os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
                     self.mpp["unrarer"].join()
                 except Exception as e:
-                    self.logger.debug(str(e))
+                    self.logger.debug(whoami() + str(e))
         except Exception as e:
-            self.logger.warning(lpref + whoami() + ": " + str(e))
+            self.logger.debug(whoami() + str(e))
         # 7. stop rar_verifier
         try:
             mpid = None
             if self.mpp["verifier"]:
                 mpid = self.mpp["verifier"].pid
             if mpid:
-                self.logger.warning(lpref + whoami() + ": terminating rar_verifier")
+                self.logger.debug(whoami() + "terminating rar_verifier")
                 try:
                     os.kill(self.mpp["verifier"].pid, signal.SIGKILL)
                     self.mpp["verifier"].join()
                 except Exception as e:
-                    self.logger.debug(str(e))
+                    self.logger.debug(whoami() + str(e))
         except Exception as e:
-            self.logger.warning(lpref + whoami() + ": " + str(e))
+            self.logger.debug(whoami() + str(e))
         # 8. stop mpp_renamer
         try:
             mpid = None
             if self.mpp["renamer"]:
                 mpid = self.mpp["renamer"].pid
             if mpid:
-                self.logger.warning(lpref + whoami() + ": terminating renamer")
+                self.logger.debug(whoami() + "terminating renamer")
                 try:
                     os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
                     self.mpp["renamer"].join()
                 except Exception as e:
-                    self.logger.debug(str(e))
+                    self.logger.debug(whoami() + str(e))
         except Exception as e:
-            self.logger.warning(lpref + whoami() + ": " + str(e))
+            self.logger.debug(whoami() + str(e))
         # 9. stop nzbparser
         try:
             mpid = None
             if self.mpp["nzbparser"]:
                 mpid = self.mpp["nzbparser"].pid
             if mpid:
-                self.logger.warning(lpref + whoami() + ": terminating nzb_parser")
+                self.logger.debug(whoami() + "terminating nzb_parser")
                 try:
                     os.kill(self.mpp["nzbparser"].pid, signal.SIGKILL)
                     self.mpp["nzbparser"].join()
                 except Exception as e:
-                    self.logger.debug(str(e))
+                    self.logger.debug(whoami() + str(e))
         except Exception as e:
-            self.logger.warning(lpref + whoami() + ": " + str(e))
+            self.logger.debug(whoami() + str(e))
         # 10. threads + servers
         if self.ct.threads:
-            self.logger.warning(lpref + whoami() + ": stopping download threads")
+            self.logger.debug(whoami() + "stopping download threads")
             for t, _ in self.ct.threads:
                 t.stop()
                 t.join()
         try:
             if self.ct.servers:
-                self.logger.warning(lpref + whoami() + ": closing all server connections")
+                self.logger.debug(whoami() + "closing all server connections")
                 self.servers.close_all_connections()
         except Exception:
             pass
-        self.logger.warning(lpref + whoami() + ": exiting")
+        self.logger.info(whoami() + "shutdown sequence finished, exiting!")
         sys.exit()
 
     def sighandler(self, a, b):
@@ -230,7 +231,7 @@ class GUI_Connector(Thread):
             self.port = self.cfg["OPTIONS"]["PORT"]
             assert(int(self.port) > 1024 and int(self.port) <= 65535)
         except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
+            self.logger.debug(whoami() + str(e) + ", setting port to default 36603")
             self.port = "36603"
         self.data = None
         self.nzbname = None
@@ -331,11 +332,11 @@ class GUI_Connector(Thread):
             try:
                 msg, datarec = self.socket.recv_pyobj()
             except Exception as e:
-                self.logger.error("GUI_Connector: " + str(e))
+                self.logger.error(whoami() + str(e))
                 try:
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.error(whoami()+ str(e))
             if msg == "PWDB":
                 try:
                     self.socket.send_pyobj(("OK", None))
@@ -362,21 +363,21 @@ class GUI_Connector(Thread):
                 try:
                     self.socket.send_pyobj(sendtuple)
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.error(whoami() + str(e))
             elif msg == "SET_PAUSE":     # pause downloads
                 try:
                     self.socket.send_pyobj(("SET_PAUSE_OK", None))
                     with self.lock:
                         self.dl_running = False
                 except Exception as e:
-                    self.logger.error(lpref + whoami() + ": " + str(e))
+                    self.logger.error(whoami() + str(e))
                 continue
             elif msg == "SET_RESUME":    # resume downloads
                 try:
                     self.socket.send_pyobj(("SET_RESUME_OK", None))
                     self.dl_running = True
                 except Exception as e:
-                    self.logger.error(lpref + whoami() + ": " + str(e))
+                    self.logger.error(whoami() + str(e))
                 continue
             elif msg == "SET_DELETE":
                 try:
@@ -385,7 +386,7 @@ class GUI_Connector(Thread):
                     if deleted_nzb_name0 and not first_has_changed0:
                         remove_nzb_files_and_db(deleted_nzb_name0, self.dirs, self.pwdb, self.logger)
                 except Exception as e:
-                    self.logger.error(lpref + whoami() + ": " + str(e))
+                    self.logger.error(whoami() + str(e))
                 if first_has_changed0:
                     self.first_has_changed = first_has_changed0
                     self.deleted_nzb_name = deleted_nzb_name0
@@ -395,13 +396,13 @@ class GUI_Connector(Thread):
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
                     self.first_has_changed, _ = self.pwdb.set_nzbs_prios(datarec, delete=False)
                 except Exception as e:
-                    self.logger.error(lpref + whoami() + ": " + str(e))
+                    self.logger.error(whoami() + str(e))
                 continue
             else:
                 try:
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
-                    self.logger.error(whoami() + str(e) + "received msg: " + str(msg))
+                    self.logger.debug(whoami() + str(e) + ", received msg: " + str(msg))
                 continue
 
 
@@ -433,21 +434,21 @@ class Downloader():
         self.read_cfg()
         if self.pw_file:
             try:
-                self.logger.debug("As a first test, open pw_file")
+                self.logger.debug(whoami() + "as a first test, open password file")
                 with open(self.pw_file, "r") as f0:
                     f0.readlines()
-                self.logger.debug("pw_file ok")
+                self.logger.info(whoami() + "password file is available")
             except Exception as e:
-                self.logger.warning(str(e) + ": cannot open pw file, setting to None")
+                self.logger.warning(whoami() + str(e) + ": cannot open pw file, setting to None")
                 self.pw_file = None
 
     def read_cfg(self):
         # pw_file
         try:
             self.pw_file = self.dirs["main"] + self.cfg["OPTIONS"]["PW_FILE"]
-            self.logger.debug("Password file is: " + self.pw_file)
+            self.logger.debug(whoami() + "password file is: " + self.pw_file)
         except Exception as e:
-            self.logger.warning(str(e) + ": no pw file provided!")
+            self.logger.debug(whoami() + str(e) + ": no pw file provided!")
             self.pw_file = None
         # critical connection health
         try:
@@ -456,7 +457,6 @@ class Downloader():
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             self.crit_conn_health = 0.70
-
         # critical health with par files avail.
         try:
             self.crit_art_health_w_par = float(self.cfg["OPTIONS"]["crit_art_health_w_par"])
@@ -500,7 +500,7 @@ class Downloader():
             if not os.path.isdir(self.rename_dir):
                 os.mkdir(self.rename_dir)
         except Exception as e:
-            self.logger.error(str(e) + " in creating dirs ...")
+            self.logger.error(whoami() + str(e) + " in creating dirs!")
             return -1
         time.sleep(1)
         return 1
@@ -1556,7 +1556,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     signal.signal(signal.SIGTERM, sh.sighandler)
 
     # start nzb parser mpp
-    logger.debug(lpref + "starting nzbparser process ...")
+    logger.debug(whoami() + "starting nzbparser process ...")
     mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
@@ -1564,13 +1564,12 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
     sh.mpp = mpp
 
     try:
-        logger.debug(lpref + "starting guiconnector process ...")
         lock = threading.Lock()
         guiconnector = GUI_Connector(pwdb, lock, dirs, logger, cfg)
         guiconnector.start()
-        logger.debug(lpref + "guiconnector process started!")
+        logger.debug(whoami() + "guiconnector process started!")
     except Exception as e:
-        logger.warning(lpref + whoami() + str(e))
+        logger.warning(whoami() + str(e))
 
     dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     servers_shut_down = True
@@ -1587,7 +1586,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         ct.reset_timestamps_bdl()
         if not nzbname:
             break
-        logger.info(lpref + "got next NZB: " + str(nzbname))
+        logger.info(whoami() + "got next NZB: " + str(nzbname))
 
         nzbname, downloaddata, return_reason, maindir = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
                                                                     overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist)
@@ -1595,17 +1594,17 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
         if stat0 == 2:
             if return_reason == "nzbs_reordered":
-                logger.info(lpref + whoami() + "NZBs have been reordered")
+                logger.debug(whoami() + "NZBs have been reordered")
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 continue
             elif return_reason == "nzbs_deleted":
-                logger.info(lpref + whoami() + "NZBs have been deleted")
+                logger.debug(whoami() + "NZBs have been deleted")
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                 remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
                 continue
             elif return_reason == "dl_stopped":
-                logger.info(lpref + "download paused")
+                logger.debug(whoami() + "download paused")
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
                 # idle until start or nzbs_reordered signal comes from gtkgui
                 idlestart = time.time()
@@ -1627,7 +1626,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                     # after 2min idle -> stop threads
                     if not servers_shut_down and time.time() - idlestart > 2 * 60:
                         # stop all threads
-                        logger.debug(lpref + "stopping all threads")
+                        logger.debug(whoami() + "stopping all threads")
                         for t, _ in dl.ct.threads:
                             t.stop()
                             t.join()
@@ -1641,7 +1640,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
         # if download success, postprocess
         elif stat0 == 3:
             guiconnector.set_health(0, 0)
-            logger.info(lpref + whoami() + ": postprocessing NZB " + nzbname)
+            logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             stat0_0 = pwdb.db_nzb_getstatus(nzbname)
@@ -1649,6 +1648,6 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             logger.info(whoami() + nzbname + " finished with status " + str(stat0_0))
         elif stat0 == -2:
             guiconnector.set_health(0, 0)
-            logger.info(lpref + whoami() + ": download failed for NZB " + nzbname)
+            logger.info(whoami() + "download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
             pwdb.send_sorted_nzbs_to_guiconnector()

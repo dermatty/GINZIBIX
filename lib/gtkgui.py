@@ -170,29 +170,31 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_border_width(10)
         self.set_wmclass(__appname__, __appname__)
         self.header_bar()
+
+        box_primary = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.add(box_primary)
+
         box_main = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.add(box_main)
+        box_primary.pack_end(box_main, True, True, 0)
 
         # stack
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         stack.set_transition_duration(200)
 
+        stack_switcher = Gtk.StackSidebar()
+        stack_switcher.set_stack(stack)
+        box_primary.pack_end(stack_switcher, False, False, 0)
+
         self.stacknzb_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        stack.add_titled(self.stacknzb_box, "nzbs", "NZBs")
+        stack.add_titled(self.stacknzb_box, "nzbqueue", "NZB QUEUE")
         self.show_nzb_stack(self.stacknzb_box)
         self.stackdetails_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
-        stack.add_titled(self.stackdetails_box, "database", "DataBase")
+        stack.add_titled(self.stackdetails_box, "nzbhistory", "NZB HISTORY")
         self.stacklogs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
-        stack.add_titled(self.stacklogs_box, "logs", "Logs")
+        stack.add_titled(self.stacklogs_box, "settings", "SETTINGS")
         self.stacksearch_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
-        stack.add_titled(self.stacksearch_box, "search", "Search")
-
-        stack_switcher = Gtk.StackSwitcher()
-        stack_switcher.set_stack(stack)
-        stack_switcher.set_property("halign", Gtk.Align.CENTER)
-        stack_switcher.set_property("valign", Gtk.Align.START)
-        box_main.pack_start(stack_switcher, False, False, 0)
+        stack.add_titled(self.stacksearch_box, "search", "SEARCH")
 
         # levelbars; Mbit, article_health, connection_health
         frame1 = Gtk.Frame()
@@ -212,6 +214,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.levelbar = Gtk.LevelBar.new_for_interval(0, 1)
         self.levelbar.set_mode(Gtk.LevelBarMode.CONTINUOUS)
         self.levelbar.set_value(0)
+        self.levelbar.set_tooltip_text("Max = " + str(self.appdata.max_mbitsec))
         self.box_levelbar.pack_start(self.levelbar, True, True, 0)
         self.mbitlabel2 = Gtk.Label(None)
         if self.appdata.mbitsec > 0:
@@ -312,6 +315,8 @@ class AppWindow(Gtk.ApplicationWindow):
         listbox.add(row)
         scrolled_window.add(listbox)
 
+        self.gridbuttonlist = self.add_action_bar(stacknzb_box)
+
         # treeview for logs
         frame3 = Gtk.Frame()
         frame3.set_label("Logs")
@@ -355,71 +360,56 @@ class AppWindow(Gtk.ApplicationWindow):
         loglistbox.add(logrow)
         scrolled_window_log.add(loglistbox)
 
-        # self.update_logstore()
-
+    def add_action_bar(self, container):
         # box for record/stop/.. selected
-        box_media = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box_media.set_property("margin-left", 8)
-        box_media.set_property("margin-right", 8)
+        box_media = Gtk.ActionBar()
         box_media_expand = False
         box_media_fill = False
         box_media_padd = 1
-        stacknzb_box.pack_start(box_media, box_media_expand, box_media_fill, box_media_padd)
-        self.gridbuttonlist = []
+        container.pack_start(box_media, box_media_expand, box_media_fill, box_media_padd)
+        gridbuttonlist = []
         # button full up
-        button_full_up = Gtk.Button(sensitive=False)
-        button_full_up.set_size_request(50, 20)
-        icon1 = Gio.ThemedIcon(name="arrow-up-double")
-        image1 = Gtk.Image.new_from_gicon(icon1, Gtk.IconSize.BUTTON)
-        button_full_up.add(image1)
+        button_full_up = Gtk.Button.new_from_icon_name("arrow-up-double", Gtk.IconSize.SMALL_TOOLBAR)
+        button_full_up.set_sensitive(False)
         button_full_up.connect("clicked", self.on_buttonfullup_clicked)
-        box_media.pack_start(button_full_up, box_media_expand, box_media_fill, box_media_padd)
+        box_media.pack_start(button_full_up)
         button_full_up.set_tooltip_text("Move NZB(s) to top")
-        self.gridbuttonlist.append(button_full_up)
+        gridbuttonlist.append(button_full_up)
         # button up
-        button_up = Gtk.Button(sensitive=False)
-        icon4 = Gio.ThemedIcon(name="arrow-up")
-        image4 = Gtk.Image.new_from_gicon(icon4, Gtk.IconSize.BUTTON)
-        button_up.add(image4)
+        button_up = Gtk.Button.new_from_icon_name("arrow-up", Gtk.IconSize.SMALL_TOOLBAR)
+        button_up.set_sensitive(False)
         button_up.connect("clicked", self.on_buttonup_clicked)
-        box_media.pack_start(button_up, box_media_expand, box_media_fill, box_media_padd)
+        box_media.pack_start(button_up)
         button_up.set_tooltip_text("Move NZB(s) 1 up")
-        self.gridbuttonlist.append(button_up)
+        gridbuttonlist.append(button_up)
         # button down
-        button_down = Gtk.Button(sensitive=False)
-        icon3 = Gio.ThemedIcon(name="arrow-down")
-        image3 = Gtk.Image.new_from_gicon(icon3, Gtk.IconSize.BUTTON)
-        button_down.add(image3)
+        button_down = Gtk.Button.new_from_icon_name("arrow-down", Gtk.IconSize.SMALL_TOOLBAR)
+        button_down.set_sensitive(False)
         button_down.connect("clicked", self.on_buttondown_clicked)
-        box_media.pack_start(button_down, box_media_expand, box_media_fill, box_media_padd)
+        box_media.pack_start(button_down)
         button_down.set_tooltip_text("Move NZB(s) 1 down")
-        self.gridbuttonlist.append(button_down)
+        gridbuttonlist.append(button_down)
         # button full down
-        button_full_down = Gtk.Button(sensitive=False)
-        button_full_down.set_size_request(50, 20)
-        icon2 = Gio.ThemedIcon(name="arrow-down-double")
-        image2 = Gtk.Image.new_from_gicon(icon2, Gtk.IconSize.BUTTON)
-        button_full_down.add(image2)
+        button_full_down = Gtk.Button.new_from_icon_name("arrow-down-double", Gtk.IconSize.SMALL_TOOLBAR)
+        button_full_down.set_sensitive(False)
         button_full_down.connect("clicked", self.on_buttonfulldown_clicked)
-        box_media.pack_start(button_full_down, box_media_expand, box_media_fill, box_media_padd)
+        box_media.pack_start(button_full_down)
         button_full_down.set_tooltip_text("Move NZB(s) to bottom")
-        self.gridbuttonlist.append(button_full_down)
+        gridbuttonlist.append(button_full_down)
         # delete
-        button_delete = Gtk.Button(sensitive=False)
-        icon6 = Gio.ThemedIcon(name="gtk-delete")
-        image6 = Gtk.Image.new_from_gicon(icon6, Gtk.IconSize.BUTTON)
-        button_delete.add(image6)
+        button_delete = Gtk.Button.new_from_icon_name("gtk-delete", Gtk.IconSize.SMALL_TOOLBAR)
+        button_delete.set_sensitive(False)
         button_delete.connect("clicked", self.on_buttondelete_clicked)
-        box_media.pack_end(button_delete, box_media_expand, box_media_fill, box_media_padd)
+        box_media.pack_end(button_delete)
         button_delete.set_tooltip_text("Delete NZB(s)")
-        self.gridbuttonlist.append(button_delete)
+        gridbuttonlist.append(button_delete)
         # add
-        button_add = Gtk.Button(sensitive=True)
-        icon7 = Gio.ThemedIcon(name="list-add")
-        image7 = Gtk.Image.new_from_gicon(icon7, Gtk.IconSize.BUTTON)
-        button_add.add(image7)
+        button_add = Gtk.Button.new_from_icon_name("list-add", Gtk.IconSize.SMALL_TOOLBAR)
+        button_add.set_sensitive(True)
         button_add.set_tooltip_text("Add NZB from File")
-        box_media.pack_end(button_add, box_media_expand, box_media_fill, box_media_padd)
+        box_media.pack_end(button_add)
+        # center, restart z.b
+        # action_bar.set_center_widget (secondary_box)
 
     def read_config_file(self):
         # update_delay
@@ -564,7 +554,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.toggle_buttons()
 
     def update_health(self):
-        self.levelbar_connhealth.set_value(self.appdata.connection_health)
+        # self.levelbar_connhealth.set_value(self.appdata.connection_health)
         self.levelbar_arthealth.set_value(self.appdata.article_health)
         if self.appdata.article_health > 0:
             arth_str = str(int(self.appdata.article_health * 100)) + "%"
@@ -784,8 +774,10 @@ class AppWindow(Gtk.ApplicationWindow):
             crit_art_health, crit_conn_health = dlconfig
             if crit_art_health != self.appdata.crit_art_health:
                 self.appdata.crit_art_health = crit_art_health
+                self.levelbar_arthealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_art_health)) * 100)) + "%")
             if crit_conn_health != self.appdata.crit_conn_health:
                 self.appdata.crit_conn_health = crit_conn_health
+                self.levelbar_connhealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_conn_health)) * 100)) + "%")
             # self.update.health_levelbars()
 
         if self.appdata.article_health != article_health or self.appdata.connection_health != connection_health:
@@ -854,7 +846,8 @@ class AppWindow(Gtk.ApplicationWindow):
                     self.dl_running = True
                 self.nzb_status_string = nzb_status_string
                 with self.lock:
-                    if mbitseccurr > self.appdata.max_mbitsec:
+                    if self.appdata.autocal_mmbit and mbitseccurr > self.appdata.max_mbitsec:
+                        self.levelbar.set_tooltip_text("Max = " + str(self.appdata.max_mbitsec))
                         self.appdata.max_mbitsec = mbitseccurr
                     self.appdata.nzbname = nzbname
                     if nzb_status_string == "postprocessing" or nzb_status_string == "success":
