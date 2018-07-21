@@ -116,14 +116,15 @@ class AppData:
         self.autocal_mmbit = False
         self.block_update_dldata = False
         # crit_art_health is taken from server
-        self.crit_art_health = 0.98
-        self.crit_conn_health = 0.7
+        self.crit_art_health = 0.95
+        self.crit_conn_health = 0.5
         self.sortednzblist = None
         self.dldata = None
         self.netstat_mbitcur = None
-        self.logdata = [("", "", "", 0) for n in range(4)]
+        self.logdata = None
         self.article_health = 0
         self.connection_health = 0
+        self.fulldata = None
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -244,6 +245,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.levelbar_connhealth.set_value(0)
         self.box_health.pack_end(Gtk.Label("   Conn. health "), False, False, 0)
         self.levelbar_arthealth.set_mode(Gtk.LevelBarMode.CONTINUOUS)
+        self.update_crit_health_levelbars()
         self.update_health()
 
         boxvertical.pack_start(self.box_health, True, True, 0)
@@ -318,6 +320,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.gridbuttonlist = self.add_action_bar(stacknzb_box)
 
         # treeview for logs
+        # msg, level, tt, bg, fg
         frame3 = Gtk.Frame()
         frame3.set_label("Logs")
         stacknzb_box.pack_start(frame3, True, True, 0)
@@ -330,30 +333,23 @@ class AppWindow(Gtk.ApplicationWindow):
         loglistbox = Gtk.ListBox()
         logrow = Gtk.ListBoxRow()
 
-        self.logliststore = Gtk.ListStore(str, str, str, str, str, str)
+        self.logliststore = Gtk.ListStore(str, str, str, str, str)
         logtreeview = Gtk.TreeView(model=self.logliststore)
 
-        renderer_log1 = Gtk.CellRendererText()
-
-        column_log1 = Gtk.TreeViewColumn("NZB", renderer_log1, text=0, background=4, foreground=5)
-        column_log1.set_min_width(320)
-        column_log1.set_expand(True)
-        logtreeview.append_column(column_log1)
-
         renderer_log4 = Gtk.CellRendererText()
-        column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=3, background=4, foreground=5)
+        column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
         column_log4.set_min_width(80)
         logtreeview.append_column(column_log4)
 
         renderer_log3 = Gtk.CellRendererText()
-        column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=2, background=4, foreground=5)
+        column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
         column_log3.set_min_width(80)
         logtreeview.append_column(column_log3)
 
         renderer_log2 = Gtk.CellRendererText()
-        column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=1, background=4, foreground=5)
+        column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
         column_log2.set_expand(True)
-        column_log2.set_min_width(460)
+        column_log2.set_min_width(520)
         logtreeview.append_column(column_log2)
 
         logrow.add(logtreeview)
@@ -410,6 +406,7 @@ class AppWindow(Gtk.ApplicationWindow):
         box_media.pack_end(button_add)
         # center, restart z.b
         # action_bar.set_center_widget (secondary_box)
+        return gridbuttonlist
 
     def read_config_file(self):
         # update_delay
@@ -554,7 +551,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.toggle_buttons()
 
     def update_health(self):
-        # self.levelbar_connhealth.set_value(self.appdata.connection_health)
+        self.levelbar_connhealth.set_value(self.appdata.connection_health)
         self.levelbar_arthealth.set_value(self.appdata.article_health)
         if self.appdata.article_health > 0:
             arth_str = str(int(self.appdata.article_health * 100)) + "%"
@@ -568,6 +565,42 @@ class AppWindow(Gtk.ApplicationWindow):
             self.artconn_label.set_text(" " * 5)
 
     def update_logstore(self):
+        # only show msgs for current nzb
+        self.logliststore.clear()
+        try:
+            loglist = self.appdata.fulldata[self.appdata.nzbname]["msg"][:]
+        except Exception as e:
+            return
+        for msg0, ts0, level0 in loglist:
+            log_as_list = []
+            # msg, level, tt, bg, fg
+            # log_as_list.append(get_cut_nzbname(self.appdata.nzbname))
+            log_as_list.append(get_cut_msg(msg0))
+            log_as_list.append(level0)
+            if level0 == 0:
+                log_as_list.append("")
+            else:
+                log_as_list.append(str(datetime.datetime.fromtimestamp(ts0).strftime('%Y-%m-%d %H:%M:%S')))
+            fg = "black"
+            if log_as_list[1] == "info":
+                bg = "royal Blue"
+                fg = "white"
+            elif log_as_list[1] == "warning":
+                bg = "orange"
+                fg = "white"
+            elif log_as_list[1] == "error":
+                bg = "red"
+                fg = "white"
+            elif log_as_list[1] == "success":
+                bg = "green"
+                fg = "white"
+            else:
+                bg = "white"
+            log_as_list.append(bg)
+            log_as_list.append(fg)
+            self.logliststore.append(log_as_list)
+
+    def update_logstore2(self):
         self.logliststore.clear()
         for i, log in enumerate(self.appdata.logdata):
             log_as_list = list(log)
@@ -767,27 +800,43 @@ class AppWindow(Gtk.ApplicationWindow):
             os.kill(self.mpp_main.pid, signal.SIGTERM)
             self.mpp_main.join()
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0, logdata,
-                          article_health, connection_health, dlconfig):
+    def update_crit_health_levelbars(self):
+        crit_art_health = self.appdata.crit_art_health
+        self.levelbar_arthealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_art_health)) * 100)) + "%")
+        self.levelbar_arthealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_LOW, crit_art_health + (1 - crit_art_health) * 0.25)
+        self.levelbar_arthealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_HIGH, crit_art_health + (1 - crit_art_health) * 0.75)
+        crit_conn_health = self.appdata.crit_conn_health
+        self.levelbar_connhealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_LOW, crit_conn_health + (1 - crit_conn_health) * 0.25)
+        self.levelbar_connhealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_HIGH, crit_conn_health + (1 - crit_conn_health) * 0.75)
+        self.levelbar_connhealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_conn_health)) * 100)) + "%")
+
+    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
+                          article_health, connection_health, dlconfig, fulldata):
+
+        if fulldata and self.appdata.fulldata != fulldata:
+            self.appdata.fulldata = fulldata
+            self.update_logstore()
 
         if dlconfig:
             crit_art_health, crit_conn_health = dlconfig
+            newhealth = False
             if crit_art_health != self.appdata.crit_art_health:
                 self.appdata.crit_art_health = crit_art_health
-                self.levelbar_arthealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_art_health)) * 100)) + "%")
+                newhealth = True
             if crit_conn_health != self.appdata.crit_conn_health:
                 self.appdata.crit_conn_health = crit_conn_health
-                self.levelbar_connhealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_conn_health)) * 100)) + "%")
-            # self.update.health_levelbars()
+                newhealth = True
+            if newhealth:
+                self.update_crit_health_levelbars()
 
         if self.appdata.article_health != article_health or self.appdata.connection_health != connection_health:
             self.appdata.article_health = article_health
             self.appdata.connection_health = connection_health
             self.update_health()
 
-        if logdata != self.appdata.logdata:
-            self.appdata.logdata = logdata
-            self.update_logstore()
+        #if logdata != self.appdata.logdata:
+        #    self.appdata.logdata = logdata
+        #    self.update_logstore()
 
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
             # sort again just to make sure
@@ -847,8 +896,8 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.nzb_status_string = nzb_status_string
                 with self.lock:
                     if self.appdata.autocal_mmbit and mbitseccurr > self.appdata.max_mbitsec:
-                        self.levelbar.set_tooltip_text("Max = " + str(self.appdata.max_mbitsec))
                         self.appdata.max_mbitsec = mbitseccurr
+                        self.levelbar.set_tooltip_text("Max = " + str(self.appdata.max_mbitsec))
                     self.appdata.nzbname = nzbname
                     if nzb_status_string == "postprocessing" or nzb_status_string == "success":
                         self.appdata.overall_size = overall_size
@@ -1002,11 +1051,11 @@ class GUI_Poller(Thread):
                         time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, logdata, \
-                            article_health, connection_health, dlconfig = datarec
+                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, \
+                            article_health, connection_health, dlconfig, full_data = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
-                                          netstat_mbitcurr, sortednzblist, logdata, article_health, connection_health, dlconfig)
+                                          netstat_mbitcurr, sortednzblist, article_health, connection_health, dlconfig, full_data)
                         except Exception as e:
                             self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:

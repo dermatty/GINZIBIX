@@ -12,4 +12,3 @@ from .passworded_rars import is_rar_password_protected, get_password, get_sorted
 from .main import ginzi_main
 # from .gui import GUI_Drawer, app_main
 from .gtkgui import Application
-from .aux import Logsender

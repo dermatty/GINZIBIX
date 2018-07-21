@@ -9,7 +9,6 @@ import time
 import pexpect
 import inotify_simple
 import signal
-from .aux import Logsender
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -30,8 +29,6 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
     sh = SigHandler_Verifier(logger)
     signal.signal(signal.SIGINT, sh.sighandler_verifier)
     signal.signal(signal.SIGTERM, sh.sighandler_verifier)
-
-    ls = Logsender(cfg)
 
     pwdb.log(nzbname, lpref + "starting par_verifier in mode " + pvmode, "info", logger)
 
@@ -57,7 +54,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
             if False in md5match:
                 logger.warning(lpref + " error in md5 hash match for file " + f_short)
                 pwdb.db_file_update_parstatus(f0.orig_name, -1)
-                ls.sendlog(nzbname, "error in md5 hash match for file " + f_short, "warning")
+                pwdb.db_msg_insert(nzbname, "error in md5 hash match for file " + f_short, "warning")
                 doloadpar2vols = True
             else:
                 logger.info(lpref + f_short + "md5 hash match ok, copying to verified_rar dir")
@@ -103,7 +100,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0.renamed_name]
                         if False in md5match:
                             logger.warning(lpref + "error in md5 hash match for file " + f_short)
-                            ls.sendlog(nzbname, "error in md5 hash match for file " + f_short, "warning")
+                            pwdb.db_msg_insert(nzbname, "error in md5 hash match for file " + f_short, "warning")
                             pwdb.db_file_update_parstatus(f0.orig_name, -1)
                             if not doloadpar2vols:
                                 doloadpar2vols = True
@@ -139,12 +136,12 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
         logger.debug(lpref + "rar files ok, no repair needed, exiting par_verifier")
         pwdb.db_nzb_update_verify_status(nzbname, 2)
     elif par2name and corruptrars:
-        ls.sendlog(nzbname, "repairing rar files", "info")
+        pwdb.db_msg_insert(nzbname, "repairing rar files", "info")
         logger.info(lpref + "par2vol files present, repairing ...")
         res0 = multipartrar_repair(renamed_dir, par2name, logger)
         if res0 == 1:
             logger.info(lpref + "repair success")
-            ls.sendlog(nzbname, "rar file repair success!", "info")
+            pwdb.db_msg_insert(nzbname, "rar file repair success!", "info")
             pwdb.db_nzb_update_verify_status(nzbname, 2)
             # copy all no yet copied rars to verifiedrar_dir
             for c in corruptrars:
@@ -154,12 +151,12 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, pw
                 shutil.copy(renamed_dir + c.renamed_name, verifiedrar_dir)
         else:
             logger.error(lpref + "repair failed!")
-            ls.sendlog(nzbname, "rar file repair failed", "error")
+            pwdb.db_msg_insert(nzbname, "rar file repair failed", "error")
             pwdb.db_nzb_update_verify_status(nzbname, -1)
             for c in corruptrars:
                 pwdb.db_file_update_parstatus(c.orig_name, -2)
     else:
-        ls.sendlog(nzbname, "rar file repair failed, no par files available", "error")
+        pwdb.db_msg_insert(nzbname, "rar file repair failed, no par files available", "error")
         logger.warning(lpref + "some rars are corrupt but cannot repair (no par2 files)")
         pwdb.db_nzb_update_verify_status(nzbname, 2)
     logger.info(lpref + "terminated!")
