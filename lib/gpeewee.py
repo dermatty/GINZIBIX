@@ -8,6 +8,7 @@ import dill
 import inspect
 import zmq
 import threading
+from playhouse.sqliteq import SqliteQueueDatabase
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -161,20 +162,19 @@ class PWDB:
             self.last_update_for_gui = time.time()
 
     def get_all_data_for_gui(self):
-        with self.db.atomic():
-            nzb_data = {}
-            all_sorted_nzbs = self.db_nzb_getall_sorted()
-            for nzbdata in all_sorted_nzbs:
-                n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
-                nzb_data[n_name] = {}
-                ispw = self.db_nzb_get_password(n_name)
-                pw = self.db_nzb_get_ispw(n_name)
-                nzb_data[n_name]["static"] = (n_status, n_prio, n_size, n_dlsize, ispw, pw)
-                nzb0 = self.NZB.get(self.NZB.name == n_name)
-                nzb_data[n_name]["files"] = {}
-                for nzbf in nzb0.files:
-                    nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
-                nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
+        nzb_data = {}
+        all_sorted_nzbs = self.db_nzb_getall_sorted()
+        for nzbdata in all_sorted_nzbs:
+            n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
+            nzb_data[n_name] = {}
+            ispw = self.db_nzb_get_password(n_name)
+            pw = self.db_nzb_get_ispw(n_name)
+            nzb_data[n_name]["static"] = (n_status, n_prio, n_size, n_dlsize, ispw, pw)
+            nzb0 = self.NZB.get(self.NZB.name == n_name)
+            nzb_data[n_name]["files"] = {}
+            for nzbf in nzb0.files:
+                nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
+            nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
         return nzb_data
 
     # ---- self.MSG --------
@@ -203,9 +203,8 @@ class PWDB:
     def db_msg_get(self, nzbname0):
         msglist = []
         try:
-            with self.db.atomic():
-                msg0 = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp.desc())
-                msglist = [(msg.message, msg.timestamp, msg.level) for msg in msg0]
+            msg0 = self.MSG.select().where(self.MSG.nzbname == nzbname0).order_by(self.MSG.timestamp.desc())
+            msglist = [(msg.message, msg.timestamp, msg.level) for msg in msg0]
             return msglist
         except Exception as e:
             self.logger.warning(lpref + "db_msg_get: " + str(e))
@@ -506,9 +505,8 @@ class PWDB:
 
     def db_file_update_status(self, filename, newstatus):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
-            query.execute()
+        query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
+        query.execute()
         ''' with self.db.atomic():
             file0 = self.FILE.get((self.FILE.orig_name == filename))
             file0.status = newstatus
@@ -518,34 +516,30 @@ class PWDB:
 
     def db_file_update_parstatus(self, filename, newparstatus):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            query = self.FILE.update(parverify_state=newparstatus).where(self.FILE.orig_name == filename)
-            query.execute()
+        query = self.FILE.update(parverify_state=newparstatus).where(self.FILE.orig_name == filename)
+        query.execute()
         # file0 = self.FILE.get((self.FILE.orig_name == filename))
         # file0.parverify_state = newparstatus
         # file0.save()
 
     def db_file_update_nzbstatus(self, filename0, newnzbstatus0):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            file0 = self.FILE.get((self.FILE.orig_name == filename0))
-            file0.nzb.status = newnzbstatus0
-            file0.save()
+        file0 = self.FILE.get((self.FILE.orig_name == filename0))
+        file0.nzb.status = newnzbstatus0
+        file0.save()
 
     def db_file_set_renamed_name(self, orig_name0, renamed_name0):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
-            query.execute()
+        query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
+        query.execute()
         # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
         # file0.renamed_name = renamed_name
         # file0.save()
 
     def db_file_set_file_type(self, orig_name0, ftype0):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            query = self.FILE.update(ftype=ftype0).where(self.FILE.orig_name == orig_name0)
-            query.execute()
+        query = self.FILE.update(ftype=ftype0).where(self.FILE.orig_name == orig_name0)
+        query.execute()
         # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
         # file0.ftype = ftype
         # file0.save()
@@ -583,12 +577,11 @@ class PWDB:
             return [-9999]
 
     def db_file_insert(self, name, nzb, nr_articles, age, ftype):
-        with self.db.atomic():
-            try:
-                new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
-            except Exception as e:
-                new_file = None
-                self.logger.warning(lpref + str(e))
+        try:
+            new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
+        except Exception as e:
+            new_file = None
+            self.logger.warning(lpref + str(e))
         return new_file
 
     def db_file_getall(self):
@@ -600,18 +593,16 @@ class PWDB:
 
     def db_file_deleteall(self):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            query = self.FILE.delete()
-            query.execute()
+        query = self.FILE.delete()
+        query.execute()
 
     # ---- self.ARTICLE --------
     def db_article_insert(self, name, fileentry, size, number):
         self.set_last_update_for_gui()
-        with self.db.atomic():           
-            try:
-                new_article = self.ARTICLE.create(name=name, fileentry=fileentry, timestamp=time.time())
-            except Exception as e:
-                new_article = None
+        try:
+            new_article = self.ARTICLE.create(name=name, fileentry=fileentry, timestamp=time.time())
+        except Exception as e:
+            new_article = None
         return new_article
 
     def db_article_getall(self):
@@ -622,27 +613,25 @@ class PWDB:
 
     def db_article_deleteall(self):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            query = self.ARTICLE.delete()
-            query.execute()
+        query = self.ARTICLE.delete()
+        query.execute()
 
     def db_article_insert_many(self, data):
         self.set_last_update_for_gui()
-        with self.db.atomic():
-            i = 0
-            chunksize = self.SQLITE_MAX_VARIABLE_NUMBER
-            llen = len(data)
-            while i < llen:
-                data0 = data[i: min(i + chunksize, llen)]
-                try:
-                    query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
-                                                                    self.ARTICLE.timestamp])
-                    query.execute()
-                except OperationalError:
-                    chunksize = int(chunksize * 0.9)
-                    continue
-                i += chunksize
-            self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
+        i = 0
+        chunksize = self.SQLITE_MAX_VARIABLE_NUMBER
+        llen = len(data)
+        while i < llen:
+            data0 = data[i: min(i + chunksize, llen)]
+            try:
+                query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
+                                                                self.ARTICLE.timestamp])
+                query.execute()
+            except OperationalError:
+                chunksize = int(chunksize * 0.9)
+                continue
+            i += chunksize
+        self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
 
     # ---- self.DB --------
     def db_close(self):
@@ -677,15 +666,14 @@ class PWDB:
                 del old_nzb_list[del_nzb_index]
 
         mi_overflow = 1
-        with self.db.atomic():
-            for i, onzb in enumerate(old_nzb_list):
-                try:
-                    matchidx = [j for j, name in enumerate(new_nzb_list) if name == onzb][0]
-                except Exception as e:
-                    matchidx = len(new_nzb_list) + mi_overflow
-                    mi_overflow += 1
-                query = self.NZB.update(priority=matchidx+1).where(self.NZB.name == onzb)
-                query.execute()
+        for i, onzb in enumerate(old_nzb_list):
+            try:
+                matchidx = [j for j, name in enumerate(new_nzb_list) if name == onzb][0]
+            except Exception as e:
+                matchidx = len(new_nzb_list) + mi_overflow
+                mi_overflow += 1
+            query = self.NZB.update(priority=matchidx+1).where(self.NZB.name == onzb)
+            query.execute()
         return first_has_changed, del_nzb_name
 
     # ---- send sorted nzbs to guiconnector ---
@@ -870,9 +858,8 @@ class PWDB:
     #      to download threads
     def make_allfilelist(self, dir0, nzbdir):
         try:
-            with self.db.atomic():
-                nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
-                                              | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+            nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
+                                          | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
             return None, None, None, None, None, None, None, None
