@@ -7,6 +7,8 @@ import inotify_simple
 from lxml import etree
 import sys
 import signal
+from .aux import PWDBSender
+
 
 lpref = __name__ + " - "
 
@@ -101,11 +103,13 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(pwdb, nzbdir, logger):
+def ParseNZB(cfg, nzbdir, logger):
     global TERMINATED
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
+
+    pwdb = PWDBSender(cfg)
 
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
@@ -125,11 +129,13 @@ def ParseNZB(pwdb, nzbdir, logger):
                 logger.debug(lpref + "got event in nzb_dir")
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
-                if pwdb.db_nzb_exists(nzb0):
+                if pwdb.exc("db_nzb_exists", [nzb0], {}):
+                    # if pwdb.db_nzb_exists(nzb0):
                     logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
                     continue
                 logger.info(lpref + "inserting " + nzb0 + "into db")
-                newnzb = pwdb.db_nzb_insert(nzb0)
+                # newnzb = pwdb.db_nzb_insert(nzb0)
+                newnzb = pwdb.exc("db_nzb_insert", [nzb0], {})
                 if newnzb:
                     logger.info(lpref + "new NZB file " + nzb0 + " detected")
                     # update size
@@ -137,8 +143,8 @@ def ParseNZB(pwdb, nzbdir, logger):
                     filedic, bytescount = decompose_nzb(nzb, logger)
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
-                        pwdb.db_nzb_update_status(nzb0, -2)         # status "cannot queue / -2"
-                        # pwdb.db_nzb_delete(nzb0)
+                        # pwdb.db_nzb_update_status(nzb0, -2)         # status "cannot queue / -2"
+                        pwdb.exc("db_nzb_update_status", [nzb0, -2], {})   # status "cannot queue / -2"
                     else:
                         size_gb = bytescount / (1024 * 1024 * 1024)
                         infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
@@ -152,15 +158,19 @@ def ParseNZB(pwdb, nzbdir, logger):
                                     ftype = get_file_type(key)
                                     logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
                                                  + " / type=" + ftype)
-                                    newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
+                                    # newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
+                                    newfile = pwdb.exc("db_file_insert", [key, newnzb, nr0, age, ftype], {})
                                 else:
                                     fn, no, size = it
                                     data.append((fn, newfile, size, no, time.time()))
-                            pwdb.db_article_insert_many(data)
+                            # pwdb.db_article_insert_many(data)
+                            pwdb.exc("db_article_insert_many", [data], {})
                         logger.info(lpref + "Added NZB: " + infostr + " to database / queue")
-                        pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
+                        # pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
+                        pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
                         logger.debug(lpref + "Added NZB: " + infostr + " to GUI")
-                        pwdb.send_sorted_nzbs_to_guiconnector()
+                        pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
+                        # pwdb.send_sorted_nzbs_to_guiconnector()
             isfirstrun = False
     os.chdir(cwd0)
     logger.warning(lpref + "terminated!")

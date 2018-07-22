@@ -8,7 +8,6 @@ import dill
 import inspect
 import zmq
 import threading
-from playhouse.sqliteq import SqliteQueueDatabase
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -268,6 +267,9 @@ class PWDB:
             except Exception as e:
                 self.logger.warning(str(e))'''
 
+    def testtest(self):
+        print("-----------")
+
     def db_nzb_getsize(self, name):
         nzb0 = self.NZB.get(self.NZB.name == name)
         size = 0
@@ -389,7 +391,16 @@ class PWDB:
     def db_file_get_renamed(self, name):
         try:
             file0 = self.FILE.get(self.FILE.renamed_name == name)
-            return file0
+            filelist = [(f0.orig_name, f0.renamed_name, f0.ftype) for f0 in file0][0]
+            return filelist
+        except Exception as e:
+            self.logger.warning(lpref + "cannot match in db:" + name)
+            return None
+
+    def db_file_getftype_renamed(self, name):
+        try:
+            file0 = self.FILE.get(self.FILE.renamed_name == name)
+            return file0.ftpye
         except Exception as e:
             self.logger.warning(lpref + "cannot match in db:" + name)
             return None
@@ -434,14 +445,15 @@ class PWDB:
     def get_all_renamed_rar_files(self, nzbname):
         try:
             rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
-            return rarfiles
+            rarflist = [(r.renamed_name, r.orig_name) for r in rarfiles]
+            return rarflist
         except Exception as e:
             self.logger.warning(lpref + str(e))
             return None
 
     def get_all_corrupt_rar_files(self, nzbname):
         try:
-            rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files
+            rarfiles = [(f0.orig_name, f0.renamed_name) for f0 in self.NZB.get(self.NZB.name == nzbname).files
                         if f0.ftype == "rar" and f0.parverify_state == -1 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
@@ -544,6 +556,13 @@ class PWDB:
         # file0.ftype = ftype
         # file0.save()
 
+    def db_fname_to_fentry(self, fname):
+        try:
+            fentry = self.FILE.select().where(self.FILE.orig_name == fname)[0]
+            return fentry
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+
     def db_file_getstatus(self, filename):
         try:
             query = self.FILE.get(self.FILE.orig_name == filename)
@@ -578,7 +597,8 @@ class PWDB:
 
     def db_file_insert(self, name, nzb, nr_articles, age, ftype):
         try:
-            new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
+            self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
+            new_file = name
         except Exception as e:
             new_file = None
             self.logger.warning(lpref + str(e))
@@ -623,6 +643,8 @@ class PWDB:
         llen = len(data)
         while i < llen:
             data0 = data[i: min(i + chunksize, llen)]
+            for i, (a_aname, a_fname, a_size, a_no, a_ts) in enumerate(data0):
+                data0[i] = (a_aname, self.db_fname_to_fentry(a_fname), a_size, a_no, a_ts)
             try:
                 query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
                                                                 self.ARTICLE.timestamp])

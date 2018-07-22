@@ -28,6 +28,7 @@ from .server import Servers
 import inspect
 import dill
 from statistics import mean
+from .aux import PWDBSender
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -51,7 +52,8 @@ def remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger):
     except Exception as e:
         logger.debug(lpref + whoami() + str(e))
     # remove from db
-    pwdb.db_nzb_delete(deleted_nzb_name0)
+    pwdb.exc("db_nzb_delete", [deleted_nzb_name0], {})
+    # pwdb.db_nzb_delete(deleted_nzb_name0)
     # remove incomplete/$nzb_name
     try:
         shutil.rmtree(dirs["incomplete"] + nzbdirname)
@@ -130,7 +132,8 @@ class SigHandler_Main:
             self.logger.debug(whoami() + "writing resultqueue to .gzbx file")
             time.sleep(0.5)
             bytes_in_resultqueue = write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
-            self.pwdb.db_nzb_set_bytes_in_resultqueue(self.nzbname, bytes_in_resultqueue)
+            # self.pwdb.db_nzb_set_bytes_in_resultqueue(self.nzbname, bytes_in_resultqueue)
+            self.pwdb.exc("db_nzb_set_bytes_in_resultqueue", [self.nzbname, bytes_in_resultqueue], {})
         # 6. stop unrarer
         try:
             mpid = None
@@ -207,24 +210,12 @@ class SigHandler_Main:
         self.shutdown()
 
 
-# logginghandler for storing msgs in db
-class NZBHandler(logging.Handler):
-    def __init__(self, arg0, pwdb):
-        logging.Handler.__init__(self)
-        self.nzbname = arg0
-        self.pwdb = pwdb
-
-    def emit(self, record):
-        # record.message is the log message
-        self.pwdb.db_msg_insert(self.nzbname, record.message, record.levelname)
-
-
 class GUI_Connector(Thread):
-    def __init__(self, pwdb, lock, dirs, logger, cfg):
+    def __init__(self, lock, dirs, logger, cfg):
         Thread.__init__(self)
         self.daemon = True
         self.dirs = dirs
-        self.pwdb = pwdb
+        self.pwdb = PWDBSender(cfg)
         self.cfg = cfg
         try:
             self.port = self.cfg["OPTIONS"]["PORT"]
@@ -265,7 +256,8 @@ class GUI_Connector(Thread):
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
                 self.data = data
                 self.nzbname = nzbname
-                self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
+                # self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
+                self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
                 self.server_config = server_config
                 self.status = status
                 self.dlconfig = dlconfig
@@ -306,10 +298,12 @@ class GUI_Connector(Thread):
 
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
-        lastt = self.pwdb.get_last_update_for_gui()
+        # lastt = self.pwdb.get_last_update_for_gui()
+        lastt = self.pwdb.exc("get_last_update_for_gui", [], {})
         if lastt > self.last_update_for_gui:
             self.send_data = True
-            full_data_for_gui = self.pwdb.get_all_data_for_gui()
+            # full_data_for_gui = self.pwdb.get_all_data_for_gui()
+            full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.last_update_for_gui = lastt
         else:
             full_data_for_gui = None
@@ -379,7 +373,8 @@ class GUI_Connector(Thread):
             elif msg == "SET_DELETE":
                 try:
                     self.socket.send_pyobj(("SET_DELETE_OK", None))
-                    first_has_changed0, deleted_nzb_name0 = self.pwdb.set_nzbs_prios(datarec, delete=True)
+                    # first_has_changed0, deleted_nzb_name0 = self.pwdb.set_nzbs_prios(datarec, delete=True)
+                    first_has_changed0, deleted_nzb_name0 = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": True})
                     if deleted_nzb_name0 and not first_has_changed0:
                         remove_nzb_files_and_db(deleted_nzb_name0, self.dirs, self.pwdb, self.logger)
                 except Exception as e:
@@ -391,7 +386,8 @@ class GUI_Connector(Thread):
             elif msg == "SET_NZB_ORDER":
                 try:
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
-                    self.first_has_changed, _ = self.pwdb.set_nzbs_prios(datarec, delete=False)
+                    self.first_has_changed, _ = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": False})
+                    # self.first_has_changed, _ = self.pwdb.set_nzbs_prios(datarec, delete=False)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
                 continue
@@ -407,7 +403,7 @@ class GUI_Connector(Thread):
 class Downloader():
     def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp, guiconnector, logger):
         self.cfg = cfg
-        self.pwdb = pwdb
+        self.pwdb = PWDBSender(cfg)
         self.articlequeue = ct.articlequeue
         self.resultqueue = ct.resultqueue
         self.mp_work_queue = mp_work_queue
@@ -552,7 +548,8 @@ class Downloader():
                     level_servers = self.get_level_servers(age)
                     files[filename] = (nr_articles, age, filetype, False, True)
                     infolist[filename] = [None] * nr_articles
-                    self.pwdb.db_file_update_status(filename, 1)   # status do downloading
+                    # self.pwdb.db_file_update_status(filename, 1)   # status do downloading
+                    self.pwdb.exc("db_file_update_status", [filename, 1], {})   # status do downloading
                     bytescount_file = 0
                     for i, art0 in enumerate(file_articles):
                         if i == 0:
@@ -671,7 +668,8 @@ class Downloader():
     def postprocess_nzb(self, nzbname, downloaddata):
         self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size = downloaddata
-        self.pwdb.db_msg_insert(nzbname, "starting postprocess", "info")
+        # self.pwdb.db_msg_insert(nzbname, "starting postprocess", "info")
+        self.pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
         while True:
             try:
                 self.articlequeue.get_nowait()
@@ -719,33 +717,41 @@ class Downloader():
                 self.logger.warning(str(e))
             self.mpp["verifier"] = None
         # if pw protected -> get pw and start unrarer
-        ispw = self.pwdb.db_nzb_get_ispw(nzbname)
+        # ispw = self.pwdb.db_nzb_get_ispw(nzbname)
+        ispw = self.pwdb.exc("db_nzb_get_ispw", [nzbname], {})
         if ispw:
             get_pw_direct0 = False
             try:
                 get_pw_direct0 = (self.cfg["OPTIONS"]["GET_PW_DIRECTLY"].lower() == "yes")
             except Exception as e:
                 self.logger.warning(whoami() + str(e))
-            if self.pwdb.db_nzb_get_password(nzbname) == "N/A":
+            # if self.pwdb.db_nzb_get_password(nzbname) == "N/A":
+            if self.pwdb.exc("db_nzb_get_password", [nzbname], {}) == "N/A":
                 self.logger.info("Trying to get password from file for NZB " + nzbname)
-                self.pwdb.db_msg_insert(nzbname, "trying to get password from pw file", "info")
+                # self.pwdb.db_msg_insert(nzbname, "trying to get password from pw file", "info")
+                self.pwdb.exc("db_msg_insert", [nzbname, "trying to get password from pw file", "info"], {})
                 pw = get_password(self.verifiedrar_dir, self.pw_file, nzbname, self.logger, get_pw_direct=get_pw_direct0)
                 if pw:
                     self.logger.info("Found password " + pw + " for NZB " + nzbname)
-                    self.pwdb.db_msg_insert("Found password " + pw + " for NZB " + nzbname)
-                    self.pwdb.db_nzb_set_password(nzbname, pw)
+                    # self.pwdb.db_msg_insert("Found password " + pw + " for NZB " + nzbname)
+                    self.pwdb.exc("db_msg_insert", [nzbname, "found password " + pw, "info"], {})
+                    # self.pwdb.db_nzb_set_password(nzbname, pw)
+                    self.pwdb.exc("db_nzb_set_password", [nzbname, pw], {})
             else:
-                pw = self.pwdb.db_nzb_get_password(nzbname)
+                # pw = self.pwdb.db_nzb_get_password(nzbname)
+                pw = self.pwdb.exc("db_nzb_get_password", [nzbname], {})
             if not pw:
                 self.logger.error("Cannot find password for NZB " + nzbname + "in postprocess, exiting ...")
-                self.pwdb.db_nzb_update_status(nzbname, -4)
+                # self.pwdb.db_nzb_update_status(nzbname, -4)
+                self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                 return -1
             self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                      self.pwdb, nzbname, self.logger, pw, self.cfg, ))
+                                                                      nzbname, self.logger, pw, self.cfg, ))
             self.mpp_unrarer.start()
             self.mpp["unrarer"] = self.mpp_unrarer
             self.sighandler.mpp = self.mpp
-        finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
+        # finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
+        finalverifierstate = (self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
         # join unrarer
         if self.mpp["unrarer"]:
             if finalverifierstate:
@@ -761,24 +767,33 @@ class Downloader():
             self.sighandler.mpp = self.mpp
             self.logger.debug("Unrarer stopped!")
         # get status
-        finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
-        finalnonrarstate = self.pwdb.db_allnonrarfiles_getstate(nzbname)
-        finalrarstate = (self.pwdb.db_nzb_get_unrarstatus(nzbname) in [0, 2])
+        # finalverifierstate = (self.pwdb.db_nzb_get_verifystatus(nzbname) in [0, 2])
+        finalverifierstate = (self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
+        # finalnonrarstate = self.pwdb.db_allnonrarfiles_getstate(nzbname)
+        finalnonrarstate = self.pwdb.exc("db_allnonrarfiles_getstate", [nzbname], {})
+        # finalrarstate = (self.pwdb.db_nzb_get_unrarstatus(nzbname) in [0, 2])
+        finalrarstate = (self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) in [0, 2])
         self.logger.info("Finalrarstate: " + str(finalrarstate) + " / Finalnonrarstate: " + str(finalnonrarstate))
         if finalrarstate and finalnonrarstate and finalverifierstate:
-            self.pwdb.db_msg_insert(nzbname, "postprocessing ok!", "success")
+            # self.pwdb.db_msg_insert(nzbname, "postprocessing ok!", "success")
+            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing ok!", "success"], {})
         else:
-            self.pwdb.db_nzb_update_status(nzbname, -4)
-            self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            # self.pwdb.db_nzb_update_status(nzbname, -4)
+            self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
             self.logger.info("postprocess of NZB " + nzbname + " failed!")
             return -1
         # copy to complete
         res0 = self.make_complete_dir()
         if not res0:
-            self.pwdb.db_nzb_update_status(nzbname, -4)
-            self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            # self.pwdb.db_nzb_update_status(nzbname, -4)
+            self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
             self.logger.info("Cannot create complete_dir for " + nzbname + ", exiting ...")
-            self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
             return -1
         # move all non-rar/par2/par2vol files from renamed to complete
         for f00 in glob.glob(self.rename_dir + "*"):
@@ -787,16 +802,17 @@ class Downloader():
                 self.logger.debug(f00 + "is a directory, skipping")
                 continue
             f0 = f00.split("/")[-1]
-            file0 = self.pwdb.db_file_get_renamed(f0)
+            file0type = self.pwdb.db_file_getftype_renamed(f0)
             self.logger.debug("Moving/deleting " + f0)
-            if not file0:
+            if not file0type:
                 gg = re.search(r"[0-9]+[.]rar[.]+[0-9]", f0, flags=re.IGNORECASE)
                 if gg:
                     try:
                         os.remove(f00)
                         self.logger.debug("Removed rar.x file " + f0)
                     except Exception as e:
-                        self.pwdb.db_nzb_update_status(nzbname, -4)
+                        # self.pwdb.db_nzb_update_status(nzbname, -4)
+                        self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                         self.logger.warning(str(e) + ": cannot remove corrupt rar file!")
                 else:    # if unknown file (not in db) move to complete anyway
                     try:
@@ -805,25 +821,28 @@ class Downloader():
                     except Exception as e:
                         self.logger.warning(str(e) + ": cannot move unknown file to complete!")
                 continue
-            if file0.ftype in ["rar", "par2", "par2vol"]:
+            if file0type in ["rar", "par2", "par2vol"]:
                 try:
                     os.remove(f00)
                     self.logger.debug("Removed rar/par2 file " + f0)
                 except Exception as e:
-                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                    # self.pwdb.db_nzb_update_status(nzbname, -4)
                     self.logger.warning(str(e) + ": cannot remove rar/par2 file!")
             else:
                 try:
                     shutil.move(f00, self.complete_dir)
                     self.logger.debug("Moved non-rar/non-par2 file " + f0 + " to complete")
                 except Exception as e:
-                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                    # self.pwdb.db_nzb_update_status(nzbname, -4)
                     self.logger.warning(str(e) + ": cannot move non-rar/non-par2 file " + f00 + "!")
         # remove download_dir
         try:
             shutil.rmtree(self.download_dir)
         except Exception as e:
-            self.pwdb.db_nzb_update_status(nzbname, -4)
+            self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            # self.pwdb.db_nzb_update_status(nzbname, -4)
             self.logger.warning(str(e) + ": cannot remove download_dir!")
         # move content of unpack dir to complete
         self.logger.debug(lpref + "moving unpack_dir to complete: " + self.unpack_dir)
@@ -846,46 +865,57 @@ class Downloader():
                 try:
                     shutil.move(f00, self.complete_dir)
                 except Exception as e:
-                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    # self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                     self.logger.warning(str(e) + ": cannot move unrared file to complete dir!")
             else:
                 if os.path.isdir(self.complete_dir + d0):
                     try:
                         shutil.rmtree(self.complete_dir + d0)
                     except Exception as e:
-                        self.pwdb.db_nzb_update_status(nzbname, -4)
+                        # self.pwdb.db_nzb_update_status(nzbname, -4)
+                        self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                         self.logger.warning(str(e) + ": cannot remove unrared dir in complete!")
                 try:
                     shutil.copytree(f00, self.complete_dir + d0)
                 except Exception as e:
-                    self.pwdb.db_nzb_update_status(nzbname, -4)
+                    # self.pwdb.db_nzb_update_status(nzbname, -4)
+                    self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                     self.logger.warning(str(e) + ": cannot move non-rar/non-par2 file!")
         # remove unpack_dir
-        if self.pwdb.db_nzb_getstatus(nzbname) != -4:
+        # if self.pwdb.db_nzb_getstatus(nzbname) != -4:
+        if self.pwdb.exc("db_nzb_getstatus", [nzbname], {}) != -4:
             try:
                 shutil.rmtree(self.unpack_dir)
                 shutil.rmtree(self.verifiedrar_dir)
             except Exception as e:
-                self.pwdb.db_nzb_update_status(nzbname, -4)
+                # self.pwdb.db_nzb_update_status(nzbname, -4)
+                self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                 self.logger.warning(str(e) + ": cannot remove unpack_dir / verifiedrar_dir")
         # remove incomplete_dir
-        if self.pwdb.db_nzb_getstatus(nzbname) != -4:
+        # if self.pwdb.db_nzb_getstatus(nzbname) != -4:
+        if self.pwdb.exc("db_nzb_getstatus", [nzbname], {}) != -4:
             try:
                 shutil.rmtree(self.main_dir)
             except Exception as e:
-                self.pwdb.db_nzb_update_status(nzbname, -4)
+                # self.pwdb.db_nzb_update_status(nzbname, -4)
+                self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                 self.logger.warning(str(e) + ": cannot remove incomplete_dir!")
         # finalize
-        if self.pwdb.db_nzb_getstatus(nzbname) == -4:
+        if self.pwdb.exc("db_nzb_getstatus", [nzbname], {}) == -4:
+            # if self.pwdb.db_nzb_getstatus(nzbname) == -4:
             self.logger.info("Copy/Move of NZB " + nzbname + " failed!")
-            self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
+            self.pwdb.exc("db_msg_insert"[nzbname, "postprocessing failed!", "error"], {})
             self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "failed", self.serverconfig())
             return -1
         else:
             self.logger.info("Copy/Move of NZB " + nzbname + " success!")
             self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "success", self.serverconfig())
-            self.pwdb.db_nzb_update_status(nzbname, 4)
-            self.pwdb.db_msg_insert(nzbname, "postprocessing success!", "success")
+            self.pwdb.exc("db_nzb_update_status", [nzbname, ], {})
+            # self.pwdb.db_nzb_update_status(nzbname, 4)
+            # self.pwdb.db_msg_insert(nzbname, "postprocessing success!", "success")
+            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing success!", "success"], {})
             self.logger.info("Postprocess of NZB " + nzbname + " ok!")
             return 1
 
@@ -927,7 +957,8 @@ class Downloader():
         #    print(filetype, item)
 
         self.logger.info(lpref + "downloading " + nzbname)
-        self.pwdb.db_msg_insert(nzbname, "initializing download", "info")
+        # self.pwdb.db_msg_insert(nzbname, "initializing download", "info")
+        self.pwdb.exc("db_msg_insert", [nzbname, "initializing download", "info"], {})
 
         self.resqlist = resqlist
 
@@ -946,11 +977,13 @@ class Downloader():
         bytescount0 = 0
         article_health = 1
         self.ct.reset_timestamps()
-        if self.pwdb.db_nzb_getstatus(nzbname) > 2:
+        # if self.pwdb.db_nzb_getstatus(nzbname) > 2:
+        if self.pwdb.exc("db_nzb_getstatus"[nzbname], {}) > 2:
             self.logger.info(nzbname + "- download complete!")
             return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                               overall_size, already_downloaded_size)), "dl_finished", self.main_dir
-        self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
+        # self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
+        self.pwdb.exc("db_nzb_update_status"[nzbname, 2], {})    # status "downloading"
 
         if filetypecounter["par2vol"]["max"] > 0:
             self.contains_par_files = True
@@ -959,7 +992,8 @@ class Downloader():
         self.logger.debug(lpref + "download: define inject set")
         if filetypecounter["par2"]["max"] > 0 and filetypecounter["par2"]["max"] > filetypecounter["par2"]["counter"]:
             inject_set0 = ["par2"]
-        elif self.pwdb.db_nzb_loadpar2vols(nzbname):
+        # elif self.pwdb.db_nzb_loadpar2vols(nzbname):
+        elif self.pwdb.exc("db_nzb_loadpar2vols", [nzbname], {}):
             inject_set0 = ["etc", "par2vol", "rar", "sfv", "nfo"]
             loadpar2vols = True
         else:
@@ -973,13 +1007,13 @@ class Downloader():
 
         # start decoder mpp
         self.logger.debug(lpref + "starting decoder process ...")
-        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.pwdb, self.logger, ))
+        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
         self.mpp_decoder.start()
         self.mpp["decoder"] = self.mpp_decoder
 
         # start renamer
         self.logger.debug(lpref + "starting renamer process ...")
-        self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.pwdb, self.mp_result_queue, self.logger, ))
+        self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.cfg, self.mp_result_queue, self.logger, ))
         self.mpp_renamer.start()
         self.mpp["renamer"] = self.mpp_renamer
         self.sighandler.mpp = self.mpp
@@ -996,10 +1030,12 @@ class Downloader():
 
         # sanity check
         inject_set_sanity = []
-        if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.db_nzb_loadpar2vols(nzbname):
+        # if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.db_nzb_loadpar2vols(nzbname):
+        if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.exc("db_nzb_loadpar2vols", [nzbname], {}):
             sanity0 = self.do_sanity_check(allfileslist, files, infolist, bytescount0)
             if sanity0 < 1:
-                self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
+                # self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
+                self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
                 overall_size = overall_size_wparvol
                 self.logger.info(lpref + "queuing par2vols")
                 inject_set_sanity = ["par2vol"]
@@ -1021,7 +1057,8 @@ class Downloader():
 
         # download loop until articles downloaded
         oldrarcounter = 0
-        self.pwdb.db_msg_insert(nzbname, "downloading", "info")
+        # self.pwdb.db_msg_insert(nzbname, "downloading", "info")
+        self.pwdb.exc("db_msg_insert", [nzbname, "downloading", "info"], {})
         while True:
 
             # check if dl_stopped or nzbs_reordered signal received from gui
@@ -1043,14 +1080,16 @@ class Downloader():
             # if dl is finished
             if getnextnzb:
                 self.logger.info(nzbname + "- download complete!")
-                self.pwdb.db_nzb_update_status(nzbname, 3)
+                # self.pwdb.db_nzb_update_status(nzbname, 3)
+                self.pwdb.exc("db_nzb_update_status", [nzbname, 3], {})
                 break
 
             # get mp_result_queue (renamer.py)
             while True:
                 try:
                     filename, full_filename, filetype, old_filename, old_filetype = self.mp_result_queue.get_nowait()
-                    self.pwdb.db_msg_insert(nzbname, "downloaded " + filename, "info")
+                    # self.pwdb.db_msg_insert(nzbname, "downloaded " + filename, "info")
+                    self.pwdb.exc("db_msg_insert", [nzbname, "downloaded " + filename, "info"], {})
                     # have files been renamed ?
                     if old_filename != filename or old_filetype != filetype:
                         self.logger.info(lpref + old_filename + "/" + old_filetype + " changed to " + filename + " / " + filetype)
@@ -1090,7 +1129,8 @@ class Downloader():
                     except (queue.Empty, EOFError):
                         break
                 if loadpar2vols:
-                    self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
+                    # self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
+                    self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
                     overall_size = overall_size_wparvol
                     self.logger.info(lpref + "queuing par2vols")
                     inject_set0 = ["par2vol"]
@@ -1099,15 +1139,17 @@ class Downloader():
                     article_count += article_count0
 
             # check if unrarer is dead due to wrong rar on start
-            if self.mpp["unrarer"] and self.pwdb.db_nzb_get_unrarstatus(nzbname) == -2:
+            # if self.mpp["unrarer"] and self.pwdb.db_nzb_get_unrarstatus(nzbname) == -2:
+            if self.mpp["unrarer"] and self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) == -2:
                 self.mpp["unrarer"] = None
                 self.sighandler.mpp = self.mpp
 
-            if self.mpp["verifier"] and self.pwdb.db_nzb_get_verifystatus(nzbname) == 2:
+            # if self.mpp["verifier"] and self.pwdb.db_nzb_get_verifystatus(nzbname) == 2:
+            if self.mpp["verifier"] and self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) == 2:
                 self.mpp["verifier"] = None
                 self.sighandler.mpp = self.mpp
 
-            if not self.mpp["unrarer"] and filetypecounter["rar"]["counter"] > oldrarcounter and not self.pwdb.db_nzb_get_ispw(nzbname):
+            if not self.mpp["unrarer"] and filetypecounter["rar"]["counter"] > oldrarcounter and not self.pwdb.exc("db_nzb_get_ispw", [nzbname], {}):
                 # testing if pw protected
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
                 # if no rar files in verified_rardir: skip as we cannot test for password
@@ -1117,25 +1159,30 @@ class Downloader():
                     is_pwp = is_rar_password_protected(self.verifiedrar_dir, self.logger)
                     if is_pwp in [0, -2]:
                         self.logger.warning(lpref + "cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
-                        self.pwdb.db_nzb_update_status(nzbname, -2)  # status download failed
+                        # self.pwdb.db_nzb_update_status(nzbname, -2)  # status download failed
+                        self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})  # status download failed
                         self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                                     article_health, overall_size, already_downloaded_size), self.ct.threads,
                                                    self.ct.servers.server_config, "failed", self.serverconfig())
                         return_reason = "dl_failed"
-                        self.pwdb.db_msg_insert(nzbname, "download failed due to pw test not possible", "error")
+                        # self.pwdb.db_msg_insert(nzbname, "download failed due to pw test not possible", "error")
+                        self.pwdb.exc("db_msg_insert", [nzbname, "download failed due to pw test not possible", "error"], {})
                         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                           overall_size, already_downloaded_size)), return_reason, self.main_dir
                     if is_pwp == 1:
                         # if pw protected -> postpone password test + unrar
-                        self.pwdb.db_nzb_set_ispw(nzbname, True)
-                        self.pwdb.db_msg_insert(nzbname, "rar archive is password protected", "warning")
+                        # self.pwdb.db_nzb_set_ispw(nzbname, True)
+                        self.pwdb.exc("db_nzb_set_ispw", [nzbname, True], {})
+                        # self.pwdb.db_msg_insert(nzbname, "rar archive is password protected", "warning")
+                        self.pwdb.exc("db_msg_insert", [nzbname, "rar archive is password protected", "warning"], {})
                         self.logger.info(lpref + "rar archive is pw protected, postponing unrar to postprocess ...")
                     elif is_pwp == -1:
                         # if not pw protected -> normal unrar
                         self.logger.info(lpref + "rar archive is not pw protected, starting unrarer ...")
-                        self.pwdb.db_nzb_set_ispw(nzbname, False)
+                        # self.pwdb.db_nzb_set_ispw(nzbname, False)
+                        self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
                         self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                                  self.pwdb, nzbname, self.logger, None, self.cfg, ))
+                                                                                  nzbname, self.logger, None, self.cfg, ))
                         self.mpp_unrarer.start()
                         self.mpp["unrarer"] = self.mpp_unrarer
                         self.sighandler.mpp = self.mpp
@@ -1147,7 +1194,8 @@ class Downloader():
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.mpp["verifier"]:
                 # todo: check if all rars are verified
-                all_rars_are_verified, _ = self.pwdb.db_only_verified_rars(nzbname)
+                # all_rars_are_verified, _ = self.pwdb.db_only_verified_rars(nzbname)
+                all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
                 if not all_rars_are_verified:
                     pvmode = None
                     if p2:
@@ -1157,7 +1205,7 @@ class Downloader():
                     if pvmode:
                         self.logger.debug(lpref + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
                         self.mpp_verifier = mp.Process(target=par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
-                                                                                  self.main_dir, self.logger, self.pwdb, nzbname, pvmode, self.cfg, ))
+                                                                                  self.main_dir, self.logger, nzbname, pvmode, self.cfg, ))
                         self.mpp_verifier.start()
                         self.mpp["verifier"] = self.mpp_verifier
                         self.sighandler.mpp = self.mpp
@@ -1176,11 +1224,13 @@ class Downloader():
                 if (article_health < self.crit_art_health_wo_par and filetypecounter["par2vol"]["max"] == 0) \
                    or (filetypecounter["parvols"]["max"] > 0 and article_health <= self.crit_art_health_w_par):
                     self.logger.info(lpref + "articles missing and cannot repair, exiting download")
-                    self.pwdb.db_nzb_update_status(nzbname, -2)
+                    # self.pwdb.db_nzb_update_status(nzbname, -2)
+                    self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
                     self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                                 article_health, overall_size, already_downloaded_size), self.ct.threads,
                                                self.ct.servers.server_config, "failed", self.serverconfig())
-                    self.pwdb.db_msg_insert(nzbname, "critical health threashold exceeded", "error")
+                    # self.pwdb.db_msg_insert(nzbname, "critical health threashold exceeded", "error")
+                    self.pwdb.exc("db_msg_insert", [nzbname, "critical health threashold exceeded", "error"], {})
                     return_reason = "dl_failed"
                     return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                       overall_size, already_downloaded_size)), return_reason, self.main_dir
@@ -1211,8 +1261,10 @@ class Downloader():
 
             # if all files are downloaded and still articles in queue --> inconsistency, exit!
             if getnextnzb and not self.all_queues_are_empty:
-                self.pwdb.db_msg_insert(nzbname, "inconsistency in download queue", "error")
-                self.pwdb.db_nzb_update_status(nzbname, -2)
+                # self.pwdb.db_msg_insert(nzbname, "inconsistency in download queue", "error")
+                self.pwdb.exc("db_msg_insert", [nzbname, "inconsistency in download queue", "error"], {})
+                # self.pwdb.db_nzb_update_status(nzbname, -2)
+                self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
                 self.logger.warning(lpref + whoami() + ": records say dl is done, but still some articles in queue, exiting ...")
                 self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                             article_health, overall_size, already_downloaded_size), self.ct.threads,
@@ -1227,7 +1279,8 @@ class Downloader():
             if self.connection_health < 0.65:
                 # self.logger.debug(lpref + ">>>> " + str(self.connection_thread_health()))
                 self.logger.info(lpref + whoami() + "connections are unstable, restarting")
-                self.pwdb.db_msg_insert(nzbname, "connections are unstable, restarting", "warning")
+                # self.pwdb.db_msg_insert(nzbname, "connections are unstable, restarting", "warning")
+                self.pwdb.exc("db_msg_insert", [nzbname, "connections are unstable, restarting", "warning"], {})
                 return_reason = "connection_restart"
                 return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                   overall_size, already_downloaded_size)), return_reason, self.main_dir
@@ -1236,7 +1289,8 @@ class Downloader():
             time.sleep(0.3)
 
         return_reason = "dl_finished"
-        self.pwdb.db_msg_insert(nzbname, "download complete", "success")
+        # self.pwdb.db_msg_insert(nzbname, "download complete", "success")
+        self.pwdb.exc("db_msg_insert", [nzbname, "download complete", "success"], {})
         return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                           overall_size, already_downloaded_size)), return_reason, self.main_dir
 
@@ -1261,7 +1315,8 @@ def get_next_nzb(pwdb, dirs, ct, logger):
             while True:
                 all_nzbs_exist_in_db = True
                 for n in nzbs_in_nzbdirs:
-                    if not pwdb.db_nzb_exists(n):
+                    # if not pwdb.db_nzb_exists(n):
+                    if not pwdb.exc("db_nzb_exists", [n], {}):
                         all_nzbs_exist_in_db = False
                         break
                 if all_nzbs_exist_in_db:
@@ -1297,7 +1352,7 @@ def get_next_nzb(pwdb, dirs, ct, logger):
                     = make_allfilelist_inotify(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(lpref + whoami() + str(e))
-    pwdb.send_sorted_nzbs_to_guiconnector()
+    pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
 
@@ -1305,7 +1360,8 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
     # immediatley get allfileslist
     if timeout0 and timeout0 <= -1:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-            = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
+           = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
+#            = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
         if nzbname:
             logger.debug(lpref + "inotify: no timeout, got nzb " + nzbname + " immediately!")
             return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
@@ -1324,7 +1380,8 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
             if event.name == u"ginzibix.db":
                 logger.debug(lpref + "database updated, now checking for nzbname & data")
                 allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-                    = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
+                    = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
+                # = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
                 if nzbname:
                     logger.debug(lpref + "new nzb found in db, queuing ...")
                     pwdb_inotify.rm_watch(wd)
@@ -1342,7 +1399,7 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
 
 # this class deals on a meta-level with usenet connections
 class ConnectionThreads:
-    def __init__(self, cfg, articlequeue, resultqueue, pwdb, logger):
+    def __init__(self, cfg, articlequeue, resultqueue, logger):
         self.cfg = cfg
         self.logger = logger
         self.threads = []
@@ -1350,7 +1407,6 @@ class ConnectionThreads:
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
         self.servers = None
-        self.pwdb = pwdb
 
     def init_servers(self):
         self.servers = Servers(self.cfg, self.logger)
@@ -1362,7 +1418,7 @@ class ConnectionThreads:
             self.logger.debug(lpref + "starting download threads")
             self.init_servers()
             for sn, scon, _, _ in self.all_connections:
-                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.pwdb, self.logger)
+                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
                 self.threads.append((t, time.time()))
                 t.start()
         else:
@@ -1462,7 +1518,8 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             break
     # 5. save resultqueue
     bytes_in_resultqueue = write_resultqueue_to_file(resultqueue, maindir, logger)
-    pwdb.db_nzb_set_bytes_in_resultqueue(nzbname, bytes_in_resultqueue)
+    # pwdb.db_nzb_set_bytes_in_resultqueue(nzbname, bytes_in_resultqueue)
+    pwdb.exc("db_nzb_set_bytes_in_resultqueue", [nzbname, bytes_in_resultqueue], {})
     # 6. stop unrarer
     mpid = None
     try:
@@ -1517,12 +1574,14 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
 
 
 # main loop for ginzibix downloader
-def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
+def ginzi_main(cfg, dirs, subdirs, logger):
+
+    pwdb = PWDBSender(cfg)
 
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
-    ct = ConnectionThreads(cfg, articlequeue, resultqueue, pwdb, logger)
+    ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
     logger.debug(whoami() + "initializing sighandler")
@@ -1533,7 +1592,7 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(whoami() + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(pwdb, dirs["nzb"], logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(cfg, dirs["nzb"], logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
@@ -1541,13 +1600,13 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
     try:
         lock = threading.Lock()
-        guiconnector = GUI_Connector(pwdb, lock, dirs, logger, cfg)
+        guiconnector = GUI_Connector(lock, dirs, logger, cfg)
         guiconnector.start()
         logger.debug(whoami() + "guiconnector process started!")
     except Exception as e:
         logger.warning(whoami() + str(e))
 
-    dl = Downloader(cfg, dirs, pwdb, ct, mp_work_queue, sh, mpp, guiconnector, logger)
+    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     servers_shut_down = True
     while True:
         sh.nzbname = None
@@ -1566,7 +1625,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
 
         nzbname, downloaddata, return_reason, maindir = dl.download(allfileslist, filetypecounter, nzbname, overall_size,
                                                                     overall_size_wparvol, already_downloaded_size, p2, servers_shut_down, resqlist)
-        stat0 = pwdb.db_nzb_getstatus(nzbname)
+        stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+        # stat0 = pwdb.db_nzb_getstatus(nzbname)
 
         if stat0 == 2:
             if return_reason == "connection_restart":
@@ -1600,7 +1660,8 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
                             deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                             if deleted_nzb_name0:
                                 remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
-                            pwdb.send_sorted_nzbs_to_guiconnector()
+                            # pwdb.send_sorted_nzbs_to_guiconnector()
+                            pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
                     if dobreak:
                         break
                     time.sleep(1)
@@ -1624,15 +1685,20 @@ def ginzi_main(cfg, pwdb, dirs, subdirs, logger):
             logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
-            stat0_0 = pwdb.db_nzb_getstatus(nzbname)
+            # stat0_0 = pwdb.db_nzb_getstatus(nzbname)
+            stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
             if stat0_0 == 4:
-                pwdb.db_msg_insert(nzbname, "downloaded and postprocessed successfully!", "success")
+                pwdb.exc("send_sorted_nzbs_to_guiconnector", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
+                # pwdb.db_msg_insert(nzbname, "downloaded and postprocessed successfully!", "success")
             else:
-                pwdb.db_msg_insert(nzbname, "download and/or postprocessing failed!", "error")
-            pwdb.send_sorted_nzbs_to_guiconnector()
+                pwdb.exc("db_msg_insert(nzbname", ["download and/or postprocessing failed!", "error"], {})
+                # pwdb.db_msg_insert(nzbname, "download and/or postprocessing failed!", "error")
+            pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
+            # pwdb.send_sorted_nzbs_to_guiconnector()
             logger.info(whoami() + nzbname + " finished with status " + str(stat0_0))
         elif stat0 == -2:
             guiconnector.set_health(0, 0)
             logger.info(whoami() + "download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
-            pwdb.send_sorted_nzbs_to_guiconnector()
+            pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
+            # pwdb.send_sorted_nzbs_to_guiconnector()

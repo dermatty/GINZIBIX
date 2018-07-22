@@ -2,6 +2,7 @@ import os
 import shutil
 import glob
 from .par2lib import Par2File, calc_file_md5hash_16k, check_for_par_filetype, get_file_type
+from .aux import PWDBSender
 from random import randint
 import inotify_simple
 import signal
@@ -82,11 +83,14 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
     if not_renamed_par2list:
         for pname, ptype, phash in not_renamed_par2list:
             pp = (pname, phash)
-            oldft = pwdb.db_file_get_orig_filetype(pname)
+            # oldft = pwdb.db_file_get_orig_filetype(pname)
+            oldft = pwdb.exc("db_file_get_orig_filetype", [pname], {})
             if ptype == "par2":
                 shutil.copyfile(source_dir + pname, dest_dir + pname)
-                pwdb.db_file_set_renamed_name(pname, pname)
-                pwdb.db_file_set_file_type(pname, "par2")
+                pwdb.exc("db_file_set_renamed_name", [pname, pname], {})
+                # pwdb.db_file_set_renamed_name(pname, pname)
+                # pwdb.db_file_set_file_type(pname, "par2")
+                pwdb.exc("db_file_set_file_type", [pname, "par2"], {})
                 mp_result_queue.put((pname, dest_dir + pname, "par2", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
@@ -98,8 +102,10 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 pname2 = p2basename0 + ".vol" + str(volpart1).zfill(3) + "+" + str(volpart2).zfill(3) + ".PAR2"
                 # shutil.copyfile(source_dir + pname, dest_dir + p2basename0 + pname2)
                 shutil.copyfile(source_dir + pname, dest_dir + pname2)
-                pwdb.db_file_set_renamed_name(pname, pname2)
-                pwdb.db_file_set_file_type(pname, "par2vol")
+                # pwdb.db_file_set_renamed_name(pname, pname2)
+                pwdb.exc("db_file_set_renamed_name", [pname, pname2], {})
+                # pwdb.db_file_set_file_type(pname, "par2vol")
+                pwdb.exc("db_file_set_file_type", [pname, "par2vol"], {})
                 mp_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
@@ -124,9 +130,12 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                 else:
                     shutil.copyfile(source_dir + a_name, dest_dir + a_name)
                     r_name = a_name
-                oldft = pwdb.db_file_get_orig_filetype(a_name)
-                pwdb.db_file_set_renamed_name(a_name, r_name)
-                pwdb.db_file_set_file_type(a_name, "rar")
+                # oldft = pwdb.db_file_get_orig_filetype(a_name)
+                oldft = pwdb.exc("db_file_get_orig_filetype", [a_name], {})
+                # pwdb.db_file_set_renamed_name(a_name, r_name)
+                pwdb.exc("db_file_set_renamed_name", [a_name, r_name], {})
+                # pwdb.db_file_set_file_type(a_name, "rar")
+                pwdb.exc("db_file_set_file_type", [a_name, "rar"], {})
                 mp_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
                 # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
                 os.remove(source_dir + a_name)
@@ -138,8 +147,10 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
     for a_name, a_md5 in notrenamedfiles:
         shutil.copyfile(source_dir + a_name, dest_dir + a_name)
         ft = get_file_type(a_name)
-        pwdb.db_file_set_renamed_name(a_name, a_name)
-        pwdb.db_file_set_file_type(a_name, ft)
+        # pwdb.db_file_set_renamed_name(a_name, a_name)
+        pwdb.exc("db_file_set_renamed_name", [a_name, a_name], {})
+        # pwdb.db_file_set_file_type(a_name, ft)
+        pwdb.exc("db_file_set_file_type", [a_name, ft], {})
         mp_result_queue.put((a_name, dest_dir + a_name, ft, a_name, ft))
         # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
         os.remove(source_dir + a_name)
@@ -163,11 +174,13 @@ def get_inotify_events(inotify):
 
 
 # renamer with inotify
-def renamer(source_dir, dest_dir, pwdb, mp_result_queue, logger):
+def renamer(source_dir, dest_dir, cfg, mp_result_queue, logger):
     logger.debug(lpref + "starting renamer process")
     sh = SigHandler_Renamer(logger)
     signal.signal(signal.SIGINT, sh.sighandler_renamer)
     signal.signal(signal.SIGTERM, sh.sighandler_renamer)
+
+    pwdb = PWDBSender(cfg)
 
     if source_dir[-1] != "/":
         source_dir += "/"

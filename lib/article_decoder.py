@@ -4,6 +4,7 @@ import os
 import time
 import queue
 import signal
+from .aux import PWDBSender
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -20,10 +21,12 @@ class SigHandler_Decoder:
         TERMINATED = True
 
 
-def decode_articles(mp_work_queue0, pwdb, logger):
+def decode_articles(mp_work_queue0, cfg, logger):
     sh = SigHandler_Decoder(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
+
+    pwdb = PWDBSender(cfg)
 
     logger.info(lpref + "starting decoder process")
     bytes0 = bytearray()
@@ -147,7 +150,8 @@ def decode_articles(mp_work_queue0, pwdb, logger):
         if status in [-3, -4]:
             pwdbstatus = -1
         try:
-            pwdb.db_file_update_status(filename, pwdbstatus)
+            # pwdb.db_file_update_status(filename, pwdbstatus)
+            pwdb.exc("db_file_update_status", [filename, pwdbstatus], {})
             logger.debug(lpref + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
         except Exception as e:
             logger.error(lpref + str(e) + ": cannot update DB for " + filename)
