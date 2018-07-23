@@ -8,7 +8,8 @@ import dill
 import inspect
 import zmq
 import threading
-from playhouse.sqliteq import SqliteQueueDatabase
+from playhouse.sqlite_ext import CSqliteExtDatabase
+# from playhouse.sqliteq import SqliteQueueDatabase
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -29,7 +30,8 @@ def lists_are_equal(list1, list2):
 class PWDB:
     def __init__(self, cfg, dirs, logger):
         maindir = dirs["main"]
-        self.db = SqliteDatabase(maindir + "ginzibix.db")
+        # self.db = SqliteDatabase(maindir + "ginzibix.db")
+        self.db = CSqliteExtDatabase(":memory:")
         self.logger = logger
         self.context = None
         self.cfg = cfg
