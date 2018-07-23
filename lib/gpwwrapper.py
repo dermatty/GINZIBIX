@@ -54,15 +54,22 @@ class PwWrapperThread(Thread):
             # get command for pwdb
             try:
                 funcstr, args0, kwargs0 = self.socket.recv_pyobj()
+                
             except Exception as e:
-                self.logger.debug(whoami() + str(e))
+                self.logger.debug(whoami() + str(e) + ": " + funcstr)
             # call pwdb.<funcstr>
-            ret = eval("pw0." + funcstr + "(*args0, **kwargs0)")
+            evalstr = ("self.pwdb." + funcstr + "(*args0, **kwargs0)")
+            ret = eval("self.pwdb." + funcstr + "(*args0, **kwargs0)")
             # send result
             try:
                 self.socket.send_pyobj(ret)
+                
             except Exception as e:
+                print("error at:", funcstr, ret, args0, kwargs0)
+                print("received: ", funcstr, args0)
                 self.logger.debug(whoami() + str(e))
+                print("sent: ", ret)
+                print("**********************")
 
 
 def wrapper_main(cfg, dirs, logger):

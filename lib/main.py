@@ -401,7 +401,7 @@ class GUI_Connector(Thread):
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, pwdb, ct, mp_work_queue, sighandler, mpp, guiconnector, logger):
+    def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, logger):
         self.cfg = cfg
         self.pwdb = PWDBSender(cfg)
         self.articlequeue = ct.articlequeue
@@ -963,7 +963,7 @@ class Downloader():
         self.resqlist = resqlist
 
         # init variables
-        self.logger.debug(lpref + "download: init variables")
+        self.logger.debug(whoami() + "download: init variables")
         self.mpp_renamer = None
         self.mpp_decoder = None
         article_failed = 0
@@ -978,12 +978,12 @@ class Downloader():
         article_health = 1
         self.ct.reset_timestamps()
         # if self.pwdb.db_nzb_getstatus(nzbname) > 2:
-        if self.pwdb.exc("db_nzb_getstatus"[nzbname], {}) > 2:
+        if self.pwdb.exc("db_nzb_getstatus", [nzbname], {}) > 2:
             self.logger.info(nzbname + "- download complete!")
             return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                               overall_size, already_downloaded_size)), "dl_finished", self.main_dir
         # self.pwdb.db_nzb_update_status(nzbname, 2)    # status "downloading"
-        self.pwdb.exc("db_nzb_update_status"[nzbname, 2], {})    # status "downloading"
+        self.pwdb.exc("db_nzb_update_status", [nzbname, 2], {})    # status "downloading"
 
         if filetypecounter["par2vol"]["max"] > 0:
             self.contains_par_files = True
@@ -1608,6 +1608,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     servers_shut_down = True
+    
     while True:
         sh.nzbname = None
         sh.main_dir = None

@@ -101,27 +101,15 @@ if __name__ == '__main__':
     sh.mpp_wrapper = mpp_wrapper
 
     pwdb = lib.PWDBSender(cfg)
-    # time.sleep(2)
-
-    for i in range(20):
-        t = time.time()
-        name0 = "Vorstadtweiber.nzb"
-        res = pwdb.exc("db_nzb_getstatus", [name0], {})
-        print(res, time.time() - t)
-
-    os.kill(mpp_wrapper.pid, signal.SIGTERM)
-    sys.exit()
 
     # start main mp
     mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, dirs, subdirs, logger, ))
     mpp_main.start()
     sh.mpp_main = mpp_main
 
-    # "main" loop ...
-    # lib.app_main(mpp_main, logger)
-    # Gtk.main()
-    # mpp_main = None
+    while True:
+        time.sleep(0.5)
 
-    app = lib.Application(mpp_main, dirs, cfg_file, logger)
-    exit_status = app.run(sys.argv)
-    sys.exit(exit_status)
+    # app = lib.Application(mpp_main, mpp_wrapper, dirs, cfg_file, logger)
+    # exit_status = app.run(sys.argv)
+    # sys.exit(exit_status)

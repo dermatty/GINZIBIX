@@ -178,7 +178,6 @@ class PWDB:
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):
-        self.last_update_for_gui = time.time()
         try:
             new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
         except Exception as e:
@@ -197,7 +196,11 @@ class PWDB:
             except Exception as e:
                 self.logger.warning(lpref + "db_msg_insert: " + str(e))
                 return None
-        return new_msg
+        self.last_update_for_gui = time.time()
+        if new_msg:
+            return True
+        else:
+            return False
 
     def db_msg_get(self, nzbname0):
         msglist = []
@@ -219,17 +222,20 @@ class PWDB:
 
     # ---- self.NZB --------
     def db_nzb_insert(self, name0):
-        self.set_last_update_for_gui()
         try:
             prio = max([n.priority for n in self.NZB.select().order_by(self.NZB.priority)]) + 1
-        except ValueError:
+        except ValueError as e:
+            print("err1", str(e))
             prio = 1
         try:
             new_nzb = self.NZB.create(name=name0, priority=prio, timestamp=time.time())
+            new_nzbname = new_nzb.name
         except Exception as e:
-            new_nzb = None
+            new_nzbname = None
+            print("err:", str(e))
             self.logger.warning(lpref + name0 + ": " + str(e))
-        return new_nzb
+        self.set_last_update_for_gui()
+        return new_nzbname
 
     def db_nzb_delete(self, nzbname):
         self.set_last_update_for_gui()
@@ -287,9 +293,10 @@ class PWDB:
     def db_nzb_exists(self, name):
         try:
             nzb = self.NZB.get(self.NZB.name == name)
-            return nzb
+            assert(nzb.name)
+            return True
         except Exception as e:
-            return None
+            return False
 
     def db_nzb_deleteall(self):
         self.set_last_update_for_gui()
@@ -352,12 +359,12 @@ class PWDB:
         query.execute()
 
     def db_nzb_update_status(self, nzbname, newstatus):
-        self.set_last_update_for_gui()
         try:
             query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
             query.execute()
         except Exception as e:
-            self.logger.warning(lpref + "-----------> " + str(e))
+            self.logger.warning(lpref + str(e))
+        self.set_last_update_for_gui()
         '''with self.db.atomic():
             nzb0 = self.NZB.get((self.NZB.name == nzbname))
             nzb0.status = newstatus
@@ -385,6 +392,14 @@ class PWDB:
             return query.verify_status
         except Exception as e:
             self.logger.warning(lpref + str(e))
+            return None
+
+    def db_nzbname_to_nzbentry(self, nzbname):
+        try:
+            nzbentry = self.NZB.select().where(self.NZB.name == nzbname)[0]
+            return nzbentry
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
             return None
 
     # ---- self.FILE --------
@@ -562,6 +577,7 @@ class PWDB:
             return fentry
         except Exception as e:
             self.logger.debug(whoami() + str(e))
+            return None
 
     def db_file_getstatus(self, filename):
         try:
@@ -595,12 +611,14 @@ class PWDB:
             self.logger.warning(lpref + str(e))
             return [-9999]
 
-    def db_file_insert(self, name, nzb, nr_articles, age, ftype):
+    def db_file_insert(self, name, nzbname, nr_articles, age, ftype):
         try:
-            self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
+            nzb0 = self.db_nzbname_to_nzbentry(nzbname)
+            self.FILE.create(orig_name=name, nzb=nzb0, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
             new_file = name
         except Exception as e:
             new_file = None
+            print("err:", str(e))
             self.logger.warning(lpref + str(e))
         return new_file
 
@@ -637,7 +655,6 @@ class PWDB:
         query.execute()
 
     def db_article_insert_many(self, data):
-        self.set_last_update_for_gui()
         i = 0
         chunksize = self.SQLITE_MAX_VARIABLE_NUMBER
         llen = len(data)
@@ -654,6 +671,7 @@ class PWDB:
                 continue
             i += chunksize
         self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
+        self.set_last_update_for_gui()
 
     # ---- self.DB --------
     def db_close(self):
