@@ -82,6 +82,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nz
     if doloadpar2vols:
         mp_outqueue.put(doloadpar2vols)
 
+
     # b: inotify renamed_dir
     inotify = inotify_simple.INotify()
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
@@ -102,6 +103,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nz
                 except Exception as e:
                     print("p2 " + str(e))
             if pvmode == "verify" and p2:
+                print("-------------")
                 for rar in glob.glob(renamed_dir + "*"):
                     rar0 = rar.split("/")[-1]
                     # f0 = pwdb.db_file_get_renamed(rar0)

@@ -228,7 +228,7 @@ def renamer(source_dir, dest_dir, cfg, mp_result_queue, logger):
             # rename & move rar + remaining files
             rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, mp_result_queue, logger)
             isfirstrun = False
-            # print("-" * 60)
+            # print(events[0][0])
             # get_nowait
     os.chdir(cwd0)
     logger.debug(lpref + "exited!")

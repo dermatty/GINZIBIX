@@ -1333,6 +1333,7 @@ def get_next_nzb(pwdb, dirs, ct, logger):
         logger.warning(lpref + whoami() + str(e))
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
+        print("#" * 30)
         logger.debug("polling for 30 sec. for new NZB before closing connections if alive ...")
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = make_allfilelist_inotify(pwdb, dirs, logger, 30 * 1000)
@@ -1369,7 +1370,20 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
             return None, None, None, None, None, None, None, None
     # setup inotify
     logger.debug(lpref + "Setting up inotify for timeout=" + str(timeout0))
-    pwdb_inotify = inotify_simple.INotify()
+    t0 = time.time()
+    while True:
+        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
+            = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
+        if nzbname:
+            logger.debug(lpref + "new nzb found in db, queuing ...")
+            return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
+        if timeout0:
+            if time.time() - t0 > timeout0 / 1000:
+                break
+        time.sleep(1)
+    return None, None, None, None, None, None, None, None
+
+    '''pwdb_inotify = inotify_simple.INotify()
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
     wd = pwdb_inotify.add_watch(dirs["main"], watch_flags)
     t0 = time.time()
@@ -1394,7 +1408,7 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
             t0 = time.time()
             if timeout00 <= 0:
                 pwdb_inotify.rm_watch(wd)
-                return None, None, None, None, None, None, None, None
+                return None, None, None, None, None, None, None, None'''
 
 
 # this class deals on a meta-level with usenet connections
@@ -1608,7 +1622,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, logger)
     servers_shut_down = True
-    
+
     while True:
         sh.nzbname = None
         sh.main_dir = None
@@ -1617,6 +1631,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             if not guiconnector.dl_running:
                 time.sleep(1)
                 continue
+        print("----------")
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
             = get_next_nzb(pwdb, dirs, ct, logger)
         ct.reset_timestamps_bdl()
@@ -1692,7 +1707,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                 pwdb.exc("send_sorted_nzbs_to_guiconnector", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
                 # pwdb.db_msg_insert(nzbname, "downloaded and postprocessed successfully!", "success")
             else:
-                pwdb.exc("db_msg_insert(nzbname", ["download and/or postprocessing failed!", "error"], {})
+                pwdb.exc("db_msg_insert", [nzbname, "download and/or postprocessing failed!", "error"], {})
                 # pwdb.db_msg_insert(nzbname, "download and/or postprocessing failed!", "error")
             pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
             # pwdb.send_sorted_nzbs_to_guiconnector()

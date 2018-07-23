@@ -136,7 +136,6 @@ def ParseNZB(cfg, nzbdir, logger):
                 logger.info(lpref + "inserting " + nzb0 + "into db")
                 # newnzb = pwdb.db_nzb_insert(nzb0)
                 newnzb = pwdb.exc("db_nzb_insert", [nzb0], {})
-                print("insert done", newnzb)
                 if newnzb:
                     logger.info(lpref + "new NZB file " + nzb0 + " detected")
                     # update size

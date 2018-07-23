@@ -59,11 +59,12 @@ class PwWrapperThread(Thread):
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
             # call pwdb.<funcstr>
             evalstr = ("self.pwdb." + funcstr + "(*args0, **kwargs0)")
+            t = time.time()
             ret = eval("self.pwdb." + funcstr + "(*args0, **kwargs0)")
+            print(time.time() - t, funcstr)
             # send result
             try:
                 self.socket.send_pyobj(ret)
-                
             except Exception as e:
                 print("error at:", funcstr, ret, args0, kwargs0)
                 print("received: ", funcstr, args0)
@@ -81,5 +82,8 @@ def wrapper_main(cfg, dirs, logger):
     pwwt.start()
     while not TERMINATED:
         time.sleep(1)
+    pwwt.pwdb.db_drop()
+    pwwt.pwdb.db_close()
+    print("closed db")
     # pwwt.terminated = True
     # pwwt.join()

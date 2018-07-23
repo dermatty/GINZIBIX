@@ -1,4 +1,5 @@
 from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
+from playhouse.sqlite_ext import CSqliteExtDatabase, SqliteExtDatabase
 import os
 import shutil
 import time
@@ -8,6 +9,13 @@ import dill
 import inspect
 import zmq
 import threading
+from threading import Thread
+import threading
+import signal
+import zmq
+import sys
+
+TERMINATED = False
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -18,22 +26,48 @@ lpref = __name__.split("lib.")[-1] + " - "
 
 
 def whoami():
-    return str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 def lists_are_equal(list1, list2):
     return set(list1) == set(list2) and len(list1) == len(list2)
 
 
-class PWDB:
+class Sighandler_gpww:
+    def __init__(self, logger, pwwt):
+        self.logger = logger
+        self.pwwt = pwwt
+
+    def sighandler_gpww(self, a, b):
+        global TERMINATED
+        self.logger.info(whoami() + "terminating ...")
+        self.pwwt.db_drop()
+        self.pwwt.db_close()
+        TERMINATED = True
+        print("exitited")
+        sys.exit()
+
+
+class PWDB():
     def __init__(self, cfg, dirs, logger):
         maindir = dirs["main"]
-        self.db = SqliteDatabase(maindir + "ginzibix.db")
+        # self.db = SqliteDatabase(maindir + "ginzibix.db")
+        # self.db = SqliteExtDatabase("file:cachedb?mode=memory&cache=shared")
+        self.db = CSqliteExtDatabase(":memory:")
+        #self.db = CSqliteExtDatabase("file:cachedb?mode=memory&cache=shared", pragmas=(
+        #    ('cache_size', -1024 * 128), ('journal_mode', 'wal'), ('foreign_keys', 1)))
         self.logger = logger
         self.context = None
         self.cfg = cfg
         self.lock = threading.Lock()
         self.last_update_for_gui = 0
+        self.wrapper_port = "37703"
+        self.wrapper_context = zmq.Context()
+        self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
+        self.wrapper_socket.bind("tcp://*:" + self.wrapper_port)
 
         try:
             self.host = self.cfg["OPTIONS"]["HOST"]
@@ -151,6 +185,30 @@ class PWDB:
         self.db.create_tables(self.tablelist)
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
 
+    def do_loop(self):
+        while True:
+            # get command for pwdb
+            try:
+                funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
+                print("received:" + funcstr)
+            except Exception as e:
+                self.logger.debug(whoami() + str(e) + ": " + funcstr)
+            # call pwdb.<funcstr>
+            # evalstr = ("self.pwdb." + funcstr + "(*args0, **kwargs0)")
+            # t = time.time()
+            ret = eval("self." + funcstr + "(*args0, **kwargs0)")
+            # print(time.time() - t, funcstr)
+            # send result
+            try:
+                self.wrapper_socket.send_pyobj(ret)
+                print("ok", ret)
+            except Exception as e:
+                print("error at:", funcstr, ret, args0, kwargs0)
+                print("received: ", funcstr, args0)
+                self.logger.debug(whoami() + str(e))
+                print("sent: ", ret)
+            print("*" * 50)
+
     def get_last_update_for_gui(self):
         with self.lock:
             res0 = self.last_update_for_gui
@@ -181,7 +239,7 @@ class PWDB:
         try:
             new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
         except Exception as e:
-            self.logger.warning(lpref + "db_msg_insert: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
         toomuchdata = True
         while toomuchdata:
@@ -194,7 +252,7 @@ class PWDB:
                 else:
                     toomuchdata = False
             except Exception as e:
-                self.logger.warning(lpref + "db_msg_insert: " + str(e))
+                self.logger.warning(whoami() + str(e))
                 return None
         self.last_update_for_gui = time.time()
         if new_msg:
@@ -209,7 +267,7 @@ class PWDB:
             msglist = [(msg.message, msg.timestamp, msg.level) for msg in msg0]
             return msglist
         except Exception as e:
-            self.logger.warning(lpref + "db_msg_get: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_msg_removeall(self, nzbname0):
@@ -218,14 +276,13 @@ class PWDB:
             query = self.MSG.delete().where(self.MSG.nzbname == nzbname0)
             query.execute()
         except Exception as e:
-            self.logger.warning(lpref + "db_msg_removeall: " + str(e))
+            self.logger.warning(whoami() + str(e))
 
     # ---- self.NZB --------
     def db_nzb_insert(self, name0):
         try:
             prio = max([n.priority for n in self.NZB.select().order_by(self.NZB.priority)]) + 1
         except ValueError as e:
-            print("err1", str(e))
             prio = 1
         try:
             new_nzb = self.NZB.create(name=name0, priority=prio, timestamp=time.time())
@@ -233,7 +290,7 @@ class PWDB:
         except Exception as e:
             new_nzbname = None
             print("err:", str(e))
-            self.logger.warning(lpref + name0 + ": " + str(e))
+            self.logger.warning(whoami() + str(e))
         self.set_last_update_for_gui()
         return new_nzbname
 
@@ -253,7 +310,7 @@ class PWDB:
             nzb0 = self.NZB.get(self.NZB.name == name)
             return nzb0.loadpar2vols
         except Exception as e:
-            self.logger.warning(str(e))
+            self.logger.warning(whoami() + str(e))
             return False
 
     def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
@@ -332,7 +389,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.password
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_set_ispw(self, nzbname, ispw):
@@ -345,7 +402,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.is_pw
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
@@ -363,7 +420,7 @@ class PWDB:
             query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
             query.execute()
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
         self.set_last_update_for_gui()
         '''with self.db.atomic():
             nzb0 = self.NZB.get((self.NZB.name == nzbname))
@@ -375,7 +432,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_get_unrarstatus(self, nzbname):
@@ -383,7 +440,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.unrar_status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_get_verifystatus(self, nzbname):
@@ -391,7 +448,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.verify_status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzbname_to_nzbentry(self, nzbname):
@@ -405,11 +462,10 @@ class PWDB:
     # ---- self.FILE --------
     def db_file_get_renamed(self, name):
         try:
-            file0 = self.FILE.get(self.FILE.renamed_name == name)
-            filelist = [(f0.orig_name, f0.renamed_name, f0.ftype) for f0 in file0][0]
-            return filelist
+            f0 = self.FILE.get(self.FILE.renamed_name == name)
+            return (f0.orig_name, f0.renamed_name, f0.ftype)
         except Exception as e:
-            self.logger.warning(lpref + "cannot match in db:" + name)
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getftype_renamed(self, name):
@@ -417,7 +473,7 @@ class PWDB:
             file0 = self.FILE.get(self.FILE.renamed_name == name)
             return file0.ftpye
         except Exception as e:
-            self.logger.warning(lpref + "cannot match in db:" + name)
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getsize(self, name):
@@ -463,7 +519,7 @@ class PWDB:
             rarflist = [(r.renamed_name, r.orig_name) for r in rarfiles]
             return rarflist
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def get_all_corrupt_rar_files(self, nzbname):
@@ -472,7 +528,7 @@ class PWDB:
                         if f0.ftype == "rar" and f0.parverify_state == -1 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_only_failed_or_ok_rars(self, nzbname):
@@ -484,7 +540,7 @@ class PWDB:
                 return True
             return False
         except Exception as e:
-            self.logger.warning(lpref + ">>>>>>>>>>>>>" + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_only_verified_rars(self, nzbname):
@@ -496,7 +552,7 @@ class PWDB:
                 return True, rarl
             return False, rarl
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None, rarl
 
     def get_renamed_p2(self, dir01, nzbname):
@@ -513,8 +569,7 @@ class PWDB:
             else:
                 return None
         except Exception as e:
-            print("Exception - " + str(e))
-            self.logger.warning(lpref + "get_renamed_p2: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_get_renamed_par2(self, nzbname):
@@ -527,7 +582,7 @@ class PWDB:
             # par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A", self.FILE.nzb.name == nzbname)
             return par2.renamed_name
         except Exception as e:
-            self.logger.warning(lpref + "db_get_renamed_par2 " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_update_status(self, filename, newstatus):
@@ -556,9 +611,12 @@ class PWDB:
         file0.save()
 
     def db_file_set_renamed_name(self, orig_name0, renamed_name0):
+        try:
+            query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
         self.set_last_update_for_gui()
-        query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
-        query.execute()
         # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
         # file0.renamed_name = renamed_name
         # file0.save()
@@ -584,7 +642,7 @@ class PWDB:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.status
         except Exception as e:
-            self.logger.warning(lpref + "db_file_getstatus: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getparstatus(self, filename):
@@ -592,7 +650,7 @@ class PWDB:
             query = self.FILE.get(self.FILE.renamed_name == filename)
             return query.parverify_state
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_get_orig_filetype(self, filename):
@@ -600,7 +658,7 @@ class PWDB:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.ftype
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getallparstatus(self, state):
@@ -608,7 +666,7 @@ class PWDB:
             filesparstatus = [f.parverify_state for f in self.FILE.select() if f.parverify_state == state and f.ftype == "rar"]
             return filesparstatus
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return [-9999]
 
     def db_file_insert(self, name, nzbname, nr_articles, age, ftype):
@@ -619,7 +677,7 @@ class PWDB:
         except Exception as e:
             new_file = None
             print("err:", str(e))
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
         return new_file
 
     def db_file_getall(self):
@@ -726,7 +784,7 @@ class PWDB:
                 socketurl = "tcp://" + self.host + ":" + self.port
                 self.socket.connect(socketurl)
             except Exception as e:
-                self.logger.warning(lpref + str(e))
+                self.logger.warning(whoami() + str(e))
                 self.context = None
                 return None
 
@@ -734,13 +792,20 @@ class PWDB:
         if sortednzbs == []:
             sortednzbs = [-1]
         try:
+            print("SEND")
             self.socket.send_pyobj(("PWDB", sortednzbs))
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            self.context = None
+            return None
+        try:
             datatype, datarec = self.socket.recv_pyobj()
+            print("****", socketurl)
             if datatype == "NOOK":
                 return None
             return True
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             self.context = None
             return None
 
@@ -900,6 +965,7 @@ class PWDB:
         try:
             nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
                                           | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+            
         except Exception as e:
             self.logger.info(lpref + str(e) + ": no NZBs to queue")
             return None, None, None, None, None, None, None, None
@@ -1065,6 +1131,18 @@ class PWDB:
         else:
             self.db_nzb_update_status(nzbname, 2)
             return None, None, None, None, None, None, None'''
+
+
+def wrapper_main(cfg, dirs, logger):
+    global TERMINATED
+    pwwt = PWDB(cfg, dirs, logger)
+    sh = Sighandler_gpww(logger, pwwt)
+    signal.signal(signal.SIGINT, sh.sighandler_gpww)
+    signal.signal(signal.SIGTERM, sh.sighandler_gpww)
+
+    pwwt.do_loop()
+
+
 
 
 if __name__ == "__main__":
