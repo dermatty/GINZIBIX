@@ -1,7 +1,6 @@
 #!/home/stephan/.virtualenvs/nntp/bin/python
 
 import sys
-import os
 from os.path import expanduser
 import configparser
 import signal
@@ -12,8 +11,16 @@ import lib
 import queue
 import gi
 import time
+import inspect
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 lpref = ""
@@ -93,7 +100,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
     progstr = "ginzibix 0.1-alpha, client"
-    logger.debug(lpref + "Welcome to GINZIBIX " + __version__)
+    logger.debug(whoami() + "Welcome to GINZIBIX " + __version__)
 
     # start DB Thread
     mpp_wrapper = mp.Process(target=lib.wrapper_main, args=(cfg, dirs, logger, ))

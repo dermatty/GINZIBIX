@@ -1,5 +1,14 @@
 import ssl
 import nntplib
+import inspect
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -60,21 +69,21 @@ class Servers():
                     if sc:
                         server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
                         try:
-                            self.logger.debug(lpref + "Opening connection # " + str(conn_nr) + "to server " + server_name)
+                            self.logger.debug(whoami() + "Opening connection # " + str(conn_nr) + "to server " + server_name)
                             if usessl:
                                 nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             else:
                                 nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
-                            self.logger.debug(lpref + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
+                            self.logger.debug(whoami() + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)
                             break
                         except Exception as e:
-                            self.logger.error(lpref + "Server " + server_name0 + " connect error: " + str(e))
+                            self.logger.error(whoami() + "Server " + server_name0 + " connect error: " + str(e))
                             self.all_connections[idx] = (sn, cn, rt, None)
                             break
                     else:
-                        self.logger.error(lpref + "Cannot get server config for server: " + server_name0)
+                        self.logger.error(whoami() + "Cannot get server config for server: " + server_name0)
                         self.all_connections[idx] = (sn, cn, rt, None)
                         break
         return result
@@ -84,9 +93,9 @@ class Servers():
             if nobj:
                 try:
                     nobj.quit()
-                    self.logger.warning(lpref + "Closed connection #" + str(cn) + " on " + sn)
+                    self.logger.warning(whoami() + "Closed connection #" + str(cn) + " on " + sn)
                 except Exception as e:
-                    self.logger.warning(lpref + "Cannot quit server " + sn + ": " + str(e))
+                    self.logger.warning(whoami() + "Cannot quit server " + sn + ": " + str(e))
 
     def get_server_config(self, cfg):
         # get servers from config
