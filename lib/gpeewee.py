@@ -1,5 +1,5 @@
 from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
-from playhouse.sqlite_ext import CSqliteExtDatabase, SqliteExtDatabase
+from playhouse.sqlite_ext import CSqliteExtDatabase
 import os
 import shutil
 import time
@@ -8,7 +8,6 @@ import re
 import dill
 import zmq
 import threading
-from threading import Thread
 import signal
 import sys
 import inspect
@@ -35,21 +34,6 @@ def lists_are_equal(list1, list2):
     return set(list1) == set(list2) and len(list1) == len(list2)
 
 
-class Sighandler_gpww:
-    def __init__(self, logger, pwwt):
-        self.logger = logger
-        self.pwwt = pwwt
-
-    def sighandler_gpww(self, a, b):
-        global TERMINATED
-        self.logger.info(whoami() + "terminating ...")
-        self.pwwt.db_drop()
-        self.pwwt.db_close()
-        TERMINATED = True
-        print("gpweewee exited")
-        sys.exit()
-
-
 class PWDB():
     def __init__(self, cfg, dirs, logger):
         maindir = dirs["main"]
@@ -67,6 +51,10 @@ class PWDB():
         self.wrapper_context = zmq.Context()
         self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
         self.wrapper_socket.bind("tcp://*:" + self.wrapper_port)
+        self.poller = zmq.Poller()
+        self.poller.register(self.wrapper_socket, zmq.POLLIN)
+        self.signal_ign_sigint = None
+        self.signal_ign_sigterm = None
 
         try:
             self.host = self.cfg["OPTIONS"]["HOST"]
@@ -185,10 +173,15 @@ class PWDB():
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
 
     def do_loop(self):
-        while True:
+        while not TERMINATED:
             # get command for pwdb
+            socks = dict(self.poller.poll(1000))
             try:
-                funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
+                if self.wrapper_socket in socks and socks[self.wrapper_socket] == zmq.POLLIN:
+                    funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
+                else:
+                    time.sleep(1)
+                    continue
                 # print("received:" + funcstr)
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
@@ -207,6 +200,10 @@ class PWDB():
                 self.logger.debug(whoami() + str(e))
                 print("sent: ", ret)
             # print("*" * 50)
+
+    def set_exit_goodbye_from_main(self):
+        global TERMINATED
+        TERMINATED = True
 
     def get_last_update_for_gui(self):
         with self.lock:
@@ -1048,92 +1045,20 @@ class PWDB():
                 return None, None, None, None, None, None, None, None
             return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
-        # --------------------------------------------------------------------------------------
-        '''try:
-            nzb = self.NZB.select().where((self.NZB.status == 1)).order_by(self.NZB.priority)[0]
-        except Exception as e:
-            self.logger.info(whoami() + str(e) + ": no NZBs to queue")
-            return None, None, None, None, None, None, None
-        nzbname = nzb.name
-        self.logger.info(whoami() + nzbname + ", status: " + str(self.db_nzb_getstatus(nzbname)))
-        nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
-        dir00 = dir0 + nzbdir + "_downloaded0/"
-        dir01 = dir0 + nzbdir + "_renamed0/"
-        files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
-        if not files:
-            self.logger.info(whoami() + "No files to download for NZB " + nzb.name)
-            return None, None, None, None, None, None, None
-        
-        idx = 0
-        overall_size = 0
-        overall_size_wparvol = 0
-        already_downloaded_size = 0
-        p2 = None
-        for f0 in files:
-            articles = [articles0 for articles0 in f0.articles]
-            f0size = sum([a.size for a in articles])
-            if f0.ftype == "par2vol":
-                overall_size_wparvol += f0size
-            else:
-                overall_size += f0size
-            filetypecounter[f0.ftype]["max"] += 1
-            filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
-            self.logger.info(whoami() + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
-            if f0.status not in [0, 1]:
-                # todo:
-                #    calc md5 hash
-                #    filename0 is real path of file
-                filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir01)
-                if file_already_exists and f0.ftype == "par2":
-                    p2 = Par2File(dir01 + f0.renamed_name)
-                elif not file_already_exists:
-                    filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
-                self.logger.info(whoami() + filename0 + ", found on dir: " + str(file_already_exists))
-                if file_already_exists:
-                    filetypecounter[f0.ftype]["counter"] += 1
-                    md5 = calc_file_md5hash(filename0)
-                    filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
-                    already_downloaded_size += f0size
-                    continue
-                else:
-                    self.db_file_update_status(f0.orig_name, 0)
-            allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
-            articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
-            for a in articles:
-                allok = True
-                if len(allfilelist[idx]) > 2:
-                    for i1, art in enumerate(allfilelist[idx]):
-                        if i1 > 1:
-                            nr1, fn1, _ = art
-                            if nr1 == a.number:
-                                allok = False
-                                break
-                if allok:
-                    allfilelist[idx].append((a.number, a.name, a.size))
-            idx += 1
-        if allfilelist:
-            self.db_nzb_update_status(nzbname, 1)
-            gbdivisor = (1024 * 1024 * 1024)
-            overall_size /= gbdivisor
-            overall_size_wparvol /= gbdivisor
-            overall_size_wparvol += overall_size
-            already_downloaded_size /= gbdivisor
-            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
-        else:
-            self.db_nzb_update_status(nzbname, 2)
-            return None, None, None, None, None, None, None'''
-
 
 def wrapper_main(cfg, dirs, logger):
-    global TERMINATED
+    # signal.signal(signal.SIGINT, sh.sighandler_gpww)
+    # signal.signal(signal.SIGTERM, sh.sighandler_gpww)
     pwwt = PWDB(cfg, dirs, logger)
-    sh = Sighandler_gpww(logger, pwwt)
-    signal.signal(signal.SIGINT, sh.sighandler_gpww)
-    signal.signal(signal.SIGTERM, sh.sighandler_gpww)
+    pwwt.signal_ign_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    pwwt.signal_ign_sigterm = signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     pwwt.do_loop()
 
+    pwwt.db_drop()
+    pwwt.db_close()
 
+    logger.debug(whoami() + "exited")
 
 
 if __name__ == "__main__":
@@ -1150,7 +1075,7 @@ if __name__ == "__main__":
 
     pwdb = PWDB(logger)
 
-    nzbname = 'Burg.Schreckenstein.2.nzb'
+    nzbname = 'Ubuntu16.04.nzb'
     aok = pwdb.db_get_all_ok_nonrarfiles(nzbname)
     stat = pwdb.db_nzb_getstatus(nzbname)
 
@@ -1160,5 +1085,5 @@ if __name__ == "__main__":
     for f in fall:
         print(f)
 
-    pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Burg.Schreckenstein.2/_renamed0/", nzbname)
+    pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Ubuntu16.04/_renamed0/", nzbname)
     print(pp2)

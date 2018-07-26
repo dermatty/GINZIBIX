@@ -12,6 +12,7 @@ import queue
 import gi
 import time
 import inspect
+import os
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
 
@@ -22,6 +23,9 @@ def whoami():
     lpref = __name__.split("lib.")[-1] + " - "
     return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
+
+# !! remove if gtkgui is activated ###
+TERMINATED = False
 
 lpref = ""
 __version__ = "0.1-alpha"
@@ -56,16 +60,20 @@ class SigHandler_Ginzibix:
 
     def sighandler_ginzibix(self, a, b):
         # wait until main is joined
+        global TERMINATED
         if self.mpp_main:
             if self.mpp_main.pid:
+                # !! remove if called from gtkgui !!!
+                # os.kill(self.mpp_main.pid, signal.SIGKILL)
                 mpp_main.join()
+                print("main joined!")
         if self.mpp_wrapper:
             if self.mpp_wrapper.pid:
+                # !! remove if called from gtkgui !!!
+                # os.kill(self.mpp_main.pid, signal.SIGKILL)
                 mpp_wrapper.join()
-
-        # stop pwdb
-        self.logger.info("ginzibix terminated")
-        sys.exit()
+                print("peewee_wrapper joined!")
+        TERMINATED = True
 
 
 # -------------------- main --------------------
@@ -114,8 +122,10 @@ if __name__ == '__main__':
     mpp_main.start()
     sh.mpp_main = mpp_main
 
-    while True:
+    while not TERMINATED:
         time.sleep(0.5)
+
+    print("ginzibix terminated")
 
     # app = lib.Application(mpp_main, mpp_wrapper, dirs, cfg_file, logger)
     # exit_status = app.run(sys.argv)

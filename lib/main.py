@@ -202,6 +202,11 @@ class SigHandler_Main:
         except Exception:
             pass
         self.logger.info(whoami() + "shutdown sequence finished, exiting!")
+        # !!!
+        # !!! THIS IS IMPORTANT
+        # !!! goodbye to gpeewee must be the last command from main
+        # !!!
+        self.pwdb.exc("set_exit_goodbye_from_main", [], {})
         sys.exit()
 
     def sighandler(self, a, b):
@@ -1469,7 +1474,7 @@ def write_resultqueue_to_file(resultqueue, maindir, logger):
         except (queue.Empty, EOFError):
             break
         except Exception as e:
-            logger.info(whoami() + whoami() + ": " + str(e))
+            logger.info(whoami() + ": " + str(e))
     fn = maindir + "resqueue.gzbx"
     if resqlist:
         try:
@@ -1543,7 +1548,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             # if self.mpp["unrarer"].pid:
             logger.warning("terminating unrarer")
             try:
-                os.kill(dl.mpp["unrarer"].pid, signal.SIGKILL)
+                os.kill(mpid, signal.SIGKILL)
                 dl.mpp["unrarer"].join()
                 dl.mpp["unrarer"] = None
                 dl.sighandler.mpp = dl.mpp
