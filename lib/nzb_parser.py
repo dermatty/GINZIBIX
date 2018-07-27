@@ -116,7 +116,7 @@ def ParseNZB(cfg, nzbdir, logger):
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
-    pwdb = PWDBSender(cfg)
+    pwdb = PWDBSender()
 
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
@@ -180,7 +180,7 @@ def ParseNZB(cfg, nzbdir, logger):
                         # pwdb.send_sorted_nzbs_to_guiconnector()
             isfirstrun = False
     os.chdir(cwd0)
-    logger.warning(whoami() + "terminated!")
+    logger.debug(whoami() + "exited!")
 
 
 '''nzbdir = "/home/stephan/.ginzibix/nzb/"

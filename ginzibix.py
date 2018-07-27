@@ -94,8 +94,7 @@ if __name__ == '__main__':
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
-    # init peewee db
-    # pwdb = lib.PWDB(cfg, dirs, logger)
+    logger.debug(whoami() + "starting ...")
 
     # init download threads
     articlequeue = queue.LifoQueue()
@@ -115,7 +114,7 @@ if __name__ == '__main__':
     mpp_wrapper.start()
     sh.mpp_wrapper = mpp_wrapper
 
-    pwdb = lib.PWDBSender(cfg)
+    pwdb = lib.PWDBSender()
 
     # start main mp
     mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, dirs, subdirs, logger, ))
@@ -125,7 +124,7 @@ if __name__ == '__main__':
     while not TERMINATED:
         time.sleep(0.5)
 
-    print("ginzibix terminated")
+    logger.debug(whoami() + "exited!")
 
     # app = lib.Application(mpp_main, mpp_wrapper, dirs, cfg_file, logger)
     # exit_status = app.run(sys.argv)

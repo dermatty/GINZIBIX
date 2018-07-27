@@ -10,6 +10,7 @@ import zmq
 import threading
 import signal
 import sys
+from os.path import expanduser
 import inspect
 
 
@@ -36,23 +37,28 @@ def lists_are_equal(list1, list2):
 
 class PWDB():
     def __init__(self, cfg, dirs, logger):
-        maindir = dirs["main"]
-        # self.db = SqliteDatabase(maindir + "ginzibix.db")
-        # self.db = SqliteExtDatabase("file:cachedb?mode=memory&cache=shared")
-        self.db = CSqliteExtDatabase(":memory:")
-        #self.db = CSqliteExtDatabase("file:cachedb?mode=memory&cache=shared", pragmas=(
-        #    ('cache_size', -1024 * 128), ('journal_mode', 'wal'), ('foreign_keys', 1)))
         self.logger = logger
+        maindir = dirs["main"]
         self.context = None
         self.cfg = cfg
         self.lock = threading.Lock()
         self.last_update_for_gui = 0
-        self.wrapper_port = "37703"
+        self.db_file_name = maindir + "ginzibix.db"
+        if os.path.isfile(self.db_file_name):
+            self.db_file_exists = True
+        else:
+            self.db_file_exists = False
+
+        try:
+            self.db_file = CSqliteExtDatabase(self.db_file_name)
+            self.db = CSqliteExtDatabase(":memory:")
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+
+        ipc_location = expanduser("~") + "/ginzibix_socket1"
         self.wrapper_context = zmq.Context()
         self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
-        self.wrapper_socket.bind("tcp://*:" + self.wrapper_port)
-        self.poller = zmq.Poller()
-        self.poller.register(self.wrapper_socket, zmq.POLLIN)
+        self.wrapper_socket.bind("ipc://" + ipc_location)
         self.signal_ign_sigint = None
         self.signal_ign_sigterm = None
 
@@ -168,38 +174,40 @@ class PWDB():
         self.FILE = FILE
         self.ARTICLE = ARTICLE
         self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG]
-        self.db.connect()
-        self.db.create_tables(self.tablelist)
+
+        if self.db_file_exists:
+            try:
+                self.db_file.backup(self.db)
+                self.logger.debug(whoami() + "copied file db to :memory: db")
+            except Exception as e:
+                self.logger.warning(whoami())
+        else:
+            self.db.connect()
+            self.db.create_tables(self.tablelist)
+
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
 
     def do_loop(self):
+        self.wrapper_socket.setsockopt(zmq.RCVTIMEO, 500)
         while not TERMINATED:
-            # get command for pwdb
-            socks = dict(self.poller.poll(1000))
             try:
-                if self.wrapper_socket in socks and socks[self.wrapper_socket] == zmq.POLLIN:
-                    funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
-                else:
-                    time.sleep(1)
+                funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
+            except zmq.ZMQError as e:
+                if e.errno == zmq.EAGAIN:
                     continue
-                # print("received:" + funcstr)
+                else:
+                    raise
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
-            # call pwdb.<funcstr>
-            # evalstr = ("self.pwdb." + funcstr + "(*args0, **kwargs0)")
-            # t = time.time()
+                continue
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
-            # print(time.time() - t, funcstr)
-            # send result
             try:
                 self.wrapper_socket.send_pyobj(ret)
-                # print("ok", ret)
             except Exception as e:
                 print("error at:", funcstr, ret, args0, kwargs0)
                 print("received: ", funcstr, args0)
                 self.logger.debug(whoami() + str(e))
                 print("sent: ", ret)
-            # print("*" * 50)
 
     def set_exit_goodbye_from_main(self):
         global TERMINATED
@@ -724,6 +732,7 @@ class PWDB():
 
     # ---- self.DB --------
     def db_close(self):
+        self.db_file.close()
         self.db.close()
 
     def db_drop(self):
@@ -1047,18 +1056,22 @@ class PWDB():
 
 
 def wrapper_main(cfg, dirs, logger):
-    # signal.signal(signal.SIGINT, sh.sighandler_gpww)
-    # signal.signal(signal.SIGTERM, sh.sighandler_gpww)
+    logger.debug(whoami() + "starting ...")
+
     pwwt = PWDB(cfg, dirs, logger)
     pwwt.signal_ign_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
     pwwt.signal_ign_sigterm = signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     pwwt.do_loop()
 
-    pwwt.db_drop()
-    pwwt.db_close()
+    try:
+        pwwt.db.backup(pwwt.db_file)
+        pwwt.db_drop()
+        pwwt.db_close()
+    except Exception as e:
+        logger.warning(whoami() + str(e))
 
-    logger.debug(whoami() + "exited")
+    logger.debug(whoami() + "exited!")
 
 
 if __name__ == "__main__":

@@ -36,11 +36,12 @@ class SigHandler_Verifier:
 
 
 def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nzbname, pvmode, cfg):
+    logger.debug(whoami() + "starting ...")
     sh = SigHandler_Verifier(logger)
     signal.signal(signal.SIGINT, sh.sighandler_verifier)
     signal.signal(signal.SIGTERM, sh.sighandler_verifier)
 
-    pwdb = PWDBSender(cfg)
+    pwdb = PWDBSender()
 
     if pvmode == "verify":
         # p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)

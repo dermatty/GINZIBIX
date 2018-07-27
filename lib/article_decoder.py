@@ -31,11 +31,13 @@ class SigHandler_Decoder:
 
 
 def decode_articles(mp_work_queue0, cfg, logger):
+    logger.debug(whoami() + "starting ...")
+
     sh = SigHandler_Decoder(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
-    pwdb = PWDBSender(cfg)
+    pwdb = PWDBSender()
 
     logger.info(whoami() + "starting decoder process")
     bytes0 = bytearray()
@@ -164,7 +166,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
             logger.debug(whoami() + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
         except Exception as e:
             logger.error(whoami() + str(e) + ": cannot update DB for " + filename)
-    logger.info(whoami() + "terminated!")
+    logger.debug(whoami() + "exited!")
 
 
 # ---- test only ----

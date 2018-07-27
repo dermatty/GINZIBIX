@@ -43,8 +43,8 @@ def get_rar_files(directory):
 
 
 def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
-
-    pwdb = PWDBSender(cfg)
+    logger.debug(whoami() + "starting ...")
+    pwdb = PWDBSender()
 
     cwd0 = os.getcwd()
     sh = SigHandler_Unrar(cwd0, logger)
@@ -183,7 +183,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
             time.sleep(1)   # achtung hack!
             child.sendline("C")
     if TERMINATED:
-        logger.info(whoami() + "terminated!")
+        logger.info(whoami() + "exited!")
     else:
         logger.info(whoami() + str(status) + " " + statmsg)
         os.chdir(cwd0)

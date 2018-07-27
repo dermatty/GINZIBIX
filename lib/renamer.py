@@ -188,7 +188,7 @@ def renamer(source_dir, dest_dir, cfg, mp_result_queue, logger):
     signal.signal(signal.SIGINT, sh.sighandler_renamer)
     signal.signal(signal.SIGTERM, sh.sighandler_renamer)
 
-    pwdb = PWDBSender(cfg)
+    pwdb = PWDBSender()
 
     if source_dir[-1] != "/":
         source_dir += "/"

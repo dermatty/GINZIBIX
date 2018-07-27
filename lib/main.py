@@ -201,12 +201,12 @@ class SigHandler_Main:
                 self.servers.close_all_connections()
         except Exception:
             pass
-        self.logger.info(whoami() + "shutdown sequence finished, exiting!")
         # !!!
         # !!! THIS IS IMPORTANT
         # !!! goodbye to gpeewee must be the last command from main
         # !!!
         self.pwdb.exc("set_exit_goodbye_from_main", [], {})
+        self.logger.info(whoami() + "exited!")
         sys.exit()
 
     def sighandler(self, a, b):
@@ -218,7 +218,7 @@ class GUI_Connector(Thread):
         Thread.__init__(self)
         self.daemon = True
         self.dirs = dirs
-        self.pwdb = PWDBSender(cfg)
+        self.pwdb = PWDBSender()
         self.cfg = cfg
         try:
             self.port = self.cfg["OPTIONS"]["PORT"]
@@ -406,7 +406,7 @@ class GUI_Connector(Thread):
 class Downloader():
     def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, logger):
         self.cfg = cfg
-        self.pwdb = PWDBSender(cfg)
+        self.pwdb = PWDBSender()
         self.articlequeue = ct.articlequeue
         self.resultqueue = ct.resultqueue
         self.mp_work_queue = mp_work_queue
@@ -1595,7 +1595,9 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
 # main loop for ginzibix downloader
 def ginzi_main(cfg, dirs, subdirs, logger):
 
-    pwdb = PWDBSender(cfg)
+    logger.debug(whoami() + "starting ...")
+
+    pwdb = PWDBSender()
 
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
