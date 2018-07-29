@@ -235,6 +235,7 @@ class GUI_Connector(Thread):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind("tcp://*:" + self.port)
+        # self.socket.setsockopt(zmq.RCVTIMEO, 2000)
         self.threads = []
         self.server_config = None
         self.dl_running = True
@@ -311,6 +312,7 @@ class GUI_Connector(Thread):
             self.last_update_for_gui = lastt
         else:
             full_data_for_gui = None
+        self.sorted_nzbs = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
         if self.send_data:
             with self.lock:
                 try:
@@ -341,14 +343,7 @@ class GUI_Connector(Thread):
                     self.socket.send_pyobj(("NOOK", None))
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
-            if msg == "PWDB":
-                try:
-                    self.socket.send_pyobj(("OK", None))
-                except Exception as e:
-                    self.logger.error(whoami() + str(e))
-                with self.lock:
-                    self.sorted_nzbs = datarec
-            elif msg == "REQ":
+            if msg == "REQ":
                 getdata = self.get_data()
                 gd1, _, _, _, _, _, _, sortednzbs, _, _, _, _ = getdata
                 if gd1:
@@ -1355,7 +1350,7 @@ def get_next_nzb(pwdb, dirs, ct, logger):
                     = make_allfilelist_wait(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(whoami() + str(e))
-    pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
+    pwdb.exc("store_sorted_nzbs", [], {})
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
 
@@ -1686,8 +1681,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                             deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                             if deleted_nzb_name0:
                                 remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
-                            # pwdb.send_sorted_nzbs_to_guiconnector()
-                            pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
+                            pwdb.exc("store_sorted_nzbs", [], {})
                     if dobreak:
                         break
                     time.sleep(1)
@@ -1711,21 +1705,16 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
-            # stat0_0 = pwdb.db_nzb_getstatus(nzbname)
             stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
             if stat0_0 == 4:
                 pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
-                # pwdb.db_msg_insert(nzbname, "downloaded and postprocessed successfully!", "success")
             else:
                 pwdb.exc("db_msg_insert", [nzbname, "download and/or postprocessing failed!", "error"], {})
-                # pwdb.db_msg_insert(nzbname, "download and/or postprocessing failed!", "error")
-            pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
-            # pwdb.send_sorted_nzbs_to_guiconnector()
+            pwdb.exc("store_sorted_nzbs", [], {})
             logger.info(whoami() + nzbname + " finished with status " + str(stat0_0))
         elif stat0 == -2:
             guiconnector.set_health(0, 0)
             pwdb.exc("db_msg_insert", [nzbname, "download failed!", "error"], {})
             logger.info(whoami() + "download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
-            pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
-            # pwdb.send_sorted_nzbs_to_guiconnector()
+            pwdb.exc("store_sorted_nzbs", [], {})

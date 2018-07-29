@@ -176,8 +176,7 @@ def ParseNZB(cfg, nzbdir, logger):
                         # pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
                         pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
-                        pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
-                        # pwdb.send_sorted_nzbs_to_guiconnector()
+                        pwdb.exc("store_sorted_nzbs", [], {})
             time.sleep(3)
             isfirstrun = False
     os.chdir(cwd0)

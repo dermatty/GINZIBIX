@@ -37,7 +37,7 @@ class PWDB():
     def __init__(self, cfg, dirs, logger):
         self.logger = logger
         maindir = dirs["main"]
-        self.context = None
+        self.sorted_nzbs_for_gui = None
         self.cfg = cfg
         self.lock = threading.Lock()
         self.last_update_for_gui = 0
@@ -59,18 +59,6 @@ class PWDB():
         self.wrapper_socket.bind("ipc://" + ipc_location)
         self.signal_ign_sigint = None
         self.signal_ign_sigterm = None
-
-        try:
-            self.host = self.cfg["OPTIONS"]["HOST"]
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting host to default 127.0.0.1")
-            self.host = "127.0.0.1"
-        try:
-            self.port = self.cfg["OPTIONS"]["PORT"]
-            assert(int(self.port) > 1024 and int(self.port) <= 65535)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
-            self.port = "36603"
 
         class BaseModel(Model):
             class Meta:
@@ -775,37 +763,14 @@ class PWDB():
         return first_has_changed, del_nzb_name
 
     # ---- send sorted nzbs to guiconnector ---
-    def send_sorted_nzbs_to_guiconnector(self):
-        if not self.context:
-            try:
-                self.context = zmq.Context()
-                self.socket = self.context.socket(zmq.REQ)
-                self.socket.setsockopt(zmq.LINGER, 0)
-                socketurl = "tcp://" + self.host + ":" + self.port
-                self.socket.connect(socketurl)
-            except Exception as e:
-                self.logger.warning(whoami() + str(e))
-                self.context = None
-                return None
+    def get_stored_sorted_nzbs(self):
+        return self.sorted_nzbs_for_gui
 
+    def store_sorted_nzbs(self):
         sortednzbs = self.db_nzb_getall_sorted()
         if sortednzbs == []:
             sortednzbs = [-1]
-        try:
-            self.socket.send_pyobj(("PWDB", sortednzbs))
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            self.context = None
-            return None
-        try:
-            datatype, datarec = self.socket.recv_pyobj()
-            if datatype == "NOOK":
-                return None
-            return True
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            self.context = None
-            return None
+        self.sorted_nzbs_for_gui = sortednzbs
 
     # ---- log info for nzb in db ###
     def log(self, nzbname, logmsg, loglevel, logger):
