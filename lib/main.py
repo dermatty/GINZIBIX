@@ -130,7 +130,7 @@ class SigHandler_Main:
         if self.main_dir and self.nzbname:
             self.logger.debug(whoami() + "writing resultqueue to .gzbx file")
             time.sleep(0.5)
-            bytes_in_resultqueue = write_resultqueue_to_file(self.resultqueue, self.main_dir, self.logger)
+            bytes_in_resultqueue = write_resultqueue_to_db(self.resultqueue, self.main_dir, self.pwdb, self.nzbname, self.logger)
             # self.pwdb.db_nzb_set_bytes_in_resultqueue(self.nzbname, bytes_in_resultqueue)
             self.pwdb.exc("db_nzb_set_bytes_in_resultqueue", [self.nzbname, bytes_in_resultqueue], {})
         # 6. stop unrarer
@@ -560,6 +560,7 @@ class Downloader():
                                     art_found = True
                                     break
                         if art_found:
+                            print("put to resultqueue")
                             # put to resultqueue:
                             self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
                         else:
@@ -1455,8 +1456,8 @@ class ConnectionThreads:
                 t.bandwidth_lasttt = 0
 
 
-def write_resultqueue_to_file(resultqueue, maindir, logger):
-    logger.debug(whoami() + "reading resultqueue and writing to " + maindir)
+def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
+    logger.debug(whoami() + "reading resultqueue and writing to db")
     resqlist = []
     bytes_in_resultqueue = 0
     while True:
@@ -1470,22 +1471,14 @@ def write_resultqueue_to_file(resultqueue, maindir, logger):
             bytes_in_resultqueue += art_size
             resultqueue.task_done()
             resqlist.append(res)
+            print(art_name)
         except (queue.Empty, EOFError):
             break
         except Exception as e:
             logger.info(whoami() + ": " + str(e))
-    fn = maindir + "resqueue.gzbx"
     if resqlist:
-        try:
-            with open(fn, "wb") as fp:
-                dill.dump(resqlist, fp)
-        except Exception as e:
-            logger.warning(whoami() + str(e) + ": cannot write resqueue.gzbx")
-    else:
-        try:
-            os.remove(fn)
-        except Exception as e:
-            logger.warning(whoami() + str(e) + ": cannot remove resqueue.gzbx")
+        pwdb.exc("db_nzb_store_resqlist", [nzbname, resqlist], {})
+        # print(resqlist)
     return bytes_in_resultqueue
 
 
@@ -1535,7 +1528,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         except (queue.Empty, EOFError):
             break
     # 5. save resultqueue
-    bytes_in_resultqueue = write_resultqueue_to_file(resultqueue, maindir, logger)
+    bytes_in_resultqueue = write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger)
     # pwdb.db_nzb_set_bytes_in_resultqueue(nzbname, bytes_in_resultqueue)
     pwdb.exc("db_nzb_set_bytes_in_resultqueue", [nzbname, bytes_in_resultqueue], {})
     # 6. stop unrarer

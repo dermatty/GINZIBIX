@@ -1,4 +1,4 @@
-from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
+from peewee import Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField, BlobField
 from playhouse.sqlite_ext import CSqliteExtDatabase
 import os
 import shutil
@@ -10,6 +10,7 @@ import zmq
 import threading
 import signal
 import inspect
+import sqlite3
 
 
 def whoami():
@@ -31,6 +32,16 @@ lpref = __name__.split("lib.")[-1] + " - "
 
 def lists_are_equal(list1, list2):
     return set(list1) == set(list2) and len(list1) == len(list2)
+
+
+class DillField(BlobField):
+    def python_value(self, value):
+        if isinstance(value, (bytearray, sqlite3.Binary)):
+            value = bytes(value)
+        return dill.loads(value)
+
+    def db_value(self, value):
+        return sqlite3.Binary(dill.dumps(value, 2))
 
 
 class PWDB():
@@ -105,6 +116,9 @@ class PWDB():
             is_pw = BooleanField(default=False)
             password = CharField(default="N/A")
             bytes_in_resultqueue = IntegerField(default=0)
+            resqlist_dill = DillField(default="N/A")
+            allfilelist_dill_exists = BooleanField(default=False)
+            allfilelist_dill = DillField(default="N/A")
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -269,6 +283,24 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
 
     # ---- self.NZB --------
+    def db_nzb_store_resqlist(self, nzbname, resqlist):
+        query = self.NZB.update(resqlist_dill=resqlist).where(self.NZB.name == nzbname)
+        query.execute()
+
+    def db_nzb_get_resqlist(self, nzbname):
+        try:
+            nzb0 = self.NZB.get(self.NZB.name == nzbname)
+            return nzb0.resqlist_dill
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
+
+    def db_nzb_set_allfile_list(self, nzbname, allfilelist):
+        query = self.NZB.update(allfilelist_dill=allfilelist).where(self.NZB.name == nzbname)
+        query.execute()
+        query = self.NZB.update(allfilelist_dill_exists=True).where(self.NZB.name == nzbname)
+        query.execute()
+
     def db_nzb_insert(self, name0):
         try:
             prio = max([n.priority for n in self.NZB.select().order_by(self.NZB.priority)]) + 1
@@ -817,20 +849,12 @@ class PWDB():
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
 
         resqlist = None
-        if nzb.status == 2:
-            fn_resq = dir0 + "resqueue.gzbx"
-            self.logger.debug(whoami() + "reading " + fn_resq + "...")
-            try:
-                with open(fn_resq, "rb") as fp:
-                    try:
-                        resqlist = dill.load(fp)
-                        self.logger.debug(whoami() + "reading resqueue.gzbx success!!")
-                    except Exception as e:
-                        self.logger.debug(whoami() + str(e) + ": reading resqueue failed!")
-            except Exception as e:
-                self.logger.debug(whoami() + str(e) + ": cannot find .gzbx file, but it SHOULD exist!")
-
         nzbname = nzb.name
+        if nzb.status == 2:
+            print("--------------------")
+            resqlist = self.db_nzb_get_resqlist(nzbname)
+            for _, _, _, _, _, art_name, _, inf0, _ in resqlist:
+                print(art_name)
         dir00 = dir0 + "_downloaded0/"
         dir01 = dir0 + "_renamed0/"
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
@@ -916,6 +940,7 @@ class PWDB():
             overall_size_wparvol /= gbdivisor
             overall_size_wparvol += overall_size
             already_downloaded_size /= gbdivisor
+            # self.db_nzb_set_allfile_list(nzbname, allfilelist)
             return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
         else:
             self.db_nzb_update_status(nzbname, 2)
