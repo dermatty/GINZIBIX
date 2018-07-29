@@ -9,8 +9,6 @@ import dill
 import zmq
 import threading
 import signal
-import sys
-from os.path import expanduser
 import inspect
 
 
@@ -55,7 +53,7 @@ class PWDB():
         except Exception as e:
             self.logger.warning(whoami() + str(e))
 
-        ipc_location = expanduser("~") + "/ginzibix_socket1"
+        ipc_location = maindir + "ginzibix_socket1"
         self.wrapper_context = zmq.Context()
         self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
         self.wrapper_socket.bind("ipc://" + ipc_location)
@@ -177,7 +175,7 @@ class PWDB():
 
         if self.db_file_exists:
             try:
-                self.db_file.backup(self.db)
+                # self.db_file.backup(self.db)
                 self.logger.debug(whoami() + "copied file db to :memory: db")
             except Exception as e:
                 self.logger.warning(whoami())
@@ -717,15 +715,17 @@ class PWDB():
         llen = len(data)
         while i < llen:
             data0 = data[i: min(i + chunksize, llen)]
-            for i, (a_aname, a_fname, a_size, a_no, a_ts) in enumerate(data0):
-                data0[i] = (a_aname, self.db_fname_to_fentry(a_fname), a_size, a_no, a_ts)
+            for j, (a_aname, a_fname, a_size, a_no, a_ts) in enumerate(data0):
+                data0[j] = (a_aname, self.db_fname_to_fentry(a_fname), a_size, a_no, a_ts)
             try:
                 query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
                                                                 self.ARTICLE.timestamp])
                 query.execute()
-            except OperationalError:
+            except OperationalError as e:
                 chunksize = int(chunksize * 0.9)
                 continue
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
             i += chunksize
         self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
         self.set_last_update_for_gui()
@@ -954,7 +954,7 @@ class PWDB():
             return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
         else:
             self.db_nzb_update_status(nzbname, 2)
-            return None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None, None
 
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
@@ -991,8 +991,11 @@ class PWDB():
             for f0 in files:
                 self.db_file_update_status(f0.orig_name, 0)
             # loop through files and make allfileslist
-            self.logger.info(whoami() + "All, ok. Created allfilelist")
-            return self.create_allfile_list(nzb, incompletedir)
+            try:
+                res0 = self.create_allfile_list(nzb, incompletedir)
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
+            return res0
 
         # state "downloading" / "postprocessing"
         elif nzbstatus in [2, 3]:
@@ -1065,7 +1068,7 @@ def wrapper_main(cfg, dirs, logger):
     pwwt.do_loop()
 
     try:
-        pwwt.db.backup(pwwt.db_file)
+        # pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:

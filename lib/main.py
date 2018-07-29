@@ -27,6 +27,7 @@ import dill
 from statistics import mean
 from .aux import PWDBSender
 import inspect
+import inotify_simple
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -1330,55 +1331,61 @@ def get_next_nzb(pwdb, dirs, ct, logger):
     logger.debug(whoami() + "looking for new NZBs ...")
     try:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-            = make_allfilelist_inotify(pwdb, dirs, logger, -1)
+            = make_allfilelist_wait(pwdb, dirs, logger, -1)
     except Exception as e:
         logger.warning(whoami() + str(e))
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug(whoami() + "polling for 30 sec. for new NZB before closing connections if alive ...")
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-            = make_allfilelist_inotify(pwdb, dirs, logger, 30 * 1000)
+            = make_allfilelist_wait(pwdb, dirs, logger, 30 * 1000)
         if not nzbname:
             if ct.threads:
                 # if no success: close all connections and poll blocking
-                logger.warning("Idle time > 30 sec, closing all server connections")
+                logger.debug(whoami() + "idle time > 30 sec, closing all server connections")
                 for t, _ in ct.threads:
                     t.stop()
                     t.join()
                 ct.servers.close_all_connections()
                 ct.threads = []
                 del ct.servers
-            logger.debug(whoami() + "polling for new NZBs now in blocking mode!")
+            logger.debug(whoami() + "polling for new nzbs now in blocking mode!")
             try:
                 allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-                    = make_allfilelist_inotify(pwdb, dirs, logger, None)
+                    = make_allfilelist_wait(pwdb, dirs, logger, None)
             except Exception as e:
                 logger.warning(whoami() + str(e))
     pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
     return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
 
 
-def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
+def make_allfilelist_wait(pwdb, dirs, logger, timeout0):
     # immediatley get allfileslist
-    if timeout0 and timeout0 <= -1:
+    try:
         allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-           = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
-#            = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
+            = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
         if nzbname:
-            logger.debug(whoami() + "inotify: no timeout, got nzb " + nzbname + " immediately!")
+            logger.debug(whoami() + "no timeout, got nzb " + nzbname + " immediately!")
             return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
-        else:
+        elif timeout0 and timeout0 <= -1:
             return None, None, None, None, None, None, None, None
+    except Exception as e:
+        logger.warning(whoami() + str(e))
+        return None, None, None, None, None, None, None, None
     # setup inotify
-    logger.debug(whoami() + "Setting up inotify for timeout=" + str(timeout0))
+    logger.debug(whoami() + "waiting for new nzb with timeout=" + str(timeout0))
     t0 = time.time()
     if not timeout0:
         delay0 = 5
     else:
         delay0 = 1
     while True:
-        allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-            = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
+        try:
+            allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
+                = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
+
+        except Exception as e:
+            logger.warning(whoami() + str(e))
         if nzbname:
             logger.debug(whoami() + "new nzb found in db, queuing ...")
             return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
@@ -1390,23 +1397,20 @@ def make_allfilelist_inotify(pwdb, dirs, logger, timeout0):
 
     '''pwdb_inotify = inotify_simple.INotify()
     watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
-    wd = pwdb_inotify.add_watch(dirs["main"], watch_flags)
+    wd = pwdb_inotify.add_watch(dirs["nzb"], watch_flags)
     t0 = time.time()
     timeout00 = timeout0
     while True:
         for event in pwdb_inotify.read(timeout=timeout00):
             logger.debug(whoami() + "got notify event on " + str(event.name))
-            if event.name == u"ginzibix.db":
-                logger.debug(whoami() + "database updated, now checking for nzbname & data")
-                allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-                    = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
-                # = pwdb.make_allfilelist(dirs["incomplete"], dirs["nzb"])
-                if nzbname:
-                    logger.debug(whoami() + "new nzb found in db, queuing ...")
-                    pwdb_inotify.rm_watch(wd)
-                    return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
-                else:
-                    logger.debug(whoami() + "no new nzb found in db, continuing polling ...")
+            allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
+                = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
+            if nzbname:
+                logger.debug(whoami() + "new nzb found in db, queuing ...")
+                pwdb_inotify.rm_watch(wd)
+                return allfileslist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
+            else:
+                logger.debug(whoami() + "no new nzb in nzb dir, continuing polling ...")
         # if timeout == None: again blocking, else subtract already spent timeout
         if timeout00:
             timeout00 = timeout00 - (time.time() - t0) * 1000

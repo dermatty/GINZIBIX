@@ -178,6 +178,7 @@ def ParseNZB(cfg, nzbdir, logger):
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
                         pwdb.exc("send_sorted_nzbs_to_guiconnector", [], {})
                         # pwdb.send_sorted_nzbs_to_guiconnector()
+            time.sleep(3)
             isfirstrun = False
     os.chdir(cwd0)
     logger.debug(whoami() + "exited!")

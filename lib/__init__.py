@@ -13,4 +13,4 @@ from .main import ginzi_main
 # from .gui import GUI_Drawer, app_main
 from .gtkgui import Application
 # from .gpwwrapper import wrapper_main
-from .aux import PWDBSender
+from .aux import PWDBSender, make_dirs

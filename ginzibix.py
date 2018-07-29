@@ -1,7 +1,5 @@
 #!/home/stephan/.virtualenvs/nntp/bin/python
 
-import sys
-from os.path import expanduser
 import configparser
 import signal
 import multiprocessing as mp
@@ -10,11 +8,11 @@ import logging.handlers
 import lib
 import queue
 import gi
-import time
+import sys
 import inspect
-import os
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
+import time
 
 
 def whoami():
@@ -27,27 +25,7 @@ def whoami():
 # !! remove if gtkgui is activated ###
 TERMINATED = False
 
-lpref = ""
 __version__ = "0.1-alpha"
-
-
-userhome = expanduser("~")
-maindir = userhome + "/.ginzibix/"
-dirs = {
-    "userhome": userhome,
-    "main": maindir,
-    "config": maindir + "config/",
-    "nzb": maindir + "nzb/",
-    "complete": maindir + "complete/",
-    "incomplete": maindir + "incomplete/",
-    "logs": maindir + "logs/"
-}
-subdirs = {
-    "download": "_downloaded0",
-    "renamed": "_renamed0",
-    "unpacked": "_unpack0",
-    "verififiedrar": "_verifiedrars0"
-}
 
 
 # Signal handler
@@ -79,6 +57,8 @@ class SigHandler_Ginzibix:
 # -------------------- main --------------------
 
 if __name__ == '__main__':
+    # dirs
+    userhome, maindir, dirs, subdirs = lib.make_dirs()
 
     # init config
     cfg_file = dirs["config"] + "/ginzibix.config"
@@ -123,9 +103,8 @@ if __name__ == '__main__':
 
     while not TERMINATED:
         time.sleep(0.5)
-
     logger.debug(whoami() + "exited!")
 
-    # app = lib.Application(mpp_main, mpp_wrapper, dirs, cfg_file, logger)
-    # exit_status = app.run(sys.argv)
-    # sys.exit(exit_status)
+    #app = lib.Application(mpp_main, dirs, cfg_file, logger)
+    #exit_status = app.run(sys.argv)
+    #sys.exit(exit_status)
