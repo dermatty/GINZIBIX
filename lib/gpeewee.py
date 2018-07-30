@@ -68,6 +68,7 @@ class PWDB():
         self.wrapper_context = zmq.Context()
         self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
         self.wrapper_socket.bind("ipc://" + ipc_location)
+        # self.wrapper_socket.bind("tcp://*:37705")
         self.signal_ign_sigint = None
         self.signal_ign_sigterm = None
 
@@ -188,7 +189,7 @@ class PWDB():
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
 
     def do_loop(self):
-        self.wrapper_socket.setsockopt(zmq.RCVTIMEO, 500)
+        self.wrapper_socket.setsockopt(zmq.RCVTIMEO, 1000)
         while not TERMINATED:
             try:
                 funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
@@ -196,7 +197,7 @@ class PWDB():
                 if e.errno == zmq.EAGAIN:
                     continue
                 else:
-                    raise
+                    raise ValueError("do_loop error")
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
@@ -204,10 +205,7 @@ class PWDB():
             try:
                 self.wrapper_socket.send_pyobj(ret)
             except Exception as e:
-                print("error at:", funcstr, ret, args0, kwargs0)
-                print("received: ", funcstr, args0)
-                self.logger.debug(whoami() + str(e))
-                print("sent: ", ret)
+                self.logger.debug(whoami() + str(e) + ": " + funcstr)
 
     def set_exit_goodbye_from_main(self):
         global TERMINATED
@@ -851,10 +849,7 @@ class PWDB():
         resqlist = None
         nzbname = nzb.name
         if nzb.status == 2:
-            print("--------------------")
             resqlist = self.db_nzb_get_resqlist(nzbname)
-            for _, _, _, _, _, art_name, _, inf0, _ in resqlist:
-                print(art_name)
         dir00 = dir0 + "_downloaded0/"
         dir01 = dir0 + "_renamed0/"
         files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
@@ -1067,7 +1062,7 @@ def wrapper_main(cfg, dirs, logger):
     logger.debug(whoami() + "exited!")
 
 
-if __name__ == "__main__":
+'''if __name__ == "__main__":
 
     import logging
     import logging.handlers
@@ -1092,4 +1087,4 @@ if __name__ == "__main__":
         print(f)
 
     pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Ubuntu16.04/_renamed0/", nzbname)
-    print(pp2)
+    print(pp2)'''

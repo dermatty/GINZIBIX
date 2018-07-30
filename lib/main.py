@@ -256,8 +256,8 @@ class GUI_Connector(Thread):
             self.connection_health = connection_health
 
     def set_data(self, data, threads, server_config, status, dlconfig):
-        if data:
-            with self.lock:
+        with self.lock:
+            if data:
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
                 self.data = data
                 self.nzbname = nzbname
@@ -271,8 +271,7 @@ class GUI_Connector(Thread):
                     append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
                     self.threads.append(append_tuple)
                 self.send_data = True
-        else:
-            with self.lock:
+            else:
                 self.send_data = False
 
     def get_netstat(self):
@@ -303,23 +302,24 @@ class GUI_Connector(Thread):
 
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
-        # lastt = self.pwdb.get_last_update_for_gui()
-        lastt = self.pwdb.exc("get_last_update_for_gui", [], {})
+        with self.lock:
+            lastt = self.pwdb.exc("get_last_update_for_gui", [], {})
         if lastt > self.last_update_for_gui:
             self.send_data = True
-            # full_data_for_gui = self.pwdb.get_all_data_for_gui()
-            full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
+            with self.lock:
+                full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.last_update_for_gui = lastt
         else:
             full_data_for_gui = None
-        self.sorted_nzbs = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
+        with self.lock:
+            self.sorted_nzbs = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
         if self.send_data:
             with self.lock:
                 try:
                     ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
                             self.get_netstat(), self.sorted_nzbs, self.article_health, self.connection_health, self.dlconfig, full_data_for_gui)
                 except Exception as e:
-                    self.logger.error("GUI_Connector: " + str(e))
+                    self.logger.warning(whoami() + str(e))
         return ret0
 
     def has_first_nzb_changed(self):
@@ -373,9 +373,11 @@ class GUI_Connector(Thread):
                 try:
                     self.socket.send_pyobj(("SET_DELETE_OK", None))
                     # first_has_changed0, deleted_nzb_name0 = self.pwdb.set_nzbs_prios(datarec, delete=True)
-                    first_has_changed0, deleted_nzb_name0 = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": True})
+                    with self.lock:
+                        first_has_changed0, deleted_nzb_name0 = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": True})
                     if deleted_nzb_name0 and not first_has_changed0:
-                        remove_nzb_files_and_db(deleted_nzb_name0, self.dirs, self.pwdb, self.logger)
+                        with self.lock:
+                            remove_nzb_files_and_db(deleted_nzb_name0, self.dirs, self.pwdb, self.logger)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
                 if first_has_changed0:
@@ -385,7 +387,8 @@ class GUI_Connector(Thread):
             elif msg == "SET_NZB_ORDER":
                 try:
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
-                    self.first_has_changed, _ = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": False})
+                    with self.lock:
+                        self.first_has_changed, _ = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": False})
                     # self.first_has_changed, _ = self.pwdb.set_nzbs_prios(datarec, delete=False)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
@@ -560,7 +563,6 @@ class Downloader():
                                     art_found = True
                                     break
                         if art_found:
-                            print("put to resultqueue")
                             # put to resultqueue:
                             self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
                         else:
@@ -1471,14 +1473,12 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
             bytes_in_resultqueue += art_size
             resultqueue.task_done()
             resqlist.append(res)
-            print(art_name)
         except (queue.Empty, EOFError):
             break
         except Exception as e:
             logger.info(whoami() + ": " + str(e))
     if resqlist:
         pwdb.exc("db_nzb_store_resqlist", [nzbname, resqlist], {})
-        # print(resqlist)
     return bytes_in_resultqueue
 
 

@@ -101,10 +101,10 @@ if __name__ == '__main__':
     mpp_main.start()
     sh.mpp_main = mpp_main
 
-    while not TERMINATED:
-        time.sleep(0.5)
-    logger.debug(whoami() + "exited!")
+    #while not TERMINATED:
+    #    time.sleep(0.5)
+    #logger.debug(whoami() + "exited!")
 
-    # app = lib.Application(mpp_main, dirs, cfg_file, logger)
-    # exit_status = app.run(sys.argv)
-    # sys.exit(exit_status)
+    app = lib.Application(mpp_main, dirs, cfg_file, logger)
+    exit_status = app.run(sys.argv)
+    sys.exit(exit_status)
