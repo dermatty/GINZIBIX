@@ -118,8 +118,10 @@ class PWDB():
             password = CharField(default="N/A")
             bytes_in_resultqueue = IntegerField(default=0)
             resqlist_dill = DillField(default="N/A")
-            allfilelist_dill_exists = BooleanField(default=False)
             allfilelist_dill = DillField(default="N/A")
+            filetypecounter_dill = DillField(default="N/A")
+            allfilesizes_dill = DillField(default="N/A")
+            p2_dill = DillField(default="N/A")
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -293,11 +295,20 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return False
 
-    def db_nzb_set_allfile_list(self, nzbname, allfilelist):
+    def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2):
         query = self.NZB.update(allfilelist_dill=allfilelist).where(self.NZB.name == nzbname)
         query.execute()
-        query = self.NZB.update(allfilelist_dill_exists=True).where(self.NZB.name == nzbname)
+        query = self.NZB.update(filetypecounter_dill=filetypecounter).where(self.NZB.name == nzbname)
         query.execute()
+        allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
+        query = self.NZB.update(allfilesizes_dill=allfilesizes0).where(self.NZB.name == nzbname)
+        query.execute()
+        query = self.NZB.update(p2_dill=p2).where(self.NZB.name == nzbname)
+        query.execute()
+
+    def db_nzb_get_allfile_list(self, nzbname):
+        # check here if all dillfields != "N/A"
+        return None
 
     def db_nzb_insert(self, name0):
         try:
@@ -838,6 +849,11 @@ class PWDB():
             self.logger.error(whoami() + str(e) + ": error in renaming nzb")
 
     def create_allfile_list(self, nzb, dir0):
+        nzbname = nzb.name
+        res = self.db_nzb_get_allfile_list(nzbname)
+        if res:
+            pass
+            # get data from allfilelist in pwdb
         allfilelist = []
         filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
                            "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
@@ -847,7 +863,6 @@ class PWDB():
                            "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
 
         resqlist = None
-        nzbname = nzb.name
         if nzb.status == 2:
             resqlist = self.db_nzb_get_resqlist(nzbname)
         dir00 = dir0 + "_downloaded0/"
@@ -935,7 +950,8 @@ class PWDB():
             overall_size_wparvol /= gbdivisor
             overall_size_wparvol += overall_size
             already_downloaded_size /= gbdivisor
-            # self.db_nzb_set_allfile_list(nzbname, allfilelist)
+            # save results in db
+            self.db_nzb_store_allfile_list(nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2)
             return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
         else:
             self.db_nzb_update_status(nzbname, 2)
