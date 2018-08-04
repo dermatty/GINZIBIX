@@ -5,8 +5,17 @@ import time
 from .par2lib import get_file_type
 import inotify_simple
 from lxml import etree
-import sys
+import inspect
 import signal
+from .aux import PWDBSender
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+
 
 lpref = __name__ + " - "
 
@@ -19,7 +28,7 @@ class SigHandler_Parser:
 
     def sighandler(self, a, b):
         global TERMINATED
-        self.logger.info(lpref + "terminating ...")
+        self.logger.info(whoami() + "terminating ...")
         TERMINATED = True
 
 
@@ -29,22 +38,22 @@ def decompose_nzb(nzb, logger):
     while True:
         try:
             tree = ET.parse(nzb)
-            logger.info(lpref + "loaded NZB file " + nzb)
+            logger.info(whoami() + "loaded NZB file " + nzb)
             break
         except Exception as e:
-            logger.warning(lpref + str(e) + ": cannot load NZB file " + nzb + ", trying lxml module in 1 sec.")
+            logger.warning(whoami() + str(e) + ": cannot load NZB file " + nzb + ", trying lxml module in 1 sec.")
             try:
                 time.sleep(1)
                 tree = etree.parse(nzb)
-                logger.info(lpref + "loaded NZB file " + nzb)
+                logger.info(whoami() + "loaded NZB file " + nzb)
                 break
             except Exception as e:
                 i += 1
                 if i >= maxtry:
-                    logger.error(lpref + str(e) + ": cannot load NZB file " + nzb + ", aborting ...")
+                    logger.error(whoami() + str(e) + ": cannot load NZB file " + nzb + ", aborting ...")
                     return None, None
                 else:
-                    logger.warning(lpref + str(e) + ": cannot load NZB file " + nzb + " with lxml module, retrying in 1 sec.")
+                    logger.warning(whoami() + str(e) + ": cannot load NZB file " + nzb + " with lxml module, retrying in 1 sec.")
         time.sleep(1)
     nzbroot = tree.getroot()
     filedic = {}
@@ -101,11 +110,13 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(pwdb, nzbdir, logger):
+def ParseNZB(cfg, nzbdir, logger):
     global TERMINATED
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
+
+    pwdb = PWDBSender()
 
     cwd0 = os.getcwd()
     os.chdir(nzbdir)
@@ -120,29 +131,31 @@ def ParseNZB(pwdb, nzbdir, logger):
         events = get_inotify_events(inotify)
         if isfirstrun or events:  # and events not in eventslist):
             if isfirstrun:
-                logger.debug(lpref + "scanning nzb dir ...")
+                logger.debug(whoami() + "scanning nzb dir ...")
             else:
-                logger.debug(lpref + "got event in nzb_dir")
+                logger.debug(whoami() + "got event in nzb_dir")
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
-                if pwdb.db_nzb_exists(nzb0):
-                    logger.warning(lpref + " NZB file " + nzb0 + " already exists in DB")
+                if pwdb.exc("db_nzb_exists", [nzb0], {}):
+                    # if pwdb.db_nzb_exists(nzb0):
+                    logger.warning(whoami() + " NZB file " + nzb0 + " already exists in DB")
                     continue
-                logger.info(lpref + "inserting " + nzb0 + "into db")
-                newnzb = pwdb.db_nzb_insert(nzb0)
+                logger.info(whoami() + "inserting " + nzb0 + "into db")
+                # newnzb = pwdb.db_nzb_insert(nzb0)
+                newnzb = pwdb.exc("db_nzb_insert", [nzb0], {})
                 if newnzb:
-                    logger.info(lpref + "new NZB file " + nzb0 + " detected")
+                    logger.info(whoami() + "new NZB file " + nzb0 + " detected")
                     # update size
                     # rename nzb here to ....processed
                     filedic, bytescount = decompose_nzb(nzb, logger)
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
-                        pwdb.db_nzb_update_status(nzb0, -2)         # status "cannot queue / -2"
-                        # pwdb.db_nzb_delete(nzb0)
+                        # pwdb.db_nzb_update_status(nzb0, -2)         # status "cannot queue / -2"
+                        pwdb.exc("db_nzb_update_status", [nzb0, -2], {})   # status "cannot queue / -2"
                     else:
                         size_gb = bytescount / (1024 * 1024 * 1024)
                         infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
-                        logger.debug(lpref + "analysing NZB: " + infostr)
+                        logger.debug(whoami() + "analysing NZB: " + infostr)
                         # insert files + articles
                         for key, items in filedic.items():
                             data = []
@@ -150,20 +163,24 @@ def ParseNZB(pwdb, nzbdir, logger):
                                 if i == 0:
                                     age, nr0 = it
                                     ftype = get_file_type(key)
-                                    logger.debug(lpref + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
+                                    logger.debug(whoami() + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
                                                  + " / type=" + ftype)
-                                    newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
+                                    # newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
+                                    newfile = pwdb.exc("db_file_insert", [key, newnzb, nr0, age, ftype], {})
                                 else:
                                     fn, no, size = it
                                     data.append((fn, newfile, size, no, time.time()))
-                            pwdb.db_article_insert_many(data)
-                        logger.info(lpref + "Added NZB: " + infostr + " to database / queue")
-                        pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
-                        logger.debug(lpref + "Added NZB: " + infostr + " to GUI")
-                        pwdb.send_sorted_nzbs_to_guiconnector()
+                            # pwdb.db_article_insert_many(data)
+                            pwdb.exc("db_article_insert_many", [data], {})
+                        logger.info(whoami() + "Added NZB: " + infostr + " to database / queue")
+                        # pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
+                        pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
+                        logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
+                        pwdb.exc("store_sorted_nzbs", [], {})
+            time.sleep(3)
             isfirstrun = False
     os.chdir(cwd0)
-    logger.warning(lpref + "terminated!")
+    logger.debug(whoami() + "exited!")
 
 
 '''nzbdir = "/home/stephan/.ginzibix/nzb/"

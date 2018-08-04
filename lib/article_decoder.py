@@ -4,6 +4,16 @@ import os
 import time
 import queue
 import signal
+from .aux import PWDBSender
+import inspect
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -16,16 +26,20 @@ class SigHandler_Decoder:
 
     def sighandler(self, a, b):
         global TERMINATED
-        self.logger.info(lpref + "terminating ...")
+        self.logger.info(whoami() + "terminating ...")
         TERMINATED = True
 
 
-def decode_articles(mp_work_queue0, pwdb, logger):
+def decode_articles(mp_work_queue0, cfg, logger):
+    logger.debug(whoami() + "starting ...")
+
     sh = SigHandler_Decoder(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
 
-    logger.info(lpref + "starting decoder process")
+    pwdb = PWDBSender()
+
+    logger.info(whoami() + "starting decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
     while not TERMINATED:
@@ -37,10 +51,10 @@ def decode_articles(mp_work_queue0, pwdb, logger):
             except (queue.Empty, EOFError):
                 pass
             except Exception as e:
-                logger.warning(lpref + str(e))
+                logger.warning(whoami() + str(e))
             time.sleep(0.1)
         if not res0 or TERMINATED:
-            logger.info(lpref + "exiting decoder process!")
+            logger.info(whoami() + "exiting decoder process!")
             break
 
         infolist, save_dir, filename, filetype = res0
@@ -71,7 +85,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                                 head_crc = m_obj.group(1)
                             headerok = True
                         except Exception as e:
-                            logger.warning(lpref + str(e) + ": malformed =ybegin header in article " + artname)
+                            logger.warning(whoami() + str(e) + ": malformed =ybegin header in article " + artname)
                         continue
                     if inf0.startswith("=ypart"):
                         partnr += 1
@@ -84,7 +98,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                                 trail_crc = m_obj.group(1)
                             trailerok = True
                         except Exception as e:
-                            logger.warning(lpref + str(e) + ": malformed =yend trailer in article " + artname)
+                            logger.warning(whoami() + str(e) + ": malformed =yend trailer in article " + artname)
                         continue
                 except Exception as e:
                     pass
@@ -95,16 +109,16 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                 except KeyboardInterrupt:
                     return
                 except Exception as e:
-                    logger.warning(lpref + str(e) + ": " + filename)
+                    logger.warning(whoami() + str(e) + ": " + filename)
                     bytes0 = bytes00
             if not headerok or not trailerok:  # or not partfound or partnr > 1:
-                logger.warning(lpref + ": wrong yenc structure detected in file " + filename)
+                logger.warning(whoami() + ": wrong yenc structure detected in file " + filename)
                 statusmsg = "yenc_structure_error"
                 status = 0
             _, decodedcrc32, decoded = yenc.decode(bytes0)
             if not head_crc and not trail_crc:
                 statusmsg = "no_pcrc32_error"
-                logger.warning(lpref + filename + ": no pcrc32 detected")
+                logger.warning(whoami() + filename + ": no pcrc32 detected")
                 status = -1
             else:
                 try:
@@ -122,7 +136,7 @@ def decode_articles(mp_work_queue0, pwdb, logger):
         if artsize0 != len(bytesfinal):
             statusmsg = "article file length wrong"
             status = -3
-            logger.info(lpref + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
+            logger.info(whoami() + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
         md5 = None
         full_filename = save_dir + filename
         try:
@@ -140,18 +154,19 @@ def decode_articles(mp_work_queue0, pwdb, logger):
                 # logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
-            logger.error(lpref + str(e) + " in file " + filename)
+            logger.error(whoami() + str(e) + " in file " + filename)
             status = -4
-        logger.info(lpref + filename + " decoded with status " + str(status) + " / " + statusmsg)
+        logger.info(whoami() + filename + " decoded with status " + str(status) + " / " + statusmsg)
         pwdbstatus = 2
         if status in [-3, -4]:
             pwdbstatus = -1
         try:
-            pwdb.db_file_update_status(filename, pwdbstatus)
-            logger.debug(lpref + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
+            # pwdb.db_file_update_status(filename, pwdbstatus)
+            pwdb.exc("db_file_update_status", [filename, pwdbstatus], {})
+            logger.debug(whoami() + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
         except Exception as e:
-            logger.error(lpref + str(e) + ": cannot update DB for " + filename)
-    logger.info(lpref + "terminated!")
+            logger.error(whoami() + str(e) + ": cannot update DB for " + filename)
+    logger.debug(whoami() + "exited!")
 
 
 # ---- test only ----
@@ -179,7 +194,7 @@ def decode_articles_standalone(infolist):
                         head_crc = m_obj.group(1)
                     headerok = True
                 except Exception as e:
-                    print(lpref + str(e) + ": malformed =ybegin header in article " + artname)
+                    print(whoami() + str(e) + ": malformed =ybegin header in article " + artname)
                 continue
             if inf0.startswith("=ypart"):
                 partnr += 1
@@ -192,7 +207,7 @@ def decode_articles_standalone(infolist):
                         trail_crc = m_obj.group(1)
                     trailerok = True
                 except Exception as e:
-                    print(lpref + str(e) + ": malformed =yend trailer in article " + artname)
+                    print(whoami() + str(e) + ": malformed =yend trailer in article " + artname)
                 continue
         except Exception as e:
             pass
@@ -203,19 +218,19 @@ def decode_articles_standalone(infolist):
         except KeyboardInterrupt:
             return
         except Exception as e:
-            print(lpref + str(e))
+            print(whoami() + str(e))
             print(inf)
             return
             bytes0 = bytes00
 
     if not headerok or not trailerok:  # or not partfound or partnr > 1:
-        print(lpref + ": wrong yenc structure detected")
+        print(whoami() + ": wrong yenc structure detected")
     try:
         _, decodedcrc32, decoded = yenc.decode(bytes0)
     except:
         pass
     if not head_crc and not trail_crc:
-        print(lpref + ": no pcrc32 detected")
+        print(whoami() + ": no pcrc32 detected")
     else:
         try:
             head_crc0 = "" if not head_crc else head_crc.lower()
@@ -229,7 +244,7 @@ def decode_articles_standalone(infolist):
             print("crc32checksum_error: " + crc32 + " / " + str(crc32list))
     bytesfinal.extend(decoded)
     if artsize0 != len(bytesfinal):
-        print(lpref + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
+        print(whoami() + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
     return bytesfinal
 
 

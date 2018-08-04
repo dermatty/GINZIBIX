@@ -1,13 +1,22 @@
 from threading import Thread
 import nntplib
 import time
+import inspect
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+
 
 lpref = __name__.split("lib.")[-1] + " - "
 
 
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
-    def __init__(self, lock, connection, articlequeue, resultqueue, servers, pwdb, logger):
+    def __init__(self, lock, connection, articlequeue, resultqueue, servers, logger):
         Thread.__init__(self)
         self.daemon = True
         self.logger = logger
@@ -25,7 +34,6 @@ class ConnectionWorker(Thread):
         self.mode = "download"
         self.download_done = True
         self.bandwidth_bytes = 0
-        self.pwdb = pwdb
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
@@ -51,18 +59,18 @@ class ConnectionWorker(Thread):
                 else:
                     status = 1
             except Exception as e:
-                self.logger.error(lpref + str(e) + self.idn + " for article " + article_name)
+                self.logger.error(whoami() + str(e) + self.idn + " for article " + article_name)
                 status = -1
             return status, 0, 0
         if retention < article_age * 0.95:
-            self.logger.warning(lpref + "Retention on " + server_name + " not sufficient for article " + article_name)
+            self.logger.warning(whoami() + "Retention on " + server_name + " not sufficient for article " + article_name)
             return -1, None
         try:
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
                 # if resp_h[:3] != "221" or resp[:3] != "222":
-                self.logger.warning(lpref + "Could not find " + article_name + " on " + self.idn)
+                self.logger.warning(whoami() + "Could not find " + article_name + " on " + self.idn)
                 status = 0
                 info0 = None
             else:
@@ -70,14 +78,14 @@ class ConnectionWorker(Thread):
                 info0 = [inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
         except nntplib.NNTPTemporaryError:
-            self.logger.warning(lpref + "Could not find " + article_name + " on " + self.idn)
+            self.logger.warning(whoami() + "Could not find " + article_name + " on " + self.idn)
             status = 0
             info0 = None
         except KeyboardInterrupt:
             status = -3
             info0 = None
         except Exception as e:
-            self.logger.error(lpref + str(e) + self.idn + " for article " + article_name)
+            self.logger.error(whoami() + str(e) + self.idn + " for article " + article_name)
             status = -2
             info0 = None
         self.bandwidth_bytes += bytesdownloaded
@@ -90,24 +98,24 @@ class ConnectionWorker(Thread):
         idx = 0
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
-        self.logger.debug(lpref + "Server " + idn + " connecting ...")
+        self.logger.debug(whoami() + "Server " + idn + " connecting ...")
         while idx < 5 and self.running:
             self.nntpobj = self.servers.open_connection(name, conn_nr)
             if self.nntpobj:
-                self.logger.debug(lpref + "Server " + idn + " connected!")
+                self.logger.debug(whoami() + "Server " + idn + " connected!")
                 self.last_timestamp = time.time()
                 self.bytesdownloaded = 0
                 self.bandwidth_bytes = 0
                 self.connectionstate = 1
                 time.sleep(1)
                 return
-            self.logger.warning(lpref + "Could not connect to server " + idn + ", will retry in 5 sec.")
+            self.logger.warning(whoami() + "Could not connect to server " + idn + ", will retry in 5 sec.")
             time.sleep(5)
             idx += 1
         if not self.running:
-            self.logger.warning(lpref + "No connection retries anymore due to exiting")
+            self.logger.warning(whoami() + "No connection retries anymore due to exiting")
         else:
-            self.logger.error(lpref + "Connect retries to " + idn + " failed!")
+            self.logger.error(whoami() + "Connect retries to " + idn + " failed!")
 
     def remove_from_remaining_servers(self, name, remaining_servers):
         next_servers = []
@@ -128,7 +136,7 @@ class ConnectionWorker(Thread):
         return dld
                             
     def run(self):
-        self.logger.info(lpref + self.idn + " thread starting !")
+        self.logger.info(whoami() + self.idn + " thread starting !")
         timeout = 5
         while True and self.running:
             with self.lock:
@@ -186,7 +194,7 @@ class ConnectionWorker(Thread):
                 # take next server
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
                 next_servers.append([self.name])    # add current server to end of list
-                self.logger.warning(lpref + "Requeuing " + art_name + " on server " + self.idn)
+                self.logger.warning(whoami() + "Requeuing " + art_name + " on server " + self.idn)
                 # requeue
                 self.articlequeue.task_done()
                 self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
@@ -206,9 +214,9 @@ class ConnectionWorker(Thread):
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
                 self.articlequeue.task_done()
                 if not next_servers:
-                    self.logger.error(lpref + "Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
+                    self.logger.error(whoami() + "Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
                     self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
                 else:
-                    self.logger.warning(lpref + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
+                    self.logger.warning(whoami() + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-        self.logger.debug(lpref + self.idn + " exited!")
+        self.logger.debug(whoami() + self.idn + " exited!")

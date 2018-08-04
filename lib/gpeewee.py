@@ -1,15 +1,31 @@
-from peewee import SqliteDatabase, Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField
+from peewee import Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField, BlobField
+from playhouse.sqlite_ext import CSqliteExtDatabase
 import os
 import shutil
 import time
 import glob
 import re
 import dill
-import inspect
 import zmq
 import threading
+<<<<<<< HEAD
 from playhouse.sqlite_ext import CSqliteExtDatabase
 # from playhouse.sqliteq import SqliteQueueDatabase
+=======
+import signal
+import inspect
+import sqlite3
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    lpref = __name__.split("lib.")[-1] + " - "
+    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+
+
+TERMINATED = False
+>>>>>>> devel
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -19,36 +35,50 @@ else:
 lpref = __name__.split("lib.")[-1] + " - "
 
 
-def whoami():
-    return str(inspect.getouterframes(inspect.currentframe())[1].function)
-
-
 def lists_are_equal(list1, list2):
     return set(list1) == set(list2) and len(list1) == len(list2)
 
 
-class PWDB:
+class DillField(BlobField):
+    def python_value(self, value):
+        if isinstance(value, (bytearray, sqlite3.Binary)):
+            value = bytes(value)
+        return dill.loads(value)
+
+    def db_value(self, value):
+        return sqlite3.Binary(dill.dumps(value, 2))
+
+
+class PWDB():
     def __init__(self, cfg, dirs, logger):
         maindir = dirs["main"]
         # self.db = SqliteDatabase(maindir + "ginzibix.db")
         self.db = CSqliteExtDatabase(":memory:")
         self.logger = logger
-        self.context = None
+        maindir = dirs["main"]
+        self.sorted_nzbs_for_gui = None
         self.cfg = cfg
         self.lock = threading.Lock()
         self.last_update_for_gui = 0
+        self.db_file_name = maindir + "ginzibix.db"
+        if os.path.isfile(self.db_file_name):
+            self.db_file_exists = True
+        else:
+            self.db_file_exists = False
 
         try:
-            self.host = self.cfg["OPTIONS"]["HOST"]
+            self.db_file = CSqliteExtDatabase(self.db_file_name)
+            self.db = CSqliteExtDatabase(":memory:")
         except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting host to default 127.0.0.1")
-            self.host = "127.0.0.1"
-        try:
-            self.port = self.cfg["OPTIONS"]["PORT"]
-            assert(int(self.port) > 1024 and int(self.port) <= 65535)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
-            self.port = "36603"
+            self.logger.warning(whoami() + str(e))
+
+        ipc_location = maindir + "ginzibix_socket1"
+        self.wrapper_context = zmq.Context()
+        self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
+        self.wrapper_socket.bind("ipc://" + ipc_location)
+        # self.wrapper_socket.bind("tcp://*:37705")
+        self.signal_ign_sigint = None
+        self.signal_ign_sigterm = None
 
         class BaseModel(Model):
             class Meta:
@@ -95,6 +125,11 @@ class PWDB:
             is_pw = BooleanField(default=False)
             password = CharField(default="N/A")
             bytes_in_resultqueue = IntegerField(default=0)
+            resqlist_dill = DillField(default="N/A")
+            allfilelist_dill = DillField(default="N/A")
+            filetypecounter_dill = DillField(default="N/A")
+            allfilesizes_dill = DillField(default="N/A")
+            p2_dill = DillField(default="N/A")
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -150,9 +185,41 @@ class PWDB:
         self.FILE = FILE
         self.ARTICLE = ARTICLE
         self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG]
-        self.db.connect()
-        self.db.create_tables(self.tablelist)
+
+        if self.db_file_exists:
+            try:
+                # self.db_file.backup(self.db)
+                self.logger.debug(whoami() + "copied file db to :memory: db")
+            except Exception as e:
+                self.logger.warning(whoami())
+        else:
+            self.db.connect()
+            self.db.create_tables(self.tablelist)
+
         self.SQLITE_MAX_VARIABLE_NUMBER = int(max_sql_variables() / 4)
+
+    def do_loop(self):
+        self.wrapper_socket.setsockopt(zmq.RCVTIMEO, 1000)
+        while not TERMINATED:
+            try:
+                funcstr, args0, kwargs0 = self.wrapper_socket.recv_pyobj()
+            except zmq.ZMQError as e:
+                if e.errno == zmq.EAGAIN:
+                    continue
+                else:
+                    raise ValueError("do_loop error")
+            except Exception as e:
+                self.logger.debug(whoami() + str(e) + ": " + funcstr)
+                continue
+            ret = eval("self." + funcstr + "(*args0, **kwargs0)")
+            try:
+                self.wrapper_socket.send_pyobj(ret)
+            except Exception as e:
+                self.logger.debug(whoami() + str(e) + ": " + funcstr)
+
+    def set_exit_goodbye_from_main(self):
+        global TERMINATED
+        TERMINATED = True
 
     def get_last_update_for_gui(self):
         with self.lock:
@@ -181,11 +248,10 @@ class PWDB:
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):
-        self.last_update_for_gui = time.time()
         try:
             new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
         except Exception as e:
-            self.logger.warning(lpref + "db_msg_insert: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
         toomuchdata = True
         while toomuchdata:
@@ -198,9 +264,13 @@ class PWDB:
                 else:
                     toomuchdata = False
             except Exception as e:
-                self.logger.warning(lpref + "db_msg_insert: " + str(e))
+                self.logger.warning(whoami() + str(e))
                 return None
-        return new_msg
+        self.last_update_for_gui = time.time()
+        if new_msg:
+            return True
+        else:
+            return False
 
     def db_msg_get(self, nzbname0):
         msglist = []
@@ -209,7 +279,7 @@ class PWDB:
             msglist = [(msg.message, msg.timestamp, msg.level) for msg in msg0]
             return msglist
         except Exception as e:
-            self.logger.warning(lpref + "db_msg_get: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_msg_removeall(self, nzbname0):
@@ -218,21 +288,68 @@ class PWDB:
             query = self.MSG.delete().where(self.MSG.nzbname == nzbname0)
             query.execute()
         except Exception as e:
-            self.logger.warning(lpref + "db_msg_removeall: " + str(e))
+            self.logger.warning(whoami() + str(e))
 
     # ---- self.NZB --------
+    def db_nzb_store_resqlist(self, nzbname, resqlist):
+        query = self.NZB.update(resqlist_dill=resqlist).where(self.NZB.name == nzbname)
+        query.execute()
+
+    def db_nzb_get_resqlist(self, nzbname):
+        try:
+            nzb0 = self.NZB.get(self.NZB.name == nzbname)
+            resqlist = nzb0.resqlist_dill
+            if resqlist == "N/A":
+                return None
+            return resqlist
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
+
+    def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2):
+        query = self.NZB.update(allfilelist_dill=allfilelist).where(self.NZB.name == nzbname)
+        query.execute()
+        query = self.NZB.update(filetypecounter_dill=filetypecounter).where(self.NZB.name == nzbname)
+        query.execute()
+        already_downloaded_size = self.calc_already_downloaded_size(nzbname)
+        allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
+        query = self.NZB.update(allfilesizes_dill=allfilesizes0).where(self.NZB.name == nzbname)
+        query.execute()
+        query = self.NZB.update(p2_dill=p2).where(self.NZB.name == nzbname)
+        query.execute()
+
+    def db_nzb_get_allfile_list(self, nzbname):
+        try:
+            nzb = self.NZB.get(self.NZB.name == nzbname)
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return None
+        allfilelist = nzb.allfilelist_dill
+        filetypecounter = nzb.filetypecounter_dill
+        p2 = nzb.p2_dill
+        allfilesizes0 = nzb.allfilesizes_dill
+        if allfilesizes0 != "N/A":
+            overall_size, overall_size_wparvol, already_downloaded_size = allfilesizes0
+        else:
+            return None
+        # check here if all dillfields != "N/A"
+        if allfilelist != "N/A" and filetypecounter != "N/A" and p2 != "N/A":
+            return allfilelist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2
+        return None
+
     def db_nzb_insert(self, name0):
-        self.set_last_update_for_gui()
         try:
             prio = max([n.priority for n in self.NZB.select().order_by(self.NZB.priority)]) + 1
-        except ValueError:
+        except ValueError as e:
             prio = 1
         try:
             new_nzb = self.NZB.create(name=name0, priority=prio, timestamp=time.time())
+            new_nzbname = new_nzb.name
         except Exception as e:
-            new_nzb = None
-            self.logger.warning(lpref + name0 + ": " + str(e))
-        return new_nzb
+            new_nzbname = None
+            self.logger.warning(whoami() + str(e))
+        self.set_last_update_for_gui()
+        return new_nzbname
 
     def db_nzb_delete(self, nzbname):
         self.set_last_update_for_gui()
@@ -250,7 +367,7 @@ class PWDB:
             nzb0 = self.NZB.get(self.NZB.name == name)
             return nzb0.loadpar2vols
         except Exception as e:
-            self.logger.warning(str(e))
+            self.logger.warning(whoami() + str(e))
             return False
 
     def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
@@ -287,9 +404,10 @@ class PWDB:
     def db_nzb_exists(self, name):
         try:
             nzb = self.NZB.get(self.NZB.name == name)
-            return nzb
+            assert(nzb.name)
+            return True
         except Exception as e:
-            return None
+            return False
 
     def db_nzb_deleteall(self):
         self.set_last_update_for_gui()
@@ -325,7 +443,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.password
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_set_ispw(self, nzbname, ispw):
@@ -338,7 +456,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.is_pw
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
@@ -352,12 +470,12 @@ class PWDB:
         query.execute()
 
     def db_nzb_update_status(self, nzbname, newstatus):
-        self.set_last_update_for_gui()
         try:
             query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
             query.execute()
         except Exception as e:
-            self.logger.warning(lpref + "-----------> " + str(e))
+            self.logger.warning(whoami() + str(e))
+        self.set_last_update_for_gui()
         '''with self.db.atomic():
             nzb0 = self.NZB.get((self.NZB.name == nzbname))
             nzb0.status = newstatus
@@ -368,7 +486,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_get_unrarstatus(self, nzbname):
@@ -376,7 +494,7 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.unrar_status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_get_verifystatus(self, nzbname):
@@ -384,16 +502,32 @@ class PWDB:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.verify_status
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
+            return None
+
+    def db_nzbname_to_nzbentry(self, nzbname):
+        try:
+            nzbentry = self.NZB.select().where(self.NZB.name == nzbname)[0]
+            return nzbentry
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
             return None
 
     # ---- self.FILE --------
     def db_file_get_renamed(self, name):
         try:
-            file0 = self.FILE.get(self.FILE.renamed_name == name)
-            return file0
+            f0 = self.FILE.get(self.FILE.renamed_name == name)
+            return (f0.orig_name, f0.renamed_name, f0.ftype)
         except Exception as e:
-            self.logger.warning(lpref + "cannot match in db:" + name)
+            self.logger.warning(whoami() + str(e))
+            return None
+
+    def db_file_getftype_renamed(self, name):
+        try:
+            file0 = self.FILE.get(self.FILE.renamed_name == name)
+            return file0.ftpye
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getsize(self, name):
@@ -436,18 +570,19 @@ class PWDB:
     def get_all_renamed_rar_files(self, nzbname):
         try:
             rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
-            return rarfiles
+            rarflist = [(r.renamed_name, r.orig_name) for r in rarfiles]
+            return rarflist
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def get_all_corrupt_rar_files(self, nzbname):
         try:
-            rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files
+            rarfiles = [(f0.orig_name, f0.renamed_name) for f0 in self.NZB.get(self.NZB.name == nzbname).files
                         if f0.ftype == "rar" and f0.parverify_state == -1 and f0.renamed_name != "N/A"]
             return rarfiles
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_only_failed_or_ok_rars(self, nzbname):
@@ -459,7 +594,7 @@ class PWDB:
                 return True
             return False
         except Exception as e:
-            self.logger.warning(lpref + ">>>>>>>>>>>>>" + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_only_verified_rars(self, nzbname):
@@ -471,7 +606,7 @@ class PWDB:
                 return True, rarl
             return False, rarl
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None, rarl
 
     def get_renamed_p2(self, dir01, nzbname):
@@ -482,14 +617,13 @@ class PWDB:
             else:
                 raise("multiple par2 files appeared!")
             if par2file0.renamed_name != "N/A":
-                self.logger.debug(lpref + "got par2 file: " + par2file0.renamed_name)
+                self.logger.debug(whoami() + "got par2 file: " + par2file0.renamed_name)
                 p2 = Par2File(dir01 + par2file0.renamed_name)
                 return p2
             else:
                 return None
         except Exception as e:
-            print("Exception - " + str(e))
-            self.logger.warning(lpref + "get_renamed_p2: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_get_renamed_par2(self, nzbname):
@@ -502,7 +636,7 @@ class PWDB:
             # par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A", self.FILE.nzb.name == nzbname)
             return par2.renamed_name
         except Exception as e:
-            self.logger.warning(lpref + "db_get_renamed_par2 " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_update_status(self, filename, newstatus):
@@ -531,9 +665,12 @@ class PWDB:
         file0.save()
 
     def db_file_set_renamed_name(self, orig_name0, renamed_name0):
+        try:
+            query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
         self.set_last_update_for_gui()
-        query = self.FILE.update(renamed_name=renamed_name0).where(self.FILE.orig_name == orig_name0)
-        query.execute()
         # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
         # file0.renamed_name = renamed_name
         # file0.save()
@@ -546,12 +683,20 @@ class PWDB:
         # file0.ftype = ftype
         # file0.save()
 
+    def db_fname_to_fentry(self, fname):
+        try:
+            fentry = self.FILE.select().where(self.FILE.orig_name == fname)[0]
+            return fentry
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return None
+
     def db_file_getstatus(self, filename):
         try:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.status
         except Exception as e:
-            self.logger.warning(lpref + "db_file_getstatus: " + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getparstatus(self, filename):
@@ -559,7 +704,7 @@ class PWDB:
             query = self.FILE.get(self.FILE.renamed_name == filename)
             return query.parverify_state
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_get_orig_filetype(self, filename):
@@ -567,7 +712,7 @@ class PWDB:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.ftype
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return None
 
     def db_file_getallparstatus(self, state):
@@ -575,15 +720,17 @@ class PWDB:
             filesparstatus = [f.parverify_state for f in self.FILE.select() if f.parverify_state == state and f.ftype == "rar"]
             return filesparstatus
         except Exception as e:
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
             return [-9999]
 
-    def db_file_insert(self, name, nzb, nr_articles, age, ftype):
+    def db_file_insert(self, name, nzbname, nr_articles, age, ftype):
         try:
-            new_file = self.FILE.create(orig_name=name, nzb=nzb, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
+            nzb0 = self.db_nzbname_to_nzbentry(nzbname)
+            self.FILE.create(orig_name=name, nzb=nzb0, nr_articles=nr_articles, age=age, ftype=ftype, timestamp=time.time())
+            new_file = name
         except Exception as e:
             new_file = None
-            self.logger.warning(lpref + str(e))
+            self.logger.warning(whoami() + str(e))
         return new_file
 
     def db_file_getall(self):
@@ -619,24 +766,29 @@ class PWDB:
         query.execute()
 
     def db_article_insert_many(self, data):
-        self.set_last_update_for_gui()
         i = 0
         chunksize = self.SQLITE_MAX_VARIABLE_NUMBER
         llen = len(data)
         while i < llen:
             data0 = data[i: min(i + chunksize, llen)]
+            for j, (a_aname, a_fname, a_size, a_no, a_ts) in enumerate(data0):
+                data0[j] = (a_aname, self.db_fname_to_fentry(a_fname), a_size, a_no, a_ts)
             try:
                 query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
                                                                 self.ARTICLE.timestamp])
                 query.execute()
-            except OperationalError:
+            except OperationalError as e:
                 chunksize = int(chunksize * 0.9)
                 continue
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
             i += chunksize
         self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
+        self.set_last_update_for_gui()
 
     # ---- self.DB --------
     def db_close(self):
+        self.db_file.close()
         self.db.close()
 
     def db_drop(self):
@@ -679,32 +831,14 @@ class PWDB:
         return first_has_changed, del_nzb_name
 
     # ---- send sorted nzbs to guiconnector ---
-    def send_sorted_nzbs_to_guiconnector(self):
-        if not self.context:
-            try:
-                self.context = zmq.Context()
-                self.socket = self.context.socket(zmq.REQ)
-                self.socket.setsockopt(zmq.LINGER, 0)
-                socketurl = "tcp://" + self.host + ":" + self.port
-                self.socket.connect(socketurl)
-            except Exception as e:
-                self.logger.warning(lpref + str(e))
-                self.context = None
-                return None
+    def get_stored_sorted_nzbs(self):
+        return self.sorted_nzbs_for_gui
 
+    def store_sorted_nzbs(self):
         sortednzbs = self.db_nzb_getall_sorted()
         if sortednzbs == []:
             sortednzbs = [-1]
-        try:
-            self.socket.send_pyobj(("PWDB", sortednzbs))
-            datatype, datarec = self.socket.recv_pyobj()
-            if datatype == "NOOK":
-                return None
-            return True
-        except Exception as e:
-            self.logger.warning(lpref + str(e))
-            self.context = None
-            return None
+        self.sorted_nzbs_for_gui = sortednzbs
 
     # ---- log info for nzb in db ###
     def log(self, nzbname, logmsg, loglevel, logger):
@@ -714,7 +848,7 @@ class PWDB:
     # ---- get_downloaded_file_full_path ----
     def get_downloaded_file_full_path(self, file0, dir0):
         file_already_exists = False
-        # self.logger.info(lpref + dir0 + "*")
+        # self.logger.info(whoami() + dir0 + "*")
         for fname0 in glob.glob(dir0 + "*"):
             short_fn = fname0.split("/")[-1]
             if short_fn == file0.orig_name or short_fn == file0.renamed_name:
@@ -726,134 +860,155 @@ class PWDB:
         # delete nzb + files + articles in db
         self.db_nzb_delete(nzbname)
         # delete incomplete_dir
-        self.logger.warning(lpref + "inconsistency in verified rars, deleting incomplete_dir")
+        self.logger.warning(whoami() + "inconsistency in verified rars, deleting incomplete_dir")
         try:
             if os.path.isdir(incompletedir):
-                self.logger.info(lpref + "Removing incomplete_dir")
+                self.logger.info(whoami() + "Removing incomplete_dir")
                 shutil.rmtree(incompletedir)
         except Exception as e:
-            self.logger.error(lpref + str(e) + ": error in removing incomplete_dir")
+            self.logger.error(whoami() + str(e) + ": error in removing incomplete_dir")
         # rename nzbfile in order to provoque re-read by nzb-parser
         oldnzb = nzbdir + nzbname
         newnzb = nzbdir + nzbname + "(1)"
         try:
             os.rename(oldnzb, newnzb)
         except Exception as e:
-            self.logger.error(lpref + str(e) + ": error in renaming nzb")
+            self.logger.error(whoami() + str(e) + ": error in renaming nzb")
+
+    def calc_already_downloaded_size(self, nzbname):
+        ad_size = 0
+        gbdivisor = (1024 * 1024 * 1024)
+        try:
+            nzb = self.NZB.get(self.NZB.name == nzbname)
+            files = [files0 for files0 in nzb.files]
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return 0
+        for f0 in files:
+            if f0.status in [2, -1]:
+                articles = [articles0 for articles0 in f0.articles]
+                f0size = sum([a.size for a in articles])
+                ad_size += f0size
+        # print("Size already_downloaded_size: ", ad_size / gbdivisor)
+        resqlist = self.db_nzb_get_resqlist(nzbname)
+        if not resqlist:
+            return ad_size / gbdivisor
+        for _, _, _, _, _, art_name, _, inf0, _ in resqlist:
+            art_size = 0
+            if inf0 != "failed":
+                art_size = sum(len(i) for i in inf0)
+                ad_size += art_size
+        # print("Size already_downloaded_size + resqlist: ", ad_size / gbdivisor)
+        return ad_size / gbdivisor
 
     def create_allfile_list(self, nzb, dir0):
-        allfilelist = []
-        filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "par2": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
-
-        resqlist = None
-        if nzb.status == 2:
-            fn_resq = dir0 + "resqueue.gzbx"
-            self.logger.debug(lpref + "reading " + fn_resq + "...")
-            try:
-                with open(fn_resq, "rb") as fp:
-                    try:
-                        resqlist = dill.load(fp)
-                        self.logger.debug(lpref + "reading resqueue.gzbx success!!")
-                    except Exception as e:
-                        self.logger.debug(lpref + str(e) + ": reading resqueue failed!")
-            except Exception as e:
-                self.logger.debug(lpref + str(e) + ": cannot find .gzbx file, but it SHOULD exist!")
-
         nzbname = nzb.name
-        dir00 = dir0 + "_downloaded0/"
-        dir01 = dir0 + "_renamed0/"
-        files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
-        if not files:
-            self.logger.info(lpref + "No files to download for NZB " + nzb.name)
-            return None, None, None, None, None, None, None, None
-        idx = 0
-        overall_size = 0
-        overall_size_wparvol = 0
-        already_downloaded_size = 0
-        p2 = None
-        resqlist_size = 0
-        for f0 in files:
-            articles = [articles0 for articles0 in f0.articles]
-            f0size = sum([a.size for a in articles])
-            if f0.ftype == "par2vol":
-                overall_size_wparvol += f0size
-            else:
-                overall_size += f0size
-            filetypecounter[f0.ftype]["max"] += 1
-            filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
-            self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
-            if f0.status == 2:
-                full_filename_renamed = dir01 + f0.renamed_name
-                full_filename_downloaded = dir00 + f0.renamed_name
-                # self.logger.debug(lpref + " >>> " + full_filename_renamed)
-                # self.logger.debug(lpref + " >>> " + full_filename_downloaded)
-                filename0 = None
-                if f0.ftype == "par2":
-                    if os.path.isfile(full_filename_renamed):
-                        p2 = Par2File(full_filename_renamed)
-                        self.logger.debug(lpref + "par2 found: " + full_filename_renamed)
-                        filename0 = full_filename_renamed
-                    elif os.path.isfile(full_filename_downloaded):
-                        p2 = Par2File(full_filename_downloaded)
-                        self.logger.debug(lpref + "par2 found: " + full_filename_downloaded)
-                        filename0 = full_filename_downloaded
-                    else:
-                        self.logger.error("Processing par2 file, but not found in dirs; this should not occur - will download again!!")
-                        # return None, None, None, None, None, None, None, None
-                else:
-                    if os.path.isfile(full_filename_renamed):
-                        filename0 = full_filename_renamed
-                    elif os.path.isfile(full_filename_downloaded):
-                        filename0 = full_filename_downloaded
-                if not filename0:
-                    self.logger.warning(lpref + "processing " + f0.orig_name + ", but not found in dirs; this should not occur - will download again!!")
-                else:
-                    filetypecounter[f0.ftype]["counter"] += 1
-                    md5 = calc_file_md5hash(filename0)
-                    filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
-                    already_downloaded_size += f0size
-                    continue
-            allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
-            articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
-            for a in articles:
-                allok = True
-                if len(allfilelist[idx]) > 2:
-                    for i1, art in enumerate(allfilelist[idx]):
-                        if i1 > 1:
-                            nr1, fn1, _ = art
-                            if nr1 == a.number:
-                                allok = False
-                                break
-                if allok:
-                    allfilelist[idx].append((a.number, a.name, a.size))
-                    if resqlist:
-                        art_found = False
-                        for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, add_bytes in resqlist:
-                            if a.name == art_name_r:
-                                art_found = True
-                                break
-                        if art_found:
-                            if inf0_r != "failed":
-                                asize0 = sum(len(i) for i in inf0_r)
-                                resqlist_size += asize0
-                                already_downloaded_size += asize0
-            idx += 1
-        if allfilelist:
-            self.db_nzb_update_status(nzbname, 1)
-            gbdivisor = (1024 * 1024 * 1024)
-            overall_size /= gbdivisor
-            overall_size_wparvol /= gbdivisor
-            overall_size_wparvol += overall_size
-            already_downloaded_size /= gbdivisor
-            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
+        resqlist = None
+        gbdivisor = (1024 * 1024 * 1024)
+        if nzb.status == 2:
+            resqlist = self.db_nzb_get_resqlist(nzbname)
+        res = self.db_nzb_get_allfile_list(nzbname)
+        if res:
+            allfilelist, filetypecounter, overall_size, overall_size_wparvol, _, p2 = res
+            return filetypecounter, nzbname
         else:
-            self.db_nzb_update_status(nzbname, 2)
-            return None, None, None, None, None, None, None
+            allfilelist = []
+            filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                               "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                               "par2": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                               "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                               "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
+                               "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
+            dir00 = dir0 + "_downloaded0/"
+            dir01 = dir0 + "_renamed0/"
+            files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
+            if not files:
+                self.logger.info(whoami() + "No files to download for NZB " + nzb.name)
+                return None, None
+            idx = 0
+            overall_size = 0
+            overall_size_wparvol = 0
+            already_downloaded_size = 0
+            p2 = None
+            resqlist_size = 0
+            for f0 in files:
+                articles = [articles0 for articles0 in f0.articles]
+                f0size = sum([a.size for a in articles])
+                if f0.ftype == "par2vol":
+                    overall_size_wparvol += f0size
+                else:
+                    overall_size += f0size
+                filetypecounter[f0.ftype]["max"] += 1
+                filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
+                self.logger.info(whoami() + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
+                if f0.status == 2:
+                    full_filename_renamed = dir01 + f0.renamed_name
+                    full_filename_downloaded = dir00 + f0.renamed_name
+                    # self.logger.debug(whoami() + " >>> " + full_filename_renamed)
+                    # self.logger.debug(whoami() + " >>> " + full_filename_downloaded)
+                    filename0 = None
+                    if f0.ftype == "par2":
+                        if os.path.isfile(full_filename_renamed):
+                            p2 = Par2File(full_filename_renamed)
+                            self.logger.debug(whoami() + "par2 found: " + full_filename_renamed)
+                            filename0 = full_filename_renamed
+                        elif os.path.isfile(full_filename_downloaded):
+                            p2 = Par2File(full_filename_downloaded)
+                            self.logger.debug(whoami() + "par2 found: " + full_filename_downloaded)
+                            filename0 = full_filename_downloaded
+                        else:
+                            self.logger.error("Processing par2 file, but not found in dirs; this should not occur - will download again!!")
+                            # return None, None, None, None, None, None, None, None
+                    else:
+                        if os.path.isfile(full_filename_renamed):
+                            filename0 = full_filename_renamed
+                        elif os.path.isfile(full_filename_downloaded):
+                            filename0 = full_filename_downloaded
+                    if not filename0:
+                        self.logger.warning(whoami() + "processing " + f0.orig_name + ", but not found in dirs; this should not occur - will download again!!")
+                    else:
+                        filetypecounter[f0.ftype]["counter"] += 1
+                        md5 = calc_file_md5hash(filename0)
+                        filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
+                        already_downloaded_size += f0size
+                        continue
+                allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
+                articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
+                for a in articles:
+                    allok = True
+                    if len(allfilelist[idx]) > 2:
+                        for i1, art in enumerate(allfilelist[idx]):
+                            if i1 > 1:
+                                nr1, fn1, _ = art
+                                if nr1 == a.number:
+                                    allok = False
+                                    break
+                    if allok:
+                        allfilelist[idx].append((a.number, a.name, a.size))
+                        if resqlist:
+                            art_found = False
+                            for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, add_bytes in resqlist:
+                                if a.name == art_name_r:
+                                    art_found = True
+                                    break
+                            if art_found:
+                                if inf0_r != "failed":
+                                    asize0 = sum(len(i) for i in inf0_r)
+                                    resqlist_size += asize0
+                                    already_downloaded_size += asize0
+                idx += 1
+            if allfilelist:
+                self.db_nzb_update_status(nzbname, 1)
+                overall_size /= gbdivisor
+                overall_size_wparvol /= gbdivisor
+                overall_size_wparvol += overall_size
+                already_downloaded_size /= gbdivisor
+                # save results in db
+                self.db_nzb_store_allfile_list(nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2)
+                return filetypecounter, nzbname
+            else:
+                self.db_nzb_update_status(nzbname, 2)
+                return None, None
 
     # ---- make_allfilelist -------
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
@@ -862,10 +1017,10 @@ class PWDB:
         try:
             nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
                                           | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+
         except Exception as e:
-            self.logger.info(lpref + str(e) + ": no NZBs to queue")
-            return None, None, None, None, None, None, None, None
-        self.logger.info(lpref + "analyzing NZB: " + nzb.name + " with status: " + str(nzb.status))
+            return None
+        self.logger.info(whoami() + "analyzing NZB: " + nzb.name + " with status: " + str(nzb.status))
         nzbname = nzb.name
         nzbstatus = self.db_nzb_getstatus(nzbname)
         nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
@@ -874,24 +1029,27 @@ class PWDB:
         if nzbstatus == 1:
             files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
             if not files:
-                self.logger.info(lpref + "No files to download for NZB " + nzb.name)
+                self.logger.info(whoami() + "No files to download for NZB " + nzb.name)
                 self.db_nzb_update_status(nzbname, -1)     # download failed as no files present
-                return None, None, None, None, None, None, None, None
+                return None
             # if queued and incomplete dir exists -> delete, because of inconsistent state!
             try:
                 if os.path.isdir(incompletedir):
-                    self.logger.info(lpref + "Removing incomplete_dir")
+                    self.logger.info(whoami() + "Removing incomplete_dir")
                     shutil.rmtree(incompletedir)
             except Exception as e:
-                self.logger.error(lpref + str(e) + ": error in removing incomplete_dir")
+                self.logger.error(whoami() + str(e) + ": error in removing incomplete_dir")
                 self.db_nzb_update_status(nzbname, -1)     # download failed as no files present
-                return None, None, None, None, None, None, None, None
+                return None
             # set all files to status "queued" / 0
             for f0 in files:
                 self.db_file_update_status(f0.orig_name, 0)
             # loop through files and make allfileslist
-            self.logger.info(lpref + "All, ok. Created allfilelist")
-            return self.create_allfile_list(nzb, incompletedir)
+            try:
+                filetypecounter, nzbame = self.create_allfile_list(nzb, incompletedir)
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
+            return nzbname
 
         # state "downloading" / "postprocessing"
         elif nzbstatus in [2, 3]:
@@ -901,24 +1059,24 @@ class PWDB:
             files = [files0 for files0 in nzb.files]
 
             # check consistency: verified
-            self.logger.debug(lpref + "checking verified_rars consistency")
+            self.logger.debug(whoami() + "checking verified_rars consistency")
             verified_files = [f0.renamed_name for f0 in files if f0.parverify_state == 1]
             rars_in_verified_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_verified + "*")]
             if not lists_are_equal(verified_files, rars_in_verified_dir):
-                self.logger.warning(lpref + "inconsistency in verified rars, deleting nzb in db")
+                self.logger.warning(whoami() + "inconsistency in verified rars, deleting nzb in db")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None, None
+                return None
             # check consistency: renamed
-            self.logger.debug(lpref + "verified_dir consistent, checking renamed_dir")
+            self.logger.debug(whoami() + "verified_dir consistent, checking renamed_dir")
             renamed_files = [f0.renamed_name for f0 in files if f0.renamed_name != "N/A"]
             files_in_renamed_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_renamed + "*")]
             files_in_renamed_dir = [f0 for f0 in files_in_renamed_dir if f0[-6:-2] != ".rar."]
             if not lists_are_equal(renamed_files, files_in_renamed_dir):
-                self.logger.warning(lpref + "inconsistency in renamed_dir, deleting nzb in db/filesystem")
+                self.logger.warning(whoami() + "inconsistency in renamed_dir, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None, None
+                return None
             # check if all downloaded files exist in _renamed or _downloaded0
-            self.logger.debug(lpref + "renamed_dir consistent, checking if all downloaded files exist")
+            self.logger.debug(whoami() + "renamed_dir consistent, checking if all downloaded files exist")
             files_in_downloaded_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_downloaded + "*")]
             inconsistent = False
             for f0 in files:
@@ -927,20 +1085,19 @@ class PWDB:
                         inconsistent = True
                         break
             if inconsistent:
-                self.logger.warning(lpref + "inconsistency in downloaded files, deleting nzb in db/filesystem")
+                self.logger.warning(whoami() + "inconsistency in downloaded files, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None, None
-            allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist \
-                = self.create_allfile_list(nzb, incompletedir)
+                return None
+            filetypecounter, nzbame = self.create_allfile_list(nzb, incompletedir)
             if nzbstatus == 2:
-                return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
+                return nzbname
             # if postprocessing: check if all files are downloaded
             # if loadpar2vols == True: check if complete
             if self.db_nzb_loadpar2vols(nzbname):
                 if filetypecounter["par2vol"]["max"] > filetypecounter["par2vol"]["counter"]:
-                    self.logger.warning(lpref + "not all par2vol downloaded, deleting nzb in db/filesystem")
+                    self.logger.warning(whoami() + "not all par2vol downloaded, deleting nzb in db/filesystem")
                     self.nzb_reset(nzbname, incompletedir, nzbdir)
-                    return None, None, None, None, None, None, None, None
+                    return None
             # check all other filetypes if complete
             inconsistent = False
             for fset in ["par2", "rar", "sfv", "nfo", "etc"]:
@@ -948,88 +1105,32 @@ class PWDB:
                     inconsistent = True
                     break
             if inconsistent:
-                self.logger.warning(lpref + "not all files downloaded although in postproc. state, deleting nzb in db/filesystem")
+                self.logger.warning(whoami() + "not all files downloaded although in postproc. state, deleting nzb in db/filesystem")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
-                return None, None, None, None, None, None, None, None
-            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2, resqlist
-
-        # --------------------------------------------------------------------------------------
-        '''try:
-            nzb = self.NZB.select().where((self.NZB.status == 1)).order_by(self.NZB.priority)[0]
-        except Exception as e:
-            self.logger.info(lpref + str(e) + ": no NZBs to queue")
-            return None, None, None, None, None, None, None
-        nzbname = nzb.name
-        self.logger.info(lpref + nzbname + ", status: " + str(self.db_nzb_getstatus(nzbname)))
-        nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
-        dir00 = dir0 + nzbdir + "_downloaded0/"
-        dir01 = dir0 + nzbdir + "_renamed0/"
-        files = [files0 for files0 in nzb.files]   # if files0.status in [0, 1]]
-        if not files:
-            self.logger.info(lpref + "No files to download for NZB " + nzb.name)
-            return None, None, None, None, None, None, None
-        
-        idx = 0
-        overall_size = 0
-        overall_size_wparvol = 0
-        already_downloaded_size = 0
-        p2 = None
-        for f0 in files:
-            articles = [articles0 for articles0 in f0.articles]
-            f0size = sum([a.size for a in articles])
-            if f0.ftype == "par2vol":
-                overall_size_wparvol += f0size
-            else:
-                overall_size += f0size
-            filetypecounter[f0.ftype]["max"] += 1
-            filetypecounter[f0.ftype]["filelist"].append(f0.orig_name)
-            self.logger.info(lpref + f0.orig_name + ", status in db: " + str(f0.status) + ", filetype: " + f0.ftype)
-            if f0.status not in [0, 1]:
-                # todo:
-                #    calc md5 hash
-                #    filename0 is real path of file
-                filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir01)
-                if file_already_exists and f0.ftype == "par2":
-                    p2 = Par2File(dir01 + f0.renamed_name)
-                elif not file_already_exists:
-                    filename0, file_already_exists = self.get_downloaded_file_full_path(f0, dir00)
-                self.logger.info(lpref + filename0 + ", found on dir: " + str(file_already_exists))
-                if file_already_exists:
-                    filetypecounter[f0.ftype]["counter"] += 1
-                    md5 = calc_file_md5hash(filename0)
-                    filetypecounter[f0.ftype]["loadedfiles"].append((f0.orig_name, filename0, md5))
-                    already_downloaded_size += f0size
-                    continue
-                else:
-                    self.db_file_update_status(f0.orig_name, 0)
-            allfilelist.append([(f0.orig_name, f0.age, f0.ftype, f0.nr_articles)])
-            articles = [articles0 for articles0 in f0.articles if articles0.status in [0, 1]]
-            for a in articles:
-                allok = True
-                if len(allfilelist[idx]) > 2:
-                    for i1, art in enumerate(allfilelist[idx]):
-                        if i1 > 1:
-                            nr1, fn1, _ = art
-                            if nr1 == a.number:
-                                allok = False
-                                break
-                if allok:
-                    allfilelist[idx].append((a.number, a.name, a.size))
-            idx += 1
-        if allfilelist:
-            self.db_nzb_update_status(nzbname, 1)
-            gbdivisor = (1024 * 1024 * 1024)
-            overall_size /= gbdivisor
-            overall_size_wparvol /= gbdivisor
-            overall_size_wparvol += overall_size
-            already_downloaded_size /= gbdivisor
-            return allfilelist, filetypecounter, nzbname, overall_size, overall_size_wparvol, already_downloaded_size, p2
-        else:
-            self.db_nzb_update_status(nzbname, 2)
-            return None, None, None, None, None, None, None'''
+                return None
+            return nzbname
 
 
-if __name__ == "__main__":
+def wrapper_main(cfg, dirs, logger):
+    logger.debug(whoami() + "starting ...")
+
+    pwwt = PWDB(cfg, dirs, logger)
+    pwwt.signal_ign_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    pwwt.signal_ign_sigterm = signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+    pwwt.do_loop()
+
+    try:
+        # pwwt.db.backup(pwwt.db_file)
+        pwwt.db_drop()
+        pwwt.db_close()
+    except Exception as e:
+        logger.warning(whoami() + str(e))
+
+    logger.debug(whoami() + "exited!")
+
+
+'''if __name__ == "__main__":
 
     import logging
     import logging.handlers
@@ -1043,7 +1144,7 @@ if __name__ == "__main__":
 
     pwdb = PWDB(logger)
 
-    nzbname = 'Burg.Schreckenstein.2.nzb'
+    nzbname = 'Ubuntu16.04.nzb'
     aok = pwdb.db_get_all_ok_nonrarfiles(nzbname)
     stat = pwdb.db_nzb_getstatus(nzbname)
 
@@ -1053,5 +1154,5 @@ if __name__ == "__main__":
     for f in fall:
         print(f)
 
-    pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Burg.Schreckenstein.2/_renamed0/", nzbname)
-    print(pp2)
+    pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Ubuntu16.04/_renamed0/", nzbname)
+    print(pp2)'''
