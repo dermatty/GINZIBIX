@@ -8,10 +8,6 @@ import re
 import dill
 import zmq
 import threading
-<<<<<<< HEAD
-from playhouse.sqlite_ext import CSqliteExtDatabase
-# from playhouse.sqliteq import SqliteQueueDatabase
-=======
 import signal
 import inspect
 import sqlite3
@@ -25,7 +21,6 @@ def whoami():
 
 
 TERMINATED = False
->>>>>>> devel
 
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
@@ -51,9 +46,6 @@ class DillField(BlobField):
 
 class PWDB():
     def __init__(self, cfg, dirs, logger):
-        maindir = dirs["main"]
-        # self.db = SqliteDatabase(maindir + "ginzibix.db")
-        self.db = CSqliteExtDatabase(":memory:")
         self.logger = logger
         maindir = dirs["main"]
         self.sorted_nzbs_for_gui = None
@@ -525,7 +517,7 @@ class PWDB():
     def db_file_getftype_renamed(self, name):
         try:
             file0 = self.FILE.get(self.FILE.renamed_name == name)
-            return file0.ftpye
+            return file0.ftype
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -900,6 +892,14 @@ class PWDB():
                 ad_size += art_size
         # print("Size already_downloaded_size + resqlist: ", ad_size / gbdivisor)
         return ad_size / gbdivisor
+
+    def create_allfile_list_via_name(self, nzbname, dir0):
+        try:
+            nzb = self.NZB.get(self.NZB.name == nzbname)
+            return self.create_allfile_list(nzb, dir0)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return None, None
 
     def create_allfile_list(self, nzb, dir0):
         nzbname = nzb.name

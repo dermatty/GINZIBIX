@@ -110,7 +110,9 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(cfg, nzbdir, logger):
+def ParseNZB(cfg, dirs, logger):
+    nzbdir = dirs["nzb"]
+    incompletedir = dirs["incomplete"]
     global TERMINATED
     sh = SigHandler_Parser(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
@@ -177,6 +179,7 @@ def ParseNZB(cfg, nzbdir, logger):
                         pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
                         pwdb.exc("store_sorted_nzbs", [], {})
+                        pwdb.exc("create_allfile_list_via_name", [nzb0, incompletedir], {})
             time.sleep(3)
             isfirstrun = False
     os.chdir(cwd0)

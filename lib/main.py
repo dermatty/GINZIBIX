@@ -551,7 +551,6 @@ class Downloader():
                     infolist[filename] = [None] * nr_articles
                     # self.pwdb.db_file_update_status(filename, 1)   # status do downloading
                     self.pwdb.exc("db_file_update_status", [filename, 1], {})   # status do downloading
-                    bytescount_file = 0
                     for i, art0 in enumerate(file_articles):
                         if i == 0:
                             continue
@@ -561,17 +560,12 @@ class Downloader():
                             for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, _ in self.resqlist:
                                 if art_name == art_name_r:
                                     art_found = True
+                                    self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
                                     break
-                        if art_found:
-                            # put to resultqueue:
-                            self.resultqueue.put((fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False))
-                        else:
+                        if not art_found:
                             bytescount0 += art_bytescount
-                            bytescount_file += art_bytescount
-                            q = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
-                            self.articlequeue.put(q)
+                            self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, level_servers))
                         article_count += 1
-                    # self.logger.debug("------ " + filename + " " + str(filetype) + " " + str(bytescount_file / (1024 * 1024 * 1024)))
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 
@@ -777,12 +771,12 @@ class Downloader():
         self.logger.info("Finalrarstate: " + str(finalrarstate) + " / Finalnonrarstate: " + str(finalnonrarstate))
         if finalrarstate and finalnonrarstate and finalverifierstate:
             # self.pwdb.db_msg_insert(nzbname, "postprocessing ok!", "success")
-            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing ok!", "success"], {})
+            self.pwdb.exc("db_msg_insert", [nzbname, nzbname + ": postprocessing ok!", "success"], {})
         else:
             # self.pwdb.db_nzb_update_status(nzbname, -4)
             self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
             # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
-            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
+            self.pwdb.exc("db_msg_insert", [nzbname, nzbname + ": postprocessing failed!", "error"], {})
             self.logger.info("postprocess of NZB " + nzbname + " failed!")
             return -1
         # copy to complete
@@ -791,10 +785,10 @@ class Downloader():
             # self.pwdb.db_nzb_update_status(nzbname, -4)
             self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
             # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
-            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
+            self.pwdb.exc("db_msg_insert", [nzbname, nzbname + ": postprocessing failed!", "error"], {})
             self.logger.info("Cannot create complete_dir for " + nzbname + ", exiting ...")
             # self.pwdb.db_msg_insert(nzbname, "postprocessing failed!", "error")
-            self.pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
+            self.pwdb.exc("db_msg_insert", [nzbname, nzbname + ":postprocessing failed!", "error"], {})
             return -1
         # move all non-rar/par2/par2vol files from renamed to complete
         for f00 in glob.glob(self.rename_dir + "*"):
@@ -1603,7 +1597,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(whoami() + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(cfg, dirs["nzb"], logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(cfg, dirs, logger, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 

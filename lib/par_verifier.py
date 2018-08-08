@@ -195,7 +195,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nz
             logger.error(whoami() + "repair failed!")
             # pwdb.db_msg_insert(nzbname, "rar file repair failed", "error")
             pwdb.exc("db_msg_insert", [nzbname, "rar file repair failed", "error"], {})
-            pwdb.db_nzb_update_verify_status(nzbname, -1)
+            # pwdb.db_nzb_update_verify_status(nzbname, -1)
             pwdb.exc("db_nzb_update_verify_status", [nzbname, -1], {})
             for _, c_origname in corruptrars:
                 # pwdb.db_file_update_parstatus(c_origname, -2)
