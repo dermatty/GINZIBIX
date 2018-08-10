@@ -403,13 +403,14 @@ class GUI_Connector(Thread):
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, logger):
+    def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, pipes, renamer_result_queue, logger):
         self.cfg = cfg
+        self.pipes = pipes
         self.pwdb = PWDBSender()
         self.articlequeue = ct.articlequeue
         self.resultqueue = ct.resultqueue
         self.mp_work_queue = mp_work_queue
-        self.mp_result_queue = mp.Queue()
+        self.renamer_result_queue = renamer_result_queue
         self.mp_parverify_outqueue = mp.Queue()
         self.mp_parverify_inqueue = mp.Queue()
         self.mp_unrarqueue = mp.Queue()
@@ -693,8 +694,9 @@ class Downloader():
                         continue
                     break
                 self.logger.debug(whoami() + "Download dir empty!")
-                os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
-                self.mpp["renamer"] = None
+                self.pipes["renamer"][0].send(("stop", None, None))
+                '''os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
+                self.mpp["renamer"] = None'''
             except Exception as e:
                 self.logger.info(str(e))
         # join verifier
@@ -962,7 +964,7 @@ class Downloader():
 
         # init variables
         self.logger.debug(whoami() + "download: init variables")
-        self.mpp_renamer = None
+        # self.mpp_renamer = None
         self.mpp_decoder = None
         article_failed = 0
         inject_set0 = []
@@ -1004,16 +1006,18 @@ class Downloader():
         self.sighandler.main_dir = self.main_dir
 
         # start decoder mpp
-        self.logger.debug(whoami() + "starting decoder process ...")
+        '''self.logger.debug(whoami() + "starting decoder process ...")
         self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
         self.mpp_decoder.start()
-        self.mpp["decoder"] = self.mpp_decoder
+        self.mpp["decoder"] = self.mpp_decoder'''
 
         # start renamer
-        self.logger.debug(whoami() + "starting renamer process ...")
+        '''self.logger.debug(whoami() + "starting renamer process ...")
         self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.cfg, self.mp_result_queue, self.logger, ))
         self.mpp_renamer.start()
-        self.mpp["renamer"] = self.mpp_renamer
+        self.mpp["renamer"] = self.mpp_renamer'''
+        self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir))
+
         self.sighandler.mpp = self.mpp
         self.sighandler.nzbname = nzbname
 
@@ -1085,10 +1089,10 @@ class Downloader():
                 self.pwdb.exc("db_nzb_update_status", [nzbname, 3], {})
                 break
 
-            # get mp_result_queue (renamer.py)
+            # get renamer_result_queue (renamer.py)
             while True:
                 try:
-                    filename, full_filename, filetype, old_filename, old_filetype = self.mp_result_queue.get_nowait()
+                    filename, full_filename, filetype, old_filename, old_filetype = self.renamer_result_queue.get_nowait()
                     # self.pwdb.db_msg_insert(nzbname, "downloaded " + filename, "info")
                     self.pwdb.exc("db_msg_insert", [nzbname, "downloaded " + filename, "info"], {})
                     # have files been renamed ?
@@ -1474,7 +1478,7 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
     return bytes_in_resultqueue
 
 
-def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger):
+def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger):
     # join all queues
     logger.debug(whoami() + "clearing articlequeue")
     # 1. clear articlequeue
@@ -1497,7 +1501,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         if dl_not_done_yet:
             time.sleep(0.2)
     # 3. stop article_decoder
-    mpid = None
+    '''mpid = None
     try:
         if dl.mpp["decoder"]:
             mpid = dl.mpp["decoder"].pid
@@ -1511,7 +1515,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             except Exception as e:
                 logger.debug(whoami() + str(e))
     except Exception as e:
-        logger.debug(whoami() + ": " + str(e))
+        logger.debug(whoami() + ": " + str(e))'''
     # 4. clear mp_work_queue
     logger.debug(whoami() + "clearing mp_work_queue")
     while True:
@@ -1557,7 +1561,8 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     except Exception as e:
         logger.debug(whoami() + ": " + str(e))
     # 8. stop mpp_renamer
-    mpid = None
+    pipes["renamer"][0].send(("stop", None, None))
+    '''mpid = None
     try:
         if dl.mpp["renamer"]:
             mpid = dl.mpp["renamer"].pid
@@ -1572,7 +1577,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             except Exception as e:
                 logger.debug(str(e))
     except Exception as e:
-        logger.debug(whoami() + ": " + str(e))
+        logger.debug(whoami() + ": " + str(e))'''
     return
 
 
@@ -1586,6 +1591,11 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
+    renamer_result_queue = queue.Queue()
+
+    renamer_parent_pipe, renamer_child_pipe = mp.Pipe()
+    pipes = {"renamer": [renamer_parent_pipe, renamer_child_pipe]}
+
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # init sighandler
@@ -1601,6 +1611,18 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
+    # start decoder mpp
+    logger.debug(whoami() + "starting decoder process ...")
+    mpp_decoder = mp.Process(target=decode_articles, args=(mp_work_queue, cfg, logger, ))
+    mpp_decoder.start()
+    mpp["decoder"] = mpp_decoder
+
+    # start renamer
+    logger.debug(whoami() + "starting renamer process ...")
+    mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, logger, ))
+    mpp_renamer.start()
+    mpp["renamer"] = mpp_renamer
+
     sh.mpp = mpp
 
     try:
@@ -1611,7 +1633,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     except Exception as e:
         logger.warning(whoami() + str(e))
 
-    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, logger)
+    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, pipes, renamer_result_queue, logger)
     servers_shut_down = True
 
     while True:
@@ -1635,25 +1657,25 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         if stat0 == 2:
             if return_reason == "connection_restart":
                 logger.debug(whoami() + "restarting connections")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 dl.restart_all_threads()
                 continue
             elif return_reason == "nzbs_reordered":
                 logger.debug(whoami() + "NZBs have been reordered")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 continue
             elif return_reason == "nzbs_deleted":
                 logger.debug(whoami() + "NZBs have been deleted")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                 remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
                 continue
             elif return_reason == "dl_stopped":
                 logger.debug(whoami() + "download paused")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 # idle until start or nzbs_reordered signal comes from gtkgui
                 idlestart = time.time()
@@ -1691,7 +1713,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             guiconnector.set_health(0, 0)
             logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
             if stat0_0 == 4:
@@ -1704,6 +1726,6 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             guiconnector.set_health(0, 0)
             pwdb.exc("db_msg_insert", [nzbname, "download failed!", "error"], {})
             logger.info(whoami() + "download failed for NZB " + nzbname)
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             pwdb.exc("store_sorted_nzbs", [], {})

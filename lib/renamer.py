@@ -7,6 +7,7 @@ from random import randint
 import inotify_simple
 import signal
 import inspect
+import time
 
 
 def whoami():
@@ -71,7 +72,7 @@ def scan_for_par2(notrenamedfiles, logger):
     return p2obj0, p2basename0
 
 
-def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, mp_result_queue):
+def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, renamer_result_queue):
     # search for not yet renamed par2/vol files
     p2obj0 = p2obj
     p2basename0 = p2basename
@@ -99,7 +100,7 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 # pwdb.db_file_set_renamed_name(pname, pname)
                 # pwdb.db_file_set_file_type(pname, "par2")
                 pwdb.exc("db_file_set_file_type", [pname, "par2"], {})
-                mp_result_queue.put((pname, dest_dir + pname, "par2", pname, oldft))
+                renamer_result_queue.put((pname, dest_dir + pname, "par2", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
@@ -114,14 +115,14 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 pwdb.exc("db_file_set_renamed_name", [pname, pname2], {})
                 # pwdb.db_file_set_file_type(pname, "par2vol")
                 pwdb.exc("db_file_set_file_type", [pname, "par2vol"], {})
-                mp_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, oldft))
+                renamer_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
                 os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
     return p2obj0, p2basename0
 
 
-def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, mp_result_queue, logger):
+def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue, logger):
     if p2obj:
         rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
         notrenamedfiles0 = notrenamedfiles[:]
@@ -144,7 +145,7 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                 pwdb.exc("db_file_set_renamed_name", [a_name, r_name], {})
                 # pwdb.db_file_set_file_type(a_name, "rar")
                 pwdb.exc("db_file_set_file_type", [a_name, "rar"], {})
-                mp_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
+                renamer_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
                 # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
                 os.remove(source_dir + a_name)
                 notrenamedfiles.remove(pp)
@@ -159,14 +160,14 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
         pwdb.exc("db_file_set_renamed_name", [a_name, a_name], {})
         # pwdb.db_file_set_file_type(a_name, ft)
         pwdb.exc("db_file_set_file_type", [a_name, ft], {})
-        mp_result_queue.put((a_name, dest_dir + a_name, ft, a_name, ft))
+        renamer_result_queue.put((a_name, dest_dir + a_name, ft, a_name, ft))
         # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
         os.remove(source_dir + a_name)
 
 
 def get_inotify_events(inotify):
     events = []
-    for event in inotify.read(timeout=1):
+    for event in inotify.read(timeout=0.3):
         is_created_file = False
         str0 = event.name
         flgs0 = []
@@ -182,66 +183,82 @@ def get_inotify_events(inotify):
 
 
 # renamer with inotify
-def renamer(source_dir, dest_dir, cfg, mp_result_queue, logger):
+def renamer(child_pipe, renamer_result_queue, logger):
     logger.debug(whoami() + "starting renamer process")
     sh = SigHandler_Renamer(logger)
     signal.signal(signal.SIGINT, sh.sighandler_renamer)
     signal.signal(signal.SIGTERM, sh.sighandler_renamer)
 
     pwdb = PWDBSender()
-
-    if source_dir[-1] != "/":
-        source_dir += "/"
-    if dest_dir[-1] != "/":
-        dest_dir += "/"
     cwd0 = os.getcwd()
 
-    try:
-        os.chdir(dest_dir)
-    except FileNotFoundError:
-        os.mkdir(dest_dir)
-
-    os.chdir(source_dir)
-
-    # init inotify
-    inotify = inotify_simple.INotify()
-    watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
-    inotify.add_watch(source_dir, watch_flags)
-
-    p2obj = None
-    p2basename = None
-
-    # eventslist = []
-    isfirstrun = True
-
     while not TERMINATED:
-        events = get_inotify_events(inotify)
-        if isfirstrun or events:  # and events not in eventslist):
-            logger.debug(whoami() + "Events: " + str(events))
-            # get all files not yet .renamed
-            logger.debug(whoami() + "reading not yet downloaded files in _downloaded0")
-            notrenamedfiles = get_not_yet_renamed_files(source_dir)
-            logger.debug(whoami() + "--> " + str(notrenamedfiles))
-            # get all renames filed & trying to get .par2 file
-            logger.debug(whoami() + "Reading files in _renamed0 & trying to get .par2 file")
-            renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj, logger)
-            # if no par2 in _renamed, check _downloaded0
-            if not p2obj:
-                logger.debug(whoami() + "No p2obj yet found, looking in _downloaded0")
-                p2obj, p2basename = scan_for_par2(notrenamedfiles, logger)
-                if p2obj:
-                    logger.debug(whoami() + "p2obj found: " + p2basename)
-            # rename par2 and move them
-            p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, mp_result_queue)
-            # rename & move rar + remaining files
-            rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, mp_result_queue, logger)
-            isfirstrun = False
-            # print(events[0][0])
-            # get_nowait
-    os.chdir(cwd0)
+        # wait for start command
+        logger.debug(whoami() + "waiting for start command")
+        while not TERMINATED:
+            if child_pipe.poll():
+                command = child_pipe.recv()
+                try:
+                    cmd0, source_dir, dest_dir = command
+                    if cmd0 == "start":
+                        break
+                except Exception as e:
+                    logger.warning(whoami() + str(e))
+            time.sleep(0.1)
+
+        if TERMINATED:
+            break
+
+        if source_dir[-1] != "/":
+            source_dir += "/"
+        if dest_dir[-1] != "/":
+            dest_dir += "/"
+
+        try:
+            os.chdir(dest_dir)
+        except FileNotFoundError:
+            os.mkdir(dest_dir)
+
+        os.chdir(source_dir)
+
+        # init inotify
+        inotify = inotify_simple.INotify()
+        watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
+        wd = inotify.add_watch(source_dir, watch_flags)
+
+        p2obj = None
+        p2basename = None
+
+        # eventslist = []
+        isfirstrun = True
+
+        while not TERMINATED:
+            events = get_inotify_events(inotify)
+            if isfirstrun or events:  # and events not in eventslist):
+                logger.debug(whoami() + "Events: " + str(events))
+                # get all files not yet .renamed
+                logger.debug(whoami() + "reading not yet downloaded files in _downloaded0")
+                notrenamedfiles = get_not_yet_renamed_files(source_dir)
+                logger.debug(whoami() + "--> " + str(notrenamedfiles))
+                # get all renames filed & trying to get .par2 file
+                logger.debug(whoami() + "Reading files in _renamed0 & trying to get .par2 file")
+                renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj, logger)
+                # if no par2 in _renamed, check _downloaded0
+                if not p2obj:
+                    logger.debug(whoami() + "No p2obj yet found, looking in _downloaded0")
+                    p2obj, p2basename = scan_for_par2(notrenamedfiles, logger)
+                    if p2obj:
+                        logger.debug(whoami() + "p2obj found: " + p2basename)
+                # rename par2 and move them
+                p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, renamer_result_queue)
+                # rename & move rar + remaining files
+                rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue, logger)
+                isfirstrun = False
+            if child_pipe.poll():
+                command, _, _ = child_pipe.recv()
+                if command == "stop":
+                    break
+        os.chdir(cwd0)
+        inotify.rm_watch(wd)
+        logger.debug(whoami() + "renamer paused")
     logger.debug(whoami() + "exited!")
-
-# maindir = "st502304a4df4c023adf43c1462a.nfo"
-
-# renamer("/home/stephan/.ginzibix/incomplete/" + maindir + "/_downloaded0",
-#        "/home/stephan/.ginzibix/incomplete/" + maindir + "/_renamed0", None)

@@ -31,7 +31,8 @@ class SigHandler_Decoder:
 
 
 def decode_articles(mp_work_queue0, cfg, logger):
-    logger.debug(whoami() + "starting ...")
+
+    logger.info(whoami() + "starting article decoder process")
 
     sh = SigHandler_Decoder(logger)
     signal.signal(signal.SIGINT, sh.sighandler)
@@ -39,7 +40,6 @@ def decode_articles(mp_work_queue0, cfg, logger):
 
     pwdb = PWDBSender()
 
-    logger.info(whoami() + "starting decoder process")
     bytes0 = bytearray()
     bytesfinal = bytearray()
     while not TERMINATED:
