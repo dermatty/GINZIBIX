@@ -1,3 +1,188 @@
 # sighandler does not always stop!!
 # move part of postprocessor to own routine
 # parallel download
+
+# if put nzb to dustbin during download: --> error
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 461, in 
+on_buttondelete_clicked
+    if self.appdata.nzbs[0] != old_first_nzb:
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+^CTraceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+Traceback (most recent call last):
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 912, in update_mainwindow
+    self.update_liststore_dldata()
+  File "/media/nfs/NFS_Projekte/GIT/GINZIBIX/lib/gtkgui.py", line 730, in 
+update_liststore_dldata
+    newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", 
+self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+IndexError: list index out of range
+
+

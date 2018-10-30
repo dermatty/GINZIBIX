@@ -956,6 +956,7 @@ class Downloader():
 
         res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
         allfileslist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2 = res
+        
         resqlist = self.pwdb.exc("db_nzb_get_resqlist", [nzbname], {})
         self.resqlist = resqlist
 
@@ -1064,6 +1065,7 @@ class Downloader():
         self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                     article_health, overall_size, already_downloaded_size), self.ct.threads,
                                    self.ct.servers.server_config, "downloading", self.serverconfig())
+
         while True:
 
             # check if dl_stopped or nzbs_reordered signal received from gui
@@ -1591,7 +1593,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
-    renamer_result_queue = queue.Queue()
+    renamer_result_queue = mp.Queue()
 
     renamer_parent_pipe, renamer_child_pipe = mp.Pipe()
     pipes = {"renamer": [renamer_parent_pipe, renamer_child_pipe]}

@@ -44,13 +44,13 @@ class SigHandler_Ginzibix:
                 # !! remove if called from gtkgui !!!
                 # os.kill(self.mpp_main.pid, signal.SIGKILL)
                 mpp_main.join()
-                print("main joined!")
+                # print("main joined!")
         if self.mpp_wrapper:
             if self.mpp_wrapper.pid:
                 # !! remove if called from gtkgui !!!
                 # os.kill(self.mpp_main.pid, signal.SIGKILL)
                 mpp_wrapper.join()
-                print("peewee_wrapper joined!")
+                # print("peewee_wrapper joined!")
         TERMINATED = True
 
 
