@@ -73,7 +73,7 @@ class Servers():
                             if usessl:
                                 nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
                             else:
-                                nntpobj = nntplib.NNTP(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
+                                nntpobj = nntplib.NNTP(server_url, user=user, password=password, port=port, readermode=True, timeout=5)
                             self.logger.debug(whoami() + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)
