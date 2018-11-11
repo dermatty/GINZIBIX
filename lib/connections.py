@@ -148,10 +148,9 @@ class ConnectionWorker(Thread):
             artlist = list(self.articlequeue.queue)
             try:
                 test_article = artlist[-1]
-                # print(self.idn, len(artlist))
             except IndexError:
                 self.lock.release()
-                time.sleep(0.1)
+                # time.sleep(0.1)
                 continue
             if not test_article:
                 article = self.articlequeue.get()
@@ -169,7 +168,7 @@ class ConnectionWorker(Thread):
                 continue
             if self.name not in remaining_servers[0]:
                 self.lock.release()
-                time.sleep(0.1)
+                # time.sleep(0.1)
                 continue
             article = self.articlequeue.get()
             self.lock.release()
@@ -216,6 +215,7 @@ class ConnectionWorker(Thread):
                     self.logger.error(whoami() + "Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
                     self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
                 else:
-                    self.logger.warning(whoami() + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: " + str(next_servers))
+                    self.logger.warning(whoami() + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: "
+                                        + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         self.logger.debug(whoami() + self.idn + " exited!")

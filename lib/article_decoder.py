@@ -7,6 +7,8 @@ import queue
 import signal
 from .aux import PWDBSender
 import inspect
+import threading
+from threading import Thread
 
 
 def whoami():
@@ -19,8 +21,7 @@ def whoami():
 lpref = __name__.split("lib.")[-1] + " - "
 
 TERMINATED = False
-
-USE_SABYENC = True
+MAX_THREADS = 4
 
 
 class SigHandler_Decoder:
@@ -33,6 +34,65 @@ class SigHandler_Decoder:
         TERMINATED = True
 
 
+class DecoderThread(Thread):
+    def __init__(self, infolist, save_dir, filename, filetype, pwdb, logger):
+        Thread.__init__(self)
+        self.daemon = True
+        self.infolist = infolist
+        self.save_dir = save_dir
+        self.filename = filename
+        self.filetype = filetype
+        self.running = True
+        self.logger = logger
+        self.pwdb = pwdb
+
+    def run(self):
+        bytesfinal = bytearray()
+        # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
+        status = 0
+        statusmsg = "ok"
+
+        # sabyenc
+        full_filename = self.save_dir + self.filename
+        for info in self.infolist:
+            try:
+                lastline = info[-1].decode("latin-1")
+                m = re.search('size=(.\d+?) ', lastline)
+                if m:
+                    size = int(m.group(1))
+                if not size:
+                    size = int(sum(len(i) for i in info.lines) * 1.1)
+                decoded_data, output_filename, crc, crc_yenc, crc_correct = sabyenc.decode_usenet_chunks(info, size)
+                bytesfinal.extend(decoded_data)
+            except Exception as e:
+                self.logger.warning(whoami() + str(e) + ": cannot perform sabyenc3")
+                status = -3
+                statusmsg = "Sabyenc3 decoding error!"
+                # continue decoding, maybe it can be repaired ...?
+        try:
+            if not os.path.isdir(self.save_dir):
+                os.makedirs(self.save_dir)
+            with open(full_filename, "wb") as f0:
+                f0.write(bytesfinal)
+                f0.flush()
+                f0.close()
+        except Exception as e:
+            statusmsg = "file_error"
+            self.logger.error(whoami() + str(e) + " in file " + self.filename)
+            status = -4
+        self.logger.info(whoami() + self.filename + " decoded with status " + str(status) + " / " + statusmsg)
+        pwdbstatus = 2
+        if status in [-3, -4]:
+            pwdbstatus = -1
+        try:
+            # pwdb.db_file_update_status(filename, pwdbstatus)
+            self.pwdb.exc("db_file_update_status", [self.filename, pwdbstatus], {})
+            self.logger.debug(whoami() + "updated DB for " + self.filename + ", db.status=" + str(pwdbstatus))
+        except Exception as e:
+            self.logger.error(whoami() + str(e) + ": cannot update DB for " + self.filename)
+        self.running = False
+
+
 def decode_articles(mp_work_queue0, cfg, logger):
 
     logger.info(whoami() + "starting article decoder process")
@@ -42,8 +102,51 @@ def decode_articles(mp_work_queue0, cfg, logger):
     signal.signal(signal.SIGTERM, sh.sighandler)
 
     pwdb = PWDBSender()
+    threadlist = []
 
-    bytes0 = bytearray()
+    while not TERMINATED:
+        res0 = None
+        while not TERMINATED:
+            try:
+                res0 = mp_work_queue0.get_nowait()
+                break
+            except (queue.Empty, EOFError):
+                pass
+            except Exception as e:
+                logger.warning(whoami() + str(e))
+            time.sleep(0.1)
+        if not res0 or TERMINATED:
+            logger.info(whoami() + "exiting decoder process!")
+            break
+        infolist, save_dir, filename, filetype = res0
+
+        # if downloading is VERY fast, we spawn multiple threads
+        # to increase decoding capacity (slow machine + high bandwidth)
+        for t in threadlist:
+            if not t.running:
+                threadlist.remove(t)
+        activethreadlist = [t for t in threadlist if t]
+        while len(activethreadlist) >= MAX_THREADS:
+            for t in threadlist:
+                if not t.running:
+                    threadlist.remove(t)
+                    activethreadlist = [t for t in threadlist if t]
+        newthread = DecoderThread(infolist, save_dir, filename, filetype, pwdb, logger)
+        threadlist.append(newthread)
+        newthread.start()
+    logger.debug(whoami() + "exited!")
+
+
+def decode_articles_old(mp_work_queue0, cfg, logger):
+
+    logger.info(whoami() + "starting article decoder process")
+
+    sh = SigHandler_Decoder(logger)
+    signal.signal(signal.SIGINT, sh.sighandler)
+    signal.signal(signal.SIGTERM, sh.sighandler)
+
+    pwdb = PWDBSender()
+
     bytesfinal = bytearray()
     while not TERMINATED:
         res0 = None
@@ -68,7 +171,6 @@ def decode_articles(mp_work_queue0, cfg, logger):
 
         # sabyenc
         full_filename = save_dir + filename
-        t0 = time.time()
         for info in infolist:
             try:
                 lastline = info[-1].decode("latin-1")
@@ -83,7 +185,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
                 logger.warning(whoami() + str(e) + ": cannot perform sabyenc3")
                 status = -3
                 statusmsg = "Sabyenc3 decoding error!"
-                break
+                # continue decoding, maybe it can be repaired ...?
         try:
             if not os.path.isdir(save_dir):
                 os.makedirs(save_dir)
