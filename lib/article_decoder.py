@@ -1,5 +1,6 @@
 import re
 import yenc
+import sabyenc
 import os
 import time
 import queue
@@ -18,6 +19,8 @@ def whoami():
 lpref = __name__.split("lib.")[-1] + " - "
 
 TERMINATED = False
+
+USE_SABYENC = True
 
 
 class SigHandler_Decoder:
@@ -58,87 +61,29 @@ def decode_articles(mp_work_queue0, cfg, logger):
             break
 
         infolist, save_dir, filename, filetype = res0
-        del bytes0
+        # del bytes0
         bytesfinal = bytearray()
         status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
         statusmsg = "ok"
-        for info in infolist:
-            headerok = False
-            trailerok = False
-            trail_crc = None
-            head_crc = None
-            bytes0 = bytearray()
-            partnr = 0
-            artsize0 = 0
-            for inf in info:
-                try:
-                    inf0 = inf.decode()
-                    if inf0 == "":
-                        continue
-                    if inf0.startswith("=ybegin"):
-                        try:
-                            artname = re.search(r"name=(\S+)", inf0).group(1)
-                            artsize = int(re.search(r"size=(\S+)", inf0).group(1))
-                            artsize0 += artsize
-                            m_obj = re.search(r"crc32=(\S+)", inf0)
-                            if m_obj:
-                                head_crc = m_obj.group(1)
-                            headerok = True
-                        except Exception as e:
-                            logger.warning(whoami() + str(e) + ": malformed =ybegin header in article " + artname)
-                        continue
-                    if inf0.startswith("=ypart"):
-                        partnr += 1
-                        continue
-                    if inf0.startswith("=yend"):
-                        try:
-                            artsize = int(re.search(r"size=(\S+)", inf0).group(1))
-                            m_obj = re.search(r"crc32=(\S+)", inf0)
-                            if m_obj:
-                                trail_crc = m_obj.group(1)
-                            trailerok = True
-                        except Exception as e:
-                            logger.warning(whoami() + str(e) + ": malformed =yend trailer in article " + artname)
-                        continue
-                except Exception as e:
-                    pass
-                bytes00 = bytes0
-                try:
-                    bytes0.extend(inf)
-                    pass
-                except KeyboardInterrupt:
-                    return
-                except Exception as e:
-                    logger.warning(whoami() + str(e) + ": " + filename)
-                    bytes0 = bytes00
-            if not headerok or not trailerok:  # or not partfound or partnr > 1:
-                logger.warning(whoami() + ": wrong yenc structure detected in file " + filename)
-                statusmsg = "yenc_structure_error"
-                status = 0
-            _, decodedcrc32, decoded = yenc.decode(bytes0)
-            if not head_crc and not trail_crc:
-                statusmsg = "no_pcrc32_error"
-                logger.warning(whoami() + filename + ": no pcrc32 detected")
-                status = -1
-            else:
-                try:
-                    head_crc0 = "" if not head_crc else head_crc.lower()
-                    trail_crc0 = "" if not trail_crc else trail_crc.lower()
-                    crc32list = [head_crc0.strip("0"), trail_crc0.strip("0")]
-                    crc32 = decodedcrc32.lower().strip("0")
-                except Exception as e:
-                    logger.error(str(e))
-                if crc32 not in crc32list:
-                    # logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
-                    statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
-                    status = -2
-            bytesfinal.extend(decoded)
-        if artsize0 != len(bytesfinal):
-            statusmsg = "article file length wrong"
-            status = -3
-            logger.info(whoami() + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
-        md5 = None
+
+        # sabyenc
         full_filename = save_dir + filename
+        t0 = time.time()
+        for info in infolist:
+            try:
+                lastline = info[-1].decode("latin-1")
+                m = re.search('size=(.\d+?) ', lastline)
+                if m:
+                    size = int(m.group(1))
+                if not size:
+                    size = int(sum(len(i) for i in info.lines) * 1.1)
+                decoded_data, output_filename, crc, crc_yenc, crc_correct = sabyenc.decode_usenet_chunks(info, size)
+                bytesfinal.extend(decoded_data)
+            except Exception as e:
+                logger.warning(whoami() + str(e) + ": cannot perform sabyenc3")
+                status = -3
+                statusmsg = "Sabyenc3 decoding error!"
+                break
         try:
             if not os.path.isdir(save_dir):
                 os.makedirs(save_dir)
@@ -146,12 +91,6 @@ def decode_articles(mp_work_queue0, cfg, logger):
                 f0.write(bytesfinal)
                 f0.flush()
                 f0.close()
-            # calc hash for rars
-            if filetype == "rar":
-                md5 = 0  # calc_file_md5hash(save_dir + filename)
-                if md5 == -1:
-                    raise("Cannot calculate md5 hash")
-                # logger.info(full_filename + " md5: " + str(md5))
         except Exception as e:
             statusmsg = "file_error"
             logger.error(whoami() + str(e) + " in file " + filename)
@@ -166,6 +105,114 @@ def decode_articles(mp_work_queue0, cfg, logger):
             logger.debug(whoami() + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
         except Exception as e:
             logger.error(whoami() + str(e) + ": cannot update DB for " + filename)
+
+            '''else:
+            t0 = time.time()
+            for info in infolist:
+                headerok = False
+                trailerok = False
+                trail_crc = None
+                head_crc = None
+                bytes0 = bytearray()
+                partnr = 0
+                artsize0 = 0
+                for inf in info:
+                    try:
+                        inf0 = inf.decode("latin-1")
+                        if inf0 == "":
+                            continue
+                        if inf0.startswith("=ybegin"):
+                            try:
+                                artname = re.search(r"name=(\S+)", inf0).group(1)
+                                artsize = int(re.search(r"size=(\S+)", inf0).group(1))
+                                artsize0 += artsize
+                                m_obj = re.search(r"crc32=(\S+)", inf0)
+                                if m_obj:
+                                    head_crc = m_obj.group(1)
+                                headerok = True
+                            except Exception as e:
+                                logger.warning(whoami() + str(e) + ": malformed =ybegin header in article " + artname)
+                            continue
+                        if inf0.startswith("=ypart"):
+                            partnr += 1
+                            continue
+                        if inf0.startswith("=yend"):
+                            try:
+                                artsize = int(re.search(r"size=(\S+)", inf0).group(1))
+                                m_obj = re.search(r"crc32=(\S+)", inf0)
+                                if m_obj:
+                                    trail_crc = m_obj.group(1)
+                                trailerok = True
+                            except Exception as e:
+                                logger.warning(whoami() + str(e) + ": malformed =yend trailer in article " + artname)
+                            continue
+                    except Exception as e:
+                        pass
+                    bytes00 = bytes0
+                    try:
+                        bytes0.extend(inf)
+                        pass
+                    except KeyboardInterrupt:
+                        return
+                    except Exception as e:
+                        logger.warning(whoami() + str(e) + ": " + filename)
+                        bytes0 = bytes00
+                if not headerok or not trailerok:  # or not partfound or partnr > 1:
+                    logger.warning(whoami() + ": wrong yenc structure detected in file " + filename)
+                    statusmsg = "yenc_structure_error"
+                    status = 0
+                _, decodedcrc32, decoded = yenc.decode(bytes0)
+                if not head_crc and not trail_crc:
+                    statusmsg = "no_pcrc32_error"
+                    logger.warning(whoami() + filename + ": no pcrc32 detected")
+                    status = -1
+                else:
+                    try:
+                        head_crc0 = "" if not head_crc else head_crc.lower()
+                        trail_crc0 = "" if not trail_crc else trail_crc.lower()
+                        crc32list = [head_crc0.strip("0"), trail_crc0.strip("0")]
+                        crc32 = decodedcrc32.lower().strip("0")
+                    except Exception as e:
+                        logger.error(str(e))
+                    if crc32 not in crc32list:
+                        # logger.warning(filename + ": CRC32 checksum error: " + crc32 + " / " + str(crc32list))
+                        statusmsg = "crc32checksum_error: " + crc32 + " / " + str(crc32list)
+                        status = -2
+                bytesfinal.extend(decoded)
+            if artsize0 != len(bytesfinal):
+                statusmsg = "article file length wrong"
+                status = -3
+                logger.info(whoami() + "Wrong article length: should be " + str(artsize0) + ", actually was " + str(len(bytesfinal)))
+            md5 = None
+            full_filename = save_dir + filename
+            try:
+                if not os.path.isdir(save_dir):
+                    os.makedirs(save_dir)
+                with open(full_filename, "wb") as f0:
+                    f0.write(bytesfinal)
+                    f0.flush()
+                    f0.close()
+                # calc hash for rars
+                if filetype == "rar":
+                    md5 = 0  # calc_file_md5hash(save_dir + filename)
+                    if md5 == -1:
+                        raise("Cannot calculate md5 hash")
+                    # logger.info(full_filename + " md5: " + str(md5))
+            except Exception as e:
+                statusmsg = "file_error"
+                logger.error(whoami() + str(e) + " in file " + filename)
+                status = -4
+            logger.info(whoami() + filename + " decoded with status " + str(status) + " / " + statusmsg)
+            pwdbstatus = 2
+            if status in [-3, -4]:
+                pwdbstatus = -1
+            try:
+                # pwdb.db_file_update_status(filename, pwdbstatus)
+                pwdb.exc("db_file_update_status", [filename, pwdbstatus], {})
+                logger.debug(whoami() + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
+            except Exception as e:
+                logger.error(whoami() + str(e) + ": cannot update DB for " + filename)
+            logger.debug(whoami() + "decoding took " + str(time.time() - t0) + " sec.")'''
     logger.debug(whoami() + "exited!")
 
 

@@ -69,13 +69,12 @@ class ConnectionWorker(Thread):
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp[:3] != "222":
-                # if resp_h[:3] != "221" or resp[:3] != "222":
                 self.logger.warning(whoami() + "Could not find " + article_name + " on " + self.idn)
                 status = 0
                 info0 = None
             else:
                 status = 1
-                info0 = [inf for inf in info.lines]
+                info0 = [inf + b"\r\n" if not inf.endswith(b"\r\n") else inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
         except nntplib.NNTPTemporaryError:
             self.logger.warning(whoami() + "Could not find " + article_name + " on " + self.idn)
@@ -134,7 +133,7 @@ class ConnectionWorker(Thread):
         with self.lock:
             dld = self.download_done
         return dld
-                            
+          
     def run(self):
         self.logger.info(whoami() + self.idn + " thread starting !")
         timeout = 5
@@ -149,6 +148,7 @@ class ConnectionWorker(Thread):
             artlist = list(self.articlequeue.queue)
             try:
                 test_article = artlist[-1]
+                # print(self.idn, len(artlist))
             except IndexError:
                 self.lock.release()
                 time.sleep(0.1)
@@ -182,7 +182,7 @@ class ConnectionWorker(Thread):
             if status == -3:
                 break
             # if server connection error - disconnect
-            if status == -2:
+            elif status == -2:
                 # disconnect
                 self.logger.warning("Stopping server " + self.idn)
                 self.connectionstate = -1
@@ -204,13 +204,12 @@ class ConnectionWorker(Thread):
                     timeout = 5
                 continue
             # if download successfull - put to resultqueue
-            if status == 1:
+            elif status == 1:
                 self.bytesdownloaded += bytesdownloaded
-                # print("Download success on server " + idn + ": for article #" + str(art_nr), filename)
                 self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
                 self.articlequeue.task_done()
             # if article could not be found on server / retention not good enough - requeue to other server
-            if status in [0, -1]:
+            elif status in [0, -1]:
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
                 self.articlequeue.task_done()
                 if not next_servers:
