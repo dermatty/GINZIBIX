@@ -133,7 +133,7 @@ class ConnectionWorker(Thread):
         with self.lock:
             dld = self.download_done
         return dld
-          
+
     def run(self):
         self.logger.info(whoami() + self.idn + " thread starting !")
         timeout = 5
@@ -180,6 +180,11 @@ class ConnectionWorker(Thread):
             # if ctrl-c - exit thread
             if status == -3:
                 break
+            # if download successfull - put to resultqueue
+            elif status == 1:
+                self.bytesdownloaded += bytesdownloaded
+                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
+                self.articlequeue.task_done()
             # if server connection error - disconnect
             elif status == -2:
                 # disconnect
@@ -202,11 +207,6 @@ class ConnectionWorker(Thread):
                 if timeout > 30:
                     timeout = 5
                 continue
-            # if download successfull - put to resultqueue
-            elif status == 1:
-                self.bytesdownloaded += bytesdownloaded
-                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
-                self.articlequeue.task_done()
             # if article could not be found on server / retention not good enough - requeue to other server
             elif status in [0, -1]:
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)

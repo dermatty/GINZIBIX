@@ -726,7 +726,7 @@ class Downloader():
             if self.pwdb.exc("db_nzb_get_password", [nzbname], {}) == "N/A":
                 self.logger.info("Trying to get password from file for NZB " + nzbname)
                 # self.pwdb.db_msg_insert(nzbname, "trying to get password from pw file", "info")
-                self.pwdb.exc("db_msg_insert", [nzbname, "trying to get password from pw file", "info"], {})
+                self.pwdb.exc("db_msg_insert", [nzbname, "trying to get password", "info"], {})
                 pw = get_password(self.verifiedrar_dir, self.pw_file, nzbname, self.logger, get_pw_direct=get_pw_direct0)
                 if pw:
                     self.logger.info("Found password " + pw + " for NZB " + nzbname)

@@ -71,28 +71,28 @@ class PWDBSender():
         while True:
             try:
                 self.socket.send_pyobj((funcstr, args0, kwargs0))
-                if a == 0:
-                    print(funcstr, "finally sent")
+                # if a == 0:
+                    # print(funcstr, "finally sent")
                 break
             except zmq.ZMQError:
-                print(funcstr, "zmq error, trying to reconnect")
+                # print(funcstr, "zmq error, trying to reconnect")
                 res = self.reconnect(funcstr)
-                print(funcstr, "reconnect success")
+                # print(funcstr, "reconnect success")
                 a = 0
             except Exception as e:
                 self.context = None
-                print(funcstr, "---", str(e), type(e), sys.exc_info())
+                # print(funcstr, "---", str(e), type(e), sys.exc_info())
                 return False
 
         # receive
         try:
             ret0 = self.socket.recv_pyobj()
-            if (a == 0):
-                print(funcstr, "finally received", ret0)
+            # if (a == 0):
+            #     print(funcstr, "finally received", ret0)
             if ret0 == "NOOK":
                 return False
             return ret0
         except Exception as e:
-            print(funcstr, "******", str(e), type(e))
+            # print(funcstr, "******", str(e), type(e))
             self.context = None
             return False

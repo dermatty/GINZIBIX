@@ -98,7 +98,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     rarname0 = rars[0][1]
     rarname = rarname0.split("/")[-1]
     nzbname = nzbname0.split(".nzb")[0]
- 
+
     if get_pw_direct:
         gg = re.search(r"}}.nzb$", nzbname0, flags=re.IGNORECASE)
         if gg:
@@ -108,7 +108,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
             except Exception as e:
                 logger.debug(str(e) + ": cannot get pw from nzb string")
         logger.debug("Cannot get pw from nzb string")
-    
+
     # PW file format:
     #  a)  pw
     #      pw
