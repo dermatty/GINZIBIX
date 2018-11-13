@@ -12,8 +12,8 @@ import sys
 import inspect
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gtk
+import os
 import time
-
 
 def whoami():
     outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
@@ -42,13 +42,13 @@ class SigHandler_Ginzibix:
         if self.mpp_main:
             if self.mpp_main.pid:
                 # !! remove if called from gtkgui !!!
-                # os.kill(self.mpp_main.pid, signal.SIGKILL)
+                #os.kill(self.mpp_main.pid, signal.SIGKILL)
                 mpp_main.join()
                 # print("main joined!")
         if self.mpp_wrapper:
             if self.mpp_wrapper.pid:
                 # !! remove if called from gtkgui !!!
-                # os.kill(self.mpp_main.pid, signal.SIGKILL)
+                #os.kill(self.mpp_main.pid, signal.SIGKILL)
                 mpp_wrapper.join()
                 # print("peewee_wrapper joined!")
         TERMINATED = True
@@ -101,9 +101,10 @@ if __name__ == '__main__':
     mpp_main.start()
     sh.mpp_main = mpp_main
 
-    #while not TERMINATED:
-    #    time.sleep(0.5)
-    #logger.debug(whoami() + "exited!")
+    while not TERMINATED:
+        time.sleep(0.5)
+    logger.debug(whoami() + "exited!")
+    sys.exit()
 
     app = lib.Application(mpp_main, dirs, cfg_file, logger)
     exit_status = app.run(sys.argv)

@@ -11,6 +11,8 @@ import threading
 import signal
 import inspect
 import sqlite3
+import _pickle as cpickle
+import json
 
 
 def whoami():
@@ -38,10 +40,10 @@ class DillField(BlobField):
     def python_value(self, value):
         if isinstance(value, (bytearray, sqlite3.Binary)):
             value = bytes(value)
-        return dill.loads(value)
+        return cpickle.loads(value)
 
     def db_value(self, value):
-        return sqlite3.Binary(dill.dumps(value, 2))
+        return sqlite3.Binary(cpickle.dumps(value))
 
 
 class PWDB():

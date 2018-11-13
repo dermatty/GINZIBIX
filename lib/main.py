@@ -6,7 +6,6 @@ import os
 import queue
 import signal
 import multiprocessing as mp
-import logging
 import psutil
 import re
 import threading
@@ -23,11 +22,9 @@ from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected, get_password
 from .connections import ConnectionWorker
 from .server import Servers
-import dill
 from statistics import mean
 from .aux import PWDBSender
 import inspect
-import inotify_simple
 
 lpref = __name__.split("lib.")[-1] + " - "
 
@@ -1007,10 +1004,10 @@ class Downloader():
         self.sighandler.main_dir = self.main_dir
 
         # start decoder mpp
-        '''self.logger.debug(whoami() + "starting decoder process ...")
+        self.logger.debug(whoami() + "starting decoder process ...")
         self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
         self.mpp_decoder.start()
-        self.mpp["decoder"] = self.mpp_decoder'''
+        self.mpp["decoder"] = self.mpp_decoder
 
         # start renamer
         '''self.logger.debug(whoami() + "starting renamer process ...")
@@ -1477,6 +1474,7 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
             logger.info(whoami() + ": " + str(e))
     if resqlist:
         pwdb.exc("db_nzb_store_resqlist", [nzbname, resqlist], {})
+    logger.debug(whoami() + "reading resultqueue and writing to db, done!")
     return bytes_in_resultqueue
 
 
@@ -1503,7 +1501,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         if dl_not_done_yet:
             time.sleep(0.2)
     # 3. stop article_decoder
-    '''mpid = None
+    mpid = None
     try:
         if dl.mpp["decoder"]:
             mpid = dl.mpp["decoder"].pid
@@ -1517,7 +1515,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             except Exception as e:
                 logger.debug(whoami() + str(e))
     except Exception as e:
-        logger.debug(whoami() + ": " + str(e))'''
+        logger.debug(whoami() + ": " + str(e))
     # 4. clear mp_work_queue
     logger.debug(whoami() + "clearing mp_work_queue")
     while True:
@@ -1579,8 +1577,8 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             except Exception as e:
                 logger.debug(str(e))
     except Exception as e:
-        logger.debug(whoami() + ": " + str(e))'''
-    return
+        logger.debug(whoami() + ": " + str(e))
+    return'''
 
 
 # main loop for ginzibix downloader

@@ -800,7 +800,9 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.cfg.write(configfile)
         if self.mpp_main:
             os.kill(self.mpp_main.pid, signal.SIGTERM)
+            print("------------1")
             self.mpp_main.join()
+            print("------------2")
 
     def update_crit_health_levelbars(self):
         crit_art_health = self.appdata.crit_art_health

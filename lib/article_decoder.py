@@ -93,7 +93,7 @@ class DecoderThread(Thread):
         self.running = False
 
 
-def decode_articles(mp_work_queue0, cfg, logger):
+def decode_articles_new(mp_work_queue0, cfg, logger):
 
     logger.info(whoami() + "starting article decoder process")
 
@@ -137,7 +137,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
     logger.debug(whoami() + "exited!")
 
 
-def decode_articles_old(mp_work_queue0, cfg, logger):
+def decode_articles(mp_work_queue0, cfg, logger):
 
     logger.info(whoami() + "starting article decoder process")
 
