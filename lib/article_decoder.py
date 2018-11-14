@@ -7,7 +7,6 @@ import queue
 import signal
 from .aux import PWDBSender
 import inspect
-import threading
 from threading import Thread
 
 
@@ -93,7 +92,7 @@ class DecoderThread(Thread):
         self.running = False
 
 
-def decode_articles_new(mp_work_queue0, cfg, logger):
+def decode_articles_threaded(mp_work_queue0, cfg, logger):
 
     logger.info(whoami() + "starting article decoder process")
 
@@ -177,8 +176,10 @@ def decode_articles(mp_work_queue0, cfg, logger):
                 m = re.search('size=(.\d+?) ', lastline)
                 if m:
                     size = int(m.group(1))
-                if not size:
-                    size = int(sum(len(i) for i in info.lines) * 1.1)
+            except Exception as e:
+                logger.warning(whoami() + str(e) + ", guestimate size ...")
+                size = int(sum(len(i) for i in info.lines) * 1.1)
+            try:
                 decoded_data, output_filename, crc, crc_yenc, crc_correct = sabyenc.decode_usenet_chunks(info, size)
                 bytesfinal.extend(decoded_data)
             except Exception as e:

@@ -99,6 +99,8 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
                 str0 += a
             except pexpect.exceptions.EOF:
                 break
+            except Exception as e:
+                logger.warning(whoami() + str(e))
             if str0[-6:] == "[Q]uit":
                 break
         if "WARNING: You need to start extraction from a previous volume" in str0:
@@ -139,6 +141,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
         pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " success!", "info"], {})
         logger.debug(whoami() + "Waiting for next rar: " + nextrarname)
         gotnextrar = False
+        # todo: hier deadlock/unendliches Warten im Postprocess vermeiden, wenn rar nicht auftaucht!
         while not gotnextrar and not TERMINATED:
             time.sleep(1)
             for f0 in glob.glob(directory + "*"):
