@@ -139,7 +139,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
         pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " success!", "info"], {})
         logger.debug(whoami() + "Waiting for next rar: " + nextrarname)
         gotnextrar = False
-        while not gotnextrar:
+        while not gotnextrar and not TERMINATED:
             time.sleep(1)
             for f0 in glob.glob(directory + "*"):
                 if nextrarname == f0:
@@ -148,6 +148,9 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
                         break
                     except Exception as e:
                         logger.warning(whoami() + str(e))
+        if TERMINATED:
+            child.kill(signal.SIGKILL)
+            break
         time.sleep(1)   # achtung hack!
         child.sendline("C")
     if TERMINATED:

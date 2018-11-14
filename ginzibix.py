@@ -10,10 +10,10 @@ import queue
 import gi
 import sys
 import inspect
-gi.require_version('Gtk', '3.0')
-from gi.repository import GLib, Gtk
 import os
-import time
+gi.require_version('Gtk', '3.0')
+# from gi.repository import GLib, Gtk
+
 
 def whoami():
     outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
@@ -30,27 +30,27 @@ __version__ = "0.1-alpha"
 
 # Signal handler
 class SigHandler_Ginzibix:
-    def __init__(self, mpp_main, mpp_wrapper, pwdb, logger):
+    def __init__(self, pwdb, mpp_main, mpp_wrapper, logger):
         self.mpp_main = mpp_main
         self.mpp_wrapper = mpp_wrapper
-        self.pwdb = pwdb
         self.logger = logger
+        self.pwdb = pwdb
 
     def sighandler_ginzibix(self, a, b):
+        self.shutdown()
+
+    def shutdown(self):
         # wait until main is joined
         global TERMINATED
         if self.mpp_main:
             if self.mpp_main.pid:
-                # !! remove if called from gtkgui !!!
-                #os.kill(self.mpp_main.pid, signal.SIGKILL)
-                mpp_main.join()
-                # print("main joined!")
-        if self.mpp_wrapper:
-            if self.mpp_wrapper.pid:
-                # !! remove if called from gtkgui !!!
-                #os.kill(self.mpp_main.pid, signal.SIGKILL)
-                mpp_wrapper.join()
-                # print("peewee_wrapper joined!")
+                try:
+                    os.kill(self.mpp_main.pid, signal.SIGTERM)
+                    self.mpp_main.join()
+                except Exception as e:
+                    logger.warning(whoami() + str(e))
+        self.pwdb.exc("set_exit_goodbye_from_main", [], {})
+        self.mpp_wrapper.join()
         TERMINATED = True
 
 
@@ -81,31 +81,32 @@ if __name__ == '__main__':
     resultqueue = queue.Queue()
     mp_work_queue = mp.Queue()
 
-    # init sighandler
-    sh = SigHandler_Ginzibix(None, None, None, logger)
-    signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
-    signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
-
     progstr = "ginzibix 0.1-alpha, client"
     logger.debug(whoami() + "Welcome to GINZIBIX " + __version__)
 
     # start DB Thread
     mpp_wrapper = mp.Process(target=lib.wrapper_main, args=(cfg, dirs, logger, ))
     mpp_wrapper.start()
-    sh.mpp_wrapper = mpp_wrapper
 
     pwdb = lib.PWDBSender()
 
     # start main mp
     mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, dirs, subdirs, logger, ))
     mpp_main.start()
-    sh.mpp_main = mpp_main
 
-    while not TERMINATED:
-        time.sleep(0.5)
-    logger.debug(whoami() + "exited!")
-    sys.exit()
+    # init sighandler
+    sh = SigHandler_Ginzibix(pwdb, mpp_main, mpp_wrapper, logger)
+    signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
+    signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
-    app = lib.Application(mpp_main, dirs, cfg_file, logger)
+    #while not TERMINATED:
+    #    time.sleep(0.5)
+    #logger.debug(whoami() + "exited!")
+    #sys.exit()
+
+    app = lib.Application(dirs, cfg_file, logger)
     exit_status = app.run(sys.argv)
+
+    sh.shutdown()
+
     sys.exit(exit_status)

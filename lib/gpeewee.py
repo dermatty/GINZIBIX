@@ -12,7 +12,6 @@ import signal
 import inspect
 import sqlite3
 import _pickle as cpickle
-import json
 
 
 def whoami():

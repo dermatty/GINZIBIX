@@ -27,7 +27,7 @@ class SigHandler_Renamer:
         self.logger = logger
 
     def sighandler_renamer(self, a, b):
-        self.logger.info(whoami() + "setting terminating flag")
+        self.logger.info(whoami() + "terminating ...")
         global TERMINATED
         TERMINATED = True
         # sys.exit()
@@ -256,7 +256,7 @@ def renamer(child_pipe, renamer_result_queue, logger):
                 isfirstrun = False
             if child_pipe.poll():
                 command, _, _ = child_pipe.recv()
-                if command == "stop":
+                if command == "pause":
                     break
         os.chdir(cwd0)
         inotify.rm_watch(wd)

@@ -110,7 +110,7 @@ class SigHandler_Main:
             if mpid:
                 self.logger.debug(whoami() + "terminating decoder")
                 try:
-                    os.kill(self.mpp["decoder"].pid, signal.SIGKILL)
+                    os.kill(self.mpp["decoder"].pid, signal.SIGTERM)
                     self.mpp["decoder"].join()
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
@@ -139,7 +139,7 @@ class SigHandler_Main:
                 # if self.mpp["unrarer"].pid:
                 self.logger.debug(whoami() + "terminating unrarer")
                 try:
-                    os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
+                    os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
                     self.mpp["unrarer"].join()
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
@@ -153,7 +153,7 @@ class SigHandler_Main:
             if mpid:
                 self.logger.debug(whoami() + "terminating rar_verifier")
                 try:
-                    os.kill(self.mpp["verifier"].pid, signal.SIGKILL)
+                    os.kill(self.mpp["verifier"].pid, signal.SIGTERM)
                     self.mpp["verifier"].join()
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
@@ -167,7 +167,7 @@ class SigHandler_Main:
             if mpid:
                 self.logger.debug(whoami() + "terminating renamer")
                 try:
-                    os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
+                    os.kill(self.mpp["renamer"].pid, signal.SIGTERM)
                     self.mpp["renamer"].join()
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
@@ -181,7 +181,7 @@ class SigHandler_Main:
             if mpid:
                 self.logger.debug(whoami() + "terminating nzb_parser")
                 try:
-                    os.kill(self.mpp["nzbparser"].pid, signal.SIGKILL)
+                    os.kill(self.mpp["nzbparser"].pid, signal.SIGTERM)
                     self.mpp["nzbparser"].join()
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
@@ -199,11 +199,6 @@ class SigHandler_Main:
                 self.servers.close_all_connections()
         except Exception:
             pass
-        # !!!
-        # !!! THIS IS IMPORTANT
-        # !!! goodbye to gpeewee must be the last command from main
-        # !!!
-        self.pwdb.exc("set_exit_goodbye_from_main", [], {})
         self.logger.info(whoami() + "exited!")
         sys.exit()
 
@@ -691,9 +686,7 @@ class Downloader():
                         continue
                     break
                 self.logger.debug(whoami() + "Download dir empty!")
-                self.pipes["renamer"][0].send(("stop", None, None))
-                '''os.kill(self.mpp["renamer"].pid, signal.SIGKILL)
-                self.mpp["renamer"] = None'''
+                self.pipes["renamer"][0].send(("pause", None, None))
             except Exception as e:
                 self.logger.info(str(e))
         # join verifier
@@ -754,7 +747,7 @@ class Downloader():
             else:
                 self.logger.info("Repair/unrar not possible, killing unrarer!")
                 try:
-                    os.kill(self.mpp["unrarer"].pid, signal.SIGKILL)
+                    os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
             self.mpp["unrarer"] = None
@@ -1004,10 +997,10 @@ class Downloader():
         self.sighandler.main_dir = self.main_dir
 
         # start decoder mpp
-        self.logger.debug(whoami() + "starting decoder process ...")
-        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
-        self.mpp_decoder.start()
-        self.mpp["decoder"] = self.mpp_decoder
+        #self.logger.debug(whoami() + "starting decoder process ...")
+        #self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
+        #self.mpp_decoder.start()
+        #self.mpp["decoder"] = self.mpp_decoder
 
         # start renamer
         '''self.logger.debug(whoami() + "starting renamer process ...")
@@ -1501,21 +1494,21 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         if dl_not_done_yet:
             time.sleep(0.2)
     # 3. stop article_decoder
-    mpid = None
+    '''mpid = None
     try:
         if dl.mpp["decoder"]:
             mpid = dl.mpp["decoder"].pid
         if mpid:
             logger.warning("terminating decoder")
             try:
-                os.kill(dl.mpp["decoder"].pid, signal.SIGKILL)
+                os.kill(dl.mpp["decoder"].pid, signal.SIGTERM)
                 dl.mpp["decoder"].join()
                 dl.mpp["decoder"] = None
                 dl.sighandler.mpp = dl.mpp
             except Exception as e:
                 logger.debug(whoami() + str(e))
     except Exception as e:
-        logger.debug(whoami() + ": " + str(e))
+        logger.debug(whoami() + ": " + str(e))'''
     # 4. clear mp_work_queue
     logger.debug(whoami() + "clearing mp_work_queue")
     while True:
@@ -1525,7 +1518,6 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             break
     # 5. save resultqueue
     bytes_in_resultqueue = write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger)
-    # pwdb.db_nzb_set_bytes_in_resultqueue(nzbname, bytes_in_resultqueue)
     pwdb.exc("db_nzb_set_bytes_in_resultqueue", [nzbname, bytes_in_resultqueue], {})
     # 6. stop unrarer
     mpid = None
@@ -1536,7 +1528,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             # if self.mpp["unrarer"].pid:
             logger.warning("terminating unrarer")
             try:
-                os.kill(mpid, signal.SIGKILL)
+                os.kill(mpid, signal.SIGTERM)
                 dl.mpp["unrarer"].join()
                 dl.mpp["unrarer"] = None
                 dl.sighandler.mpp = dl.mpp
@@ -1552,7 +1544,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         if mpid:
             logger.warning("terminating rar_verifier")
             try:
-                os.kill(dl.mpp["verifier"].pid, signal.SIGKILL)
+                os.kill(dl.mpp["verifier"].pid, signal.SIGTERM)
                 dl.mpp["verifier"].join()
                 dl.mpp["verifier"] = None
                 dl.sighandler.mpp = dl.mpp
@@ -1561,24 +1553,8 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     except Exception as e:
         logger.debug(whoami() + ": " + str(e))
     # 8. stop mpp_renamer
-    pipes["renamer"][0].send(("stop", None, None))
-    '''mpid = None
-    try:
-        if dl.mpp["renamer"]:
-            mpid = dl.mpp["renamer"].pid
-        if mpid:
-            logger.warning("terminating renamer")
-            try:
-                os.kill(dl.mpp["renamer"].pid, signal.SIGTERM)
-                dl.mpp["renamer"].join()
-                dl.mpp["renamer"].join()
-                dl.mpp["renamer"] = None
-                dl.sighandler.mpp = dl.mpp
-            except Exception as e:
-                logger.debug(str(e))
-    except Exception as e:
-        logger.debug(whoami() + ": " + str(e))
-    return'''
+    pipes["renamer"][0].send(("pause", None, None))
+    return
 
 
 # main loop for ginzibix downloader
@@ -1615,6 +1591,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     logger.debug(whoami() + "starting decoder process ...")
     mpp_decoder = mp.Process(target=decode_articles, args=(mp_work_queue, cfg, logger, ))
     mpp_decoder.start()
+    #print(mpp_decoder.pid, "!!")
     mpp["decoder"] = mpp_decoder
 
     # start renamer

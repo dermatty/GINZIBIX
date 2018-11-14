@@ -131,7 +131,7 @@ class AppData:
 
 class AppWindow(Gtk.ApplicationWindow):
 
-    def __init__(self, app, mpp_main, dirs, cfg_file, logger):
+    def __init__(self, app, dirs, cfg_file, logger):
         # data
         self.logger = logger
         self.cfg_file = cfg_file
@@ -142,14 +142,10 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore_s = None
         self.mbitlabel2 = None
         self.single_selected = None
-        self.mpp_main = mpp_main
         try:
             self.cfg.read(cfg_file)
         except Exception as e:
             self.logger.error(whoami() + str(e) + ", exiting!")
-            if self.mpp_main:
-                os.kill(self.mpp_main.pid, signal.SIGTERM)
-                self.mpp_main.join()
             Gtk.main_quit()
         self.appdata = AppData(self.lock)
         self.read_config_file()
@@ -798,11 +794,6 @@ class AppWindow(Gtk.ApplicationWindow):
             self.cfg["GTKGUI"]["MAX_MBITSEC"] = str(int(self.appdata.max_mbitsec))
             with open(self.cfg_file, 'w') as configfile:
                 self.cfg.write(configfile)
-        if self.mpp_main:
-            os.kill(self.mpp_main.pid, signal.SIGTERM)
-            print("------------1")
-            self.mpp_main.join()
-            print("------------2")
 
     def update_crit_health_levelbars(self):
         crit_art_health = self.appdata.crit_art_health
@@ -926,16 +917,15 @@ class AppWindow(Gtk.ApplicationWindow):
 
 class Application(Gtk.Application):
 
-    def __init__(self, mpp_main, dirs, cfg_file, logger):
+    def __init__(self, dirs, cfg_file, logger):
         Gtk.Application.__init__(self)
-        self.mpp_main = mpp_main
         self.window = None
         self.logger = logger
         self.dirs = dirs
         self.cfg_file = cfg_file
 
     def do_activate(self):
-        self.window = AppWindow(self, self.mpp_main, self.dirs, self.cfg_file, self.logger)
+        self.window = AppWindow(self, self.dirs, self.cfg_file, self.logger)
         self.window.show_all()
         # self.window.box_levelbar.hide()
 
@@ -978,9 +968,6 @@ class Application(Gtk.Application):
         about_dialog.present()
 
     def on_quit(self, action, param):
-        if self.mpp_main:
-            os.kill(self.mpp_main.pid, signal.SIGTERM)
-            self.mpp_main.join()
         self.quit()
 
 
