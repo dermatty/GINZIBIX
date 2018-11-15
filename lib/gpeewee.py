@@ -792,6 +792,9 @@ class PWDB():
         self.set_last_update_for_gui()
         oldnzb_0 = self.NZB.select().order_by(self.NZB.priority)[0]
 
+        if not new_nzb_list:
+            return True, oldnzb_0.name
+
         first_has_changed = True
         if oldnzb_0.name == new_nzb_list[0]:
             first_has_changed = False

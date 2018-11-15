@@ -454,9 +454,11 @@ class AppWindow(Gtk.ApplicationWindow):
                 if not ro[6]:
                     newnzbs.append(self.appdata.nzbs[i])
             self.appdata.nzbs = newnzbs[:]
-            if self.appdata.nzbs[0] != old_first_nzb:
-                self.update_first_appdata_nzb()
+            if self.appdata.nzbs:
+                if self.appdata.nzbs[0] != old_first_nzb:
+                    self.update_first_appdata_nzb()
             self.update_liststore()
+            self.update_liststore_dldata()
             self.toggle_buttons()
             self.appdata.nzb_deleted = True
             self.appdata.block_update_dldata = True
@@ -690,6 +692,10 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def update_liststore_dldata(self):
         if len(self.liststore) == 0:
+            self.levelbar.set_value(0)
+            self.mbitlabel2.set_text("")
+            self.levelbar_connhealth.set_value(0)
+            self.levelbar_arthealth.set_value(0)
             return
         path = Gtk.TreePath(0)
         iter = self.liststore.get_iter(path)
@@ -723,14 +729,18 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             etastr = "-"
         self.liststore.set_value(iter, 4, etastr)
-        newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
-        self.appdata.nzbs[0] = newnzb
-
-        if self.appdata.mbitsec > 0 and self.appdata.dl_running:
-            self.levelbar.set_value(self.appdata.mbitsec / self.appdata.max_mbitsec)
-            mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
-            self.mbitlabel2.set_text(mbitsecstr.rjust(11))
+        if len(self.appdata.nzbs) > 0:
+            newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+            self.appdata.nzbs[0] = newnzb
+            if self.appdata.mbitsec > 0 and self.appdata.dl_running:
+                self.levelbar.set_value(self.appdata.mbitsec / self.appdata.max_mbitsec)
+                mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
+                self.mbitlabel2.set_text(mbitsecstr.rjust(11))
+            else:
+                self.levelbar.set_value(0)
+                self.mbitlabel2.set_text("")
         else:
+            print("!!!!!")
             self.levelbar.set_value(0)
             self.mbitlabel2.set_text("")
 

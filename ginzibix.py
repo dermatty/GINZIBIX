@@ -61,9 +61,13 @@ if __name__ == '__main__':
     userhome, maindir, dirs, subdirs = lib.make_dirs()
 
     # init config
-    cfg_file = dirs["config"] + "/ginzibix.config"
-    cfg = configparser.ConfigParser()
-    cfg.read(cfg_file)
+    try:
+        cfg_file = dirs["config"] + "/ginzibix.config"
+        cfg = configparser.ConfigParser()
+        cfg.read(cfg_file)
+    except Exception as e:
+        print(str(e) + ": config file syntax error, exiting")
+        sys.exit()
 
     # init logger
     logger = logging.getLogger("ginzibix")

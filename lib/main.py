@@ -1069,6 +1069,7 @@ class Downloader():
                         return_reason = "nzbs_reordered"
                     else:
                         self.logger.debug(whoami() + "NZBs have been deleted, exiting download loop")
+                        self.pwdb.exc("db_msg_insert", [nzbname, "NZB(s) deleted", "warning"], {})
                         return_reason = "nzbs_deleted"
             if return_reason:
                 return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,

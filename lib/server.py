@@ -109,6 +109,7 @@ class Servers():
             try:
                 snr += 1
                 snrstr = "SERVER" + str(snr)
+                useserver = True if cfg[snrstr]["USE_SERVER"].lower() == "yes" else False
                 server_name = cfg[snrstr]["SERVER_NAME"]
                 server_url = cfg[snrstr]["SERVER_URL"]
                 user = cfg[snrstr]["USER"]
@@ -120,11 +121,12 @@ class Servers():
             except Exception as e:
                 snr -= 1
                 break
-            try:
-                retention = int(cfg[snrstr]["RETENTION"])
-                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
-            except Exception as e:
-                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))
+            if useserver:
+                try:
+                    retention = int(cfg[snrstr]["RETENTION"])
+                    sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
+                except Exception as e:
+                    sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))
         if not sconf:
             return None
         return sconf

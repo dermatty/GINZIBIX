@@ -60,15 +60,24 @@ def decompose_nzb(nzb, logger):
     bytescount0 = 0
     for r in nzbroot:
         headers = r.attrib
+
         try:
             date = headers["date"]
             age = int((time.time() - float(date))/(24 * 3600))
+
             subject = headers["subject"]
             hn_list = subject.split('"')
+            # If no "" for filenames -> :: is separator
+            if len(hn_list) == 1:
+                hn_list = subject.split("::")
+            # else: take full name
+            if len(hn_list) == 1:
+                hn_list = list(subject)
             if hn_list[1].startswith("."):
                 hn = hn_list[1].lstrip(".")         # must not start with "." to be detected by "glob"
             else:
                 hn = hn_list[1]
+            
         except Exception as e:
             continue
         for s in r:
@@ -186,23 +195,12 @@ def ParseNZB(cfg, dirs, logger):
     logger.debug(whoami() + "exited!")
 
 
-'''nzbdir = "/home/stephan/.ginzibix/nzb/"
-logger = logging.getLogger(__name__)
-
-pwdb = PWDB(logger)
-pwdb.db_nzb_deleteall()
-pwdb.db_file_deleteall()
-pwdb.db_article_deleteall()
-
-ParseNZB(nzbdir, pwdb, logger)
-print(80 * "-")
-for d in pwdb.db_nzb_getall():
-    print(d)
-print(80 * "-")
-for d in pwdb.db_file_getall():
-    print(d)
-print(80 * "-")
-for d in pwdb.db_article_getall():
-    print(d)
-pwdb.db_drop()
-pwdb.db_close()'''
+#import logging
+#nzb = "/home/stephan/.ginzibix/nzb/Ozark.S02E06.GERMAN.DL.1080p.WEB.x264.iNTERNAL-EiSBOCK-xpost.nzb"
+#logger = logging.getLogger(__name__)
+#filedic, bytescount0 = decompose_nzb(nzb, logger)
+# print(bytescount0, filedic)
+#print("-" * 60)
+#nzb = "/home/stephan/.ginzibix/nzb/Yogi.Baer.German.DVDRiP.XViD-ROOR{{STUFF4YOU}}.nzb"
+#filedic, bytescount0 = decompose_nzb(nzb, logger)
+#print(bytescount0)
