@@ -721,6 +721,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore.set_value(iter, 7, self.nzb_status_string)
         self.liststore.set_value(iter, 8, n_bgcolor)
 
+        # print("*********", n_perc)
         if self.appdata.mbitsec > 0 and self.dl_running:
             eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
             if eta0 < 0:
@@ -740,7 +741,6 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.levelbar.set_value(0)
                 self.mbitlabel2.set_text("")
         else:
-            print("!!!!!")
             self.levelbar.set_value(0)
             self.mbitlabel2.set_text("")
 

@@ -1,7 +1,9 @@
 from threading import Thread
+import threading
 import nntplib
 import time
 import inspect
+from .server import Servers
 
 
 def whoami():
@@ -219,3 +221,43 @@ class ConnectionWorker(Thread):
                                         + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         self.logger.debug(whoami() + self.idn + " exited!")
+
+
+# this class deals on a meta-level with usenet connections
+class ConnectionThreads:
+    def __init__(self, cfg, articlequeue, resultqueue, logger):
+        self.cfg = cfg
+        self.logger = logger
+        self.threads = []
+        self.lock = threading.Lock()
+        self.articlequeue = articlequeue
+        self.resultqueue = resultqueue
+        self.servers = None
+
+    def init_servers(self):
+        self.servers = Servers(self.cfg, self.logger)
+        self.level_servers = self.servers.level_servers
+        self.all_connections = self.servers.all_connections
+
+    def start_threads(self):
+        if not self.threads:
+            self.logger.debug(whoami() + "starting download threads")
+            self.init_servers()
+            for sn, scon, _, _ in self.all_connections:
+                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
+                self.threads.append((t, time.time()))
+                t.start()
+        else:
+            self.logger.debug(whoami() + "threads already started")
+
+    def reset_timestamps(self):
+        for t, _ in self.threads:
+            t.last_timestamp = time.time()
+
+    def reset_timestamps_bdl(self):
+        if self.threads:
+            for t, _ in self.threads:
+                t.bytesdownloaded = 0
+                t.last_timestamp = 0
+                t.bandwidth_bytes = 0
+                t.bandwidth_lasttt = 0
