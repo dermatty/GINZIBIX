@@ -77,6 +77,11 @@ class PWDB():
             class Meta:
                 database = self.db
 
+        class TimestampedModel(BaseModel):
+            def save(self, *args, **kwargs):
+                self.date_updated = time.time()
+                return super(TimestampedModel, self).save(*args, **kwargs)
+
         class CONFIG(BaseModel):
             connection_health_threshold = IntegerField(default=65)
 
@@ -86,9 +91,11 @@ class PWDB():
             message = CharField()
             level = CharField()
 
-        class NZB(BaseModel):
+        class NZB(TimestampedModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
+            date_updated = TimeField()
+            date_created = TimeField(default=time.time())
             timestamp = TimeField()
             # nzb status:
             #    0 ... not queued yet
@@ -285,7 +292,7 @@ class PWDB():
 
     # ---- self.NZB --------
     def db_nzb_store_resqlist(self, nzbname, resqlist):
-        query = self.NZB.update(resqlist_dill=resqlist).where(self.NZB.name == nzbname)
+        query = self.NZB.update(resqlist_dill=resqlist, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_resqlist(self, nzbname):
@@ -300,15 +307,15 @@ class PWDB():
             return False
 
     def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2):
-        query = self.NZB.update(allfilelist_dill=allfilelist).where(self.NZB.name == nzbname)
+        query = self.NZB.update(allfilelist_dill=allfilelist, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
-        query = self.NZB.update(filetypecounter_dill=filetypecounter).where(self.NZB.name == nzbname)
+        query = self.NZB.update(filetypecounter_dill=filetypecounter, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
         already_downloaded_size = self.calc_already_downloaded_size(nzbname)
         allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
-        query = self.NZB.update(allfilesizes_dill=allfilesizes0).where(self.NZB.name == nzbname)
+        query = self.NZB.update(allfilesizes_dill=allfilesizes0, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
-        query = self.NZB.update(p2_dill=p2).where(self.NZB.name == nzbname)
+        query = self.NZB.update(p2_dill=p2, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_allfile_list(self, nzbname):
@@ -365,12 +372,12 @@ class PWDB():
 
     def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
         self.set_last_update_for_gui()
-        query = self.NZB.update(bytes_in_resultqueue=resqueue_size).where(self.NZB.name == nzbname)
+        query = self.NZB.update(bytes_in_resultqueue=resqueue_size, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_loadpar2vols(self, name0, lp2):
         self.set_last_update_for_gui()
-        query = self.NZB.update(loadpar2vols=lp2).where(self.NZB.name == name0)
+        query = self.NZB.update(loadpar2vols=lp2, date_updated=time.time()).where(self.NZB.name == name0)
         query.execute()
         '''with self.db.atomic():
             try:
@@ -428,7 +435,7 @@ class PWDB():
 
     def db_nzb_set_password(self, nzbname, pw):
         self.set_last_update_for_gui()
-        query = self.NZB.update(password=pw).where(self.NZB.name == nzbname)
+        query = self.NZB.update(password=pw, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_password(self, nzbname):
@@ -441,7 +448,7 @@ class PWDB():
 
     def db_nzb_set_ispw(self, nzbname, ispw):
         self.set_last_update_for_gui()
-        query = self.NZB.update(is_pw=ispw).where(self.NZB.name == nzbname)
+        query = self.NZB.update(is_pw=ispw, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_ispw(self, nzbname):
@@ -454,17 +461,17 @@ class PWDB():
 
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
         self.set_last_update_for_gui()
-        query = self.NZB.update(unrar_status=newstatus).where(self.NZB.name == nzbname)
+        query = self.NZB.update(unrar_status=newstatus, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_verify_status(self, nzbname, newstatus):
         self.set_last_update_for_gui()
-        query = self.NZB.update(verify_status=newstatus).where(self.NZB.name == nzbname)
+        query = self.NZB.update(verify_status=newstatus, date_updated=time.time()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_status(self, nzbname, newstatus):
         try:
-            query = self.NZB.update(status=newstatus).where(self.NZB.name == nzbname)
+            query = self.NZB.update(status=newstatus, date_updated=time.time()).where(self.NZB.name == nzbname)
             query.execute()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
@@ -822,7 +829,7 @@ class PWDB():
             except Exception as e:
                 matchidx = len(new_nzb_list) + mi_overflow
                 mi_overflow += 1
-            query = self.NZB.update(priority=matchidx+1).where(self.NZB.name == onzb)
+            query = self.NZB.update(priority=matchidx+1, date_updated=time.time()).where(self.NZB.name == onzb)
             query.execute()
         return first_has_changed, del_nzb_name
 
