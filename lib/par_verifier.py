@@ -178,7 +178,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nz
         # pwdb.db_msg_insert(nzbname, "repairing rar files", "info")
         pwdb.exc("db_msg_insert", [nzbname, "repairing rar files", "info"], {})
         logger.info(whoami() + "par2vol files present, repairing ...")
-        res0 = multipartrar_repair(renamed_dir, par2name, logger)
+        res0 = multipartrar_repair(renamed_dir, par2name, pwdb, nzbname, logger)
         if res0 == 1:
             logger.info(whoami() + "repair success")
             # pwdb.db_msg_insert(nzbname, "rar file repair success!", "info")
@@ -408,10 +408,11 @@ def multipartrar_test(directory, rarname0, logger):
     return status
 
 
-def multipartrar_repair(directory, parvolname, logger):
+def multipartrar_repair(directory, parvolname, pwdb, nzbname, logger):
     cwd0 = os.getcwd()
     os.chdir(directory)
     logger.info(whoami() + "checking if repair possible")
+    pwdb.exc("db_msg_insert", [nzbname, "checking if repair is possible", "info"], {})
     ssh = subprocess.Popen(['par2verify', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
     sshres = ssh.stdout.readlines()
     repair_is_required = False
@@ -425,6 +426,7 @@ def multipartrar_repair(directory, parvolname, logger):
             repair_is_possible = True
     if repair_is_possible and repair_is_required:
         logger.info(whoami() + "repair is required and possible, performing par2repair")
+        pwdb.exc("db_msg_insert", [nzbname, "repair is required and possible, performing par2repair", "info"], {})
         # repair
         ssh = subprocess.Popen(['par2repair', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
         sshres = ssh.stdout.readlines()
@@ -441,6 +443,7 @@ def multipartrar_repair(directory, parvolname, logger):
             exitstatus = 1
     elif repair_is_required and not repair_is_possible:
         logger.error(whoami() + "repair is required but not possible!")
+        pwdb.exc("db_msg_insert", [nzbname, "repair is required but not possible!", "error"], {})
         exitstatus = -1
     elif not repair_is_required and not repair_is_possible:
         logger.error(whoami() + "repair is not required - all OK!")

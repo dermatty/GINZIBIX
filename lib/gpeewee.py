@@ -1,17 +1,17 @@
-from peewee import Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField, BlobField
+from peewee import Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField, BlobField, DateTimeField
 from playhouse.sqlite_ext import CSqliteExtDatabase
 import os
 import shutil
 import time
 import glob
 import re
-import dill
 import zmq
 import threading
 import signal
 import inspect
 import sqlite3
 import _pickle as cpickle
+import datetime
 
 
 def whoami():
@@ -79,7 +79,7 @@ class PWDB():
 
         class TimestampedModel(BaseModel):
             def save(self, *args, **kwargs):
-                self.date_updated = time.time()
+                self.date_updated = datetime.datetime.now()
                 return super(TimestampedModel, self).save(*args, **kwargs)
 
         class CONFIG(BaseModel):
@@ -94,8 +94,8 @@ class PWDB():
         class NZB(TimestampedModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
-            date_updated = TimeField()
-            date_created = TimeField(default=time.time())
+            date_updated = DateTimeField(default=datetime.datetime.now())
+            date_created = DateTimeField(default=datetime.datetime.now())
             timestamp = TimeField()
             # nzb status:
             #    0 ... not queued yet
@@ -188,7 +188,7 @@ class PWDB():
 
         if self.db_file_exists:
             try:
-                # self.db_file.backup(self.db)
+                self.db_file.backup(self.db)
                 self.logger.debug(whoami() + "copied file db to :memory: db")
             except Exception as e:
                 self.logger.warning(whoami())
@@ -232,7 +232,7 @@ class PWDB():
 
     def get_all_data_for_gui(self):
         nzb_data = {}
-        all_sorted_nzbs = self.db_nzb_getall_sorted()
+        all_sorted_nzbs, _ = self.db_nzb_getall_sortedV2()
         for nzbdata in all_sorted_nzbs:
             n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
             nzb_data[n_name] = {}
@@ -307,15 +307,15 @@ class PWDB():
             return False
 
     def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2):
-        query = self.NZB.update(allfilelist_dill=allfilelist, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(allfilelist_dill=allfilelist, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
-        query = self.NZB.update(filetypecounter_dill=filetypecounter, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(filetypecounter_dill=filetypecounter, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
         already_downloaded_size = self.calc_already_downloaded_size(nzbname)
         allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
-        query = self.NZB.update(allfilesizes_dill=allfilesizes0, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(allfilesizes_dill=allfilesizes0, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
-        query = self.NZB.update(p2_dill=p2, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(p2_dill=p2, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_allfile_list(self, nzbname):
@@ -372,12 +372,12 @@ class PWDB():
 
     def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
         self.set_last_update_for_gui()
-        query = self.NZB.update(bytes_in_resultqueue=resqueue_size, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(bytes_in_resultqueue=resqueue_size, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_loadpar2vols(self, name0, lp2):
         self.set_last_update_for_gui()
-        query = self.NZB.update(loadpar2vols=lp2, date_updated=time.time()).where(self.NZB.name == name0)
+        query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
         query.execute()
         '''with self.db.atomic():
             try:
@@ -420,6 +420,12 @@ class PWDB():
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
 
+    def db_nzb_getall_sortedV2(self):
+        query = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2) | (self.NZB.status == 3)).order_by(+self.NZB.priority)
+        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue + self.db_nzb_get_downloadedsize(n.name))
+                   for n in query]
+        return nzblist, []
+
     def db_nzb_getall_sorted(self):
         query = self.NZB.select()
         nzbs = []
@@ -435,7 +441,7 @@ class PWDB():
 
     def db_nzb_set_password(self, nzbname, pw):
         self.set_last_update_for_gui()
-        query = self.NZB.update(password=pw, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(password=pw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_password(self, nzbname):
@@ -448,7 +454,7 @@ class PWDB():
 
     def db_nzb_set_ispw(self, nzbname, ispw):
         self.set_last_update_for_gui()
-        query = self.NZB.update(is_pw=ispw, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(is_pw=ispw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_get_ispw(self, nzbname):
@@ -461,17 +467,17 @@ class PWDB():
 
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
         self.set_last_update_for_gui()
-        query = self.NZB.update(unrar_status=newstatus, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(unrar_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_verify_status(self, nzbname, newstatus):
         self.set_last_update_for_gui()
-        query = self.NZB.update(verify_status=newstatus, date_updated=time.time()).where(self.NZB.name == nzbname)
+        query = self.NZB.update(verify_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_status(self, nzbname, newstatus):
         try:
-            query = self.NZB.update(status=newstatus, date_updated=time.time()).where(self.NZB.name == nzbname)
+            query = self.NZB.update(status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
             query.execute()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
@@ -829,7 +835,7 @@ class PWDB():
             except Exception as e:
                 matchidx = len(new_nzb_list) + mi_overflow
                 mi_overflow += 1
-            query = self.NZB.update(priority=matchidx+1, date_updated=time.time()).where(self.NZB.name == onzb)
+            query = self.NZB.update(priority=matchidx+1, date_updated=datetime.datetime.now()).where(self.NZB.name == onzb)
             query.execute()
         return first_has_changed, del_nzb_name
 
@@ -838,7 +844,7 @@ class PWDB():
         return self.sorted_nzbs_for_gui
 
     def store_sorted_nzbs(self):
-        sortednzbs = self.db_nzb_getall_sorted()
+        sortednzbs, _ = self.db_nzb_getall_sortedV2()
         if sortednzbs == []:
             sortednzbs = [-1]
         self.sorted_nzbs_for_gui = sortednzbs
@@ -1132,7 +1138,7 @@ def wrapper_main(cfg, dirs, logger):
     pwwt.do_loop()
 
     try:
-        # pwwt.db.backup(pwwt.db_file)
+        pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:
