@@ -1342,6 +1342,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         sh.nzbname = None
         sh.main_dir = None
         guiconnector.set_health(0, 0)
+        logger.info(whoami() + "*" * 20 + "dl_running: " + str(guiconnector.dl_running))
         with lock:
             if not guiconnector.dl_running:
                 time.sleep(1)
@@ -1356,6 +1357,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         bytescount0, _, _, filetypecounter, _, _, overall_size, _, p2, overall_size_wparvol, allfileslist = downloaddata
 
         stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+        logger.debug(whoami() + "downloader exited with status: " + str(stat0))
         if stat0 == 2:
             if return_reason == "connection_restart":
                 logger.debug(whoami() + "restarting connections")

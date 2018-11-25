@@ -70,6 +70,7 @@ class GUI_Connector(Thread):
         self.oldbytes0 = 0
         self.send_data = True
         self.sorted_nzbs = None
+        self.sorted_nzbshistory = None
         self.dlconfig = None
         self.netstatlist = []
         self.last_update_for_gui = 0
@@ -136,12 +137,13 @@ class GUI_Connector(Thread):
         else:
             full_data_for_gui = None
         with self.lock:
-            self.sorted_nzbs = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
+            self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
         if self.send_data:
             with self.lock:
                 try:
                     ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
-                            self.get_netstat(), self.sorted_nzbs, self.article_health, self.connection_health, self.dlconfig, full_data_for_gui)
+                            self.get_netstat(), self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
+                            self.dlconfig, full_data_for_gui)
                 except Exception as e:
                     self.logger.warning(whoami() + str(e))
         return ret0
@@ -169,7 +171,7 @@ class GUI_Connector(Thread):
                     self.logger.error(whoami() + str(e))
             if msg == "REQ":
                 getdata = self.get_data()
-                gd1, _, _, _, _, _, _, sortednzbs, _, _, _, _ = getdata
+                gd1, _, _, _, _, _, _, sortednzbs, _, _, _, _, _ = getdata
                 if gd1:
                     sendtuple = ("DL_DATA", getdata)
                 else:

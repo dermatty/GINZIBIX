@@ -50,6 +50,7 @@ class PWDB():
         self.logger = logger
         maindir = dirs["main"]
         self.sorted_nzbs_for_gui = None
+        self.sorted_nzbshistory_for_gui = None
         self.cfg = cfg
         self.lock = threading.Lock()
         self.last_update_for_gui = 0
@@ -395,11 +396,14 @@ class PWDB():
         return size
 
     def db_nzb_get_downloadedsize(self, name):
-        nzb0 = self.NZB.get(self.NZB.name == name)
-        size = 0
-        for a in nzb0.files:
-            size += self.db_file_get_downloadedsize(a.orig_name)
-        return size
+        try:
+            nzb0 = self.NZB.get(self.NZB.name == name)
+            size = 0
+            for a in nzb0.files:
+                size += self.db_file_get_downloadedsize(a.orig_name)
+            return size
+        except Exception as e:
+            return 0
 
     def db_nzb_exists(self, name):
         try:
@@ -421,10 +425,12 @@ class PWDB():
         return nzbs
 
     def db_nzb_getall_sortedV2(self):
-        query = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2) | (self.NZB.status == 3)).order_by(+self.NZB.priority)
+        query = self.NZB.select().order_by(+self.NZB.priority)
         nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue + self.db_nzb_get_downloadedsize(n.name))
-                   for n in query]
-        return nzblist, []
+                   for n in query if n.status in [1, 2, 3]]
+        nzblist_history = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue
+                            + self.db_nzb_get_downloadedsize(n.priority)) for n in query if n.status in [4, -1, -2, -3, -4]]
+        return nzblist, nzblist_history
 
     def db_nzb_getall_sorted(self):
         query = self.NZB.select()
@@ -548,6 +554,7 @@ class PWDB():
         if file0.status != 2:
             return 0
         return sum([a.size for a in file0.articles])
+        
 
     def db_file_getsize_renamed(self, name):
         file0 = self.FILE.get(self.FILE.renamed_name == name)
@@ -841,13 +848,16 @@ class PWDB():
 
     # ---- send sorted nzbs to guiconnector ---
     def get_stored_sorted_nzbs(self):
-        return self.sorted_nzbs_for_gui
+        return self.sorted_nzbs_for_gui, self.sorted_nzbshistory_for_gui
 
     def store_sorted_nzbs(self):
-        sortednzbs, _ = self.db_nzb_getall_sortedV2()
+        sortednzbs, sortednzbs_history = self.db_nzb_getall_sortedV2()
         if sortednzbs == []:
             sortednzbs = [-1]
+        if sortednzbs_history == []:
+            sortednzbs_history = [-1]
         self.sorted_nzbs_for_gui = sortednzbs
+        self.sorted_nzbshistory_for_gui = sortednzbs_history
 
     # ---- log info for nzb in db ###
     def log(self, nzbname, logmsg, loglevel, logger):

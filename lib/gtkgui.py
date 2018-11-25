@@ -121,6 +121,7 @@ class AppData:
         self.crit_art_health = 0.95
         self.crit_conn_health = 0.5
         self.sortednzblist = None
+        self.sortednzbhistorylist = None
         self.dldata = None
         self.netstat_mbitcur = None
         self.logdata = None
@@ -816,7 +817,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.levelbar_connhealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_conn_health)) * 100)) + "%")
 
     def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
-                          article_health, connection_health, dlconfig, fulldata):
+                          sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata):
 
         if fulldata and self.appdata.fulldata != fulldata:
             self.appdata.fulldata = fulldata
@@ -876,6 +877,9 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_liststore()
             self.appdata.sortednzblist = sortednzblist0[:]
             self.appdata.block_update_dldata = False
+
+        if (sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist):
+            pass
 
         if data and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
@@ -1052,11 +1056,11 @@ class GUI_Poller(Thread):
                         time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, \
+                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
                             article_health, connection_health, dlconfig, full_data = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
-                                          netstat_mbitcurr, sortednzblist, article_health, connection_health, dlconfig, full_data)
+                                          netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
                         except Exception as e:
                             self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:
