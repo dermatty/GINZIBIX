@@ -74,6 +74,7 @@ class GUI_Connector(Thread):
         self.dlconfig = None
         self.netstatlist = []
         self.last_update_for_gui = 0
+        self.closeall = False
 
     def set_health(self, article_health, connection_health):
         with self.lock:
@@ -126,7 +127,7 @@ class GUI_Connector(Thread):
             return 0
 
     def get_data(self):
-        ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
+        ret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
         with self.lock:
             lastt = self.pwdb.exc("get_last_update_for_gui", [], {})
         if lastt > self.last_update_for_gui:
@@ -180,6 +181,14 @@ class GUI_Connector(Thread):
                     self.socket.send_pyobj(sendtuple)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
+            elif msg == "SET_CLOSEALL":
+                try:
+                    self.socket.send_pyobj(("SET_CLOSE_OK", None))
+                    with self.lock:
+                        self.closeall = True
+                except Exception as e:
+                    self.logger.error(whoami() + str(e))
+                continue
             elif msg == "SET_PAUSE":     # pause downloads
                 try:
                     self.socket.send_pyobj(("SET_PAUSE_OK", None))

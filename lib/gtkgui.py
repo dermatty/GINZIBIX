@@ -128,6 +128,7 @@ class AppData:
         self.article_health = 0
         self.connection_health = 0
         self.fulldata = None
+        self.closeall = False
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -191,6 +192,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.show_nzb_stack(self.stacknzb_box)
         self.stackdetails_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
         stack.add_titled(self.stackdetails_box, "nzbhistory", "NZB HISTORY")
+        self.show_details_stack(self.stackdetails_box)
         self.stacklogs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
         stack.add_titled(self.stacklogs_box, "settings", "SETTINGS")
         self.stacksearch_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=32)
@@ -250,6 +252,11 @@ class AppWindow(Gtk.ApplicationWindow):
         boxvertical.pack_start(self.box_health, True, True, 0)
 
         box_main.pack_start(stack, True, True, 0)
+
+    def show_details_stack(self, stackdetails_box):
+        frame2 = Gtk.Frame()
+        frame2.set_label("NZB History")
+        stackdetails_box.pack_start(frame2, True, True, 0)
 
     def show_nzb_stack(self, stacknzb_box):
         frame2 = Gtk.Frame()
@@ -805,6 +812,9 @@ class AppWindow(Gtk.ApplicationWindow):
             self.cfg["GTKGUI"]["MAX_MBITSEC"] = str(int(self.appdata.max_mbitsec))
             with open(self.cfg_file, 'w') as configfile:
                 self.cfg.write(configfile)
+        self.appdata.closeall = True
+        while self.appdata.closeall:
+            time.sleep(0.1)
 
     def update_crit_health_levelbars(self):
         crit_art_health = self.appdata.crit_art_health
@@ -1016,8 +1026,19 @@ class GUI_Poller(Thread):
                 dl_running_new = self.appdata.dl_running
                 order_changed = self.appdata.order_changed
                 nzb_deleted = self.appdata.nzb_deleted
+                closeall = self.appdata.closeall
+            if closeall:
+                msg0 = "SET_CLOSEALL"
+                self.logger.error("GUI_ConnectorMain: send closeall to guiconnector")
+                try:
+                    self.socket.send_pyobj((msg0, None))
+                    datatype, datarec = self.socket.recv_pyobj()
+                    with self.lock:
+                        self.appdata.closeall = False
+                except Exception as e:
+                    self.logger.error("GUI_ConnectorMain: " + str(e))
             # if download state switched -> send to main.py
-            if dl_running_new != dl_running:
+            elif dl_running_new != dl_running:
                 dl_running = dl_running_new
                 if dl_running:
                     msg0 = "SET_RESUME"

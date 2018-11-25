@@ -45,7 +45,7 @@ class SigHandler_Ginzibix:
         if self.mpp_main:
             if self.mpp_main.pid:
                 try:
-                    os.kill(self.mpp_main.pid, signal.SIGTERM)
+                    # os.kill(self.mpp_main.pid, signal.SIGTERM)
                     self.mpp_main.join()
                 except Exception as e:
                     logger.warning(whoami() + str(e))
