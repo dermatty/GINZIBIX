@@ -504,6 +504,7 @@ class Downloader():
             except Exception as e:
                 self.logger.warning(str(e))
             self.mpp["verifier"] = None
+        # if unrarer not running (if e.g. all files)
         ispw = self.pwdb.exc("db_nzb_get_ispw", [nzbname], {})
         if ispw:
             get_pw_direct0 = False
@@ -530,6 +531,23 @@ class Downloader():
             self.mpp_unrarer.start()
             self.mpp["unrarer"] = self.mpp_unrarer
             self.sighandler.mpp = self.mpp
+        # start unrarer if never started and ok verified/repaired
+        elif not self.mpp["unrarer"]:
+            try:
+                verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
+                unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
+            if verifystatus > 0 and unrarstatus == 0:
+                try:
+                    self.logger.debug(whoami() + "unrarer passiv until now, starting ...")
+                    self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                              nzbname, self.logger, None, self.cfg, ))
+                    self.mpp_unrarer.start()
+                    self.mpp["unrarer"] = self.mpp_unrarer
+                    self.sighandler.mpp = self.mpp
+                except Exception as e:
+                    self.logger.warning(whoami() + str(e))
         finalverifierstate = (self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
         # join unrarer
         if self.mpp["unrarer"]:
@@ -544,7 +562,7 @@ class Downloader():
                         while unrarer_is_idle() and time.time() - t0 < 5:
                             time.sleep(0.5)
                         if time.time() - t0 >= 5:
-                            self.logger.info("Unrarer deadlock, killing unrarer!")
+                            self.logger.info(whoami() + "Unrarer deadlock, killing unrarer!")
                             try:
                                 os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
                             except Exception as e:
@@ -911,6 +929,7 @@ class Downloader():
                         article_count += article_count0
                 except (queue.Empty, EOFError):
                     break
+                break
 
             # closeall command from gui
             return_reason = None

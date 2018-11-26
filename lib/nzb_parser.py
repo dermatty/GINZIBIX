@@ -8,6 +8,7 @@ from lxml import etree
 import inspect
 import signal
 from .aux import PWDBSender
+import re
 
 
 def whoami():
@@ -60,13 +61,29 @@ def decompose_nzb(nzb, logger):
     bytescount0 = 0
     for r in nzbroot:
         headers = r.attrib
-
         try:
             date = headers["date"]
             age = int((time.time() - float(date))/(24 * 3600))
-
             subject = headers["subject"]
-            hn_list = subject.split('"')
+            subjectyenc = subject.split("yEnc")
+            # if we cannot split by "yenc" -> take the whole subject name and hope for the best
+            if len(subjectyenc) == 1:
+                hn = subjectyenc[0]
+            else:
+                # 2: look for extensions in list
+                extlist = ["par2", "PAR2", "rar", "txt", "nfo", "nzb", "sfo"]
+                hn = None
+                for ext in extlist:
+                    gg = re.search(r'[^ "]*.[.]' + ext, subjectyenc[0])
+                    try:
+                        hn = gg.group()
+                        break
+                    except Exception as e:
+                        pass
+                if not hn:
+                    hn = subjectyenc[0]
+
+            '''hn_list = subject.split('"')
             # If no "" for filenames -> :: is separator
             if len(hn_list) == 1:
                 hn_list = subject.split("::")
@@ -77,7 +94,7 @@ def decompose_nzb(nzb, logger):
                 hn = hn_list[1].lstrip(".")         # must not start with "." to be detected by "glob"
             else:
                 hn = hn_list[1]
-            
+            # print(subject, hn)'''
         except Exception as e:
             continue
         for s in r:
@@ -195,12 +212,14 @@ def ParseNZB(cfg, dirs, logger):
     logger.debug(whoami() + "exited!")
 
 
-#import logging
-#nzb = "/home/stephan/.ginzibix/nzb/Ozark.S02E06.GERMAN.DL.1080p.WEB.x264.iNTERNAL-EiSBOCK-xpost.nzb"
-#logger = logging.getLogger(__name__)
-#filedic, bytescount0 = decompose_nzb(nzb, logger)
+'''import logging
+nzb = "/home/stephan/.ginzibix/nzb/Das.Boot.2018.S01E01.GERMAN.720p.HDTV.x264-ACED.nzb"
+logger = logging.getLogger(__name__)
+filedic, bytescount0 = decompose_nzb(nzb, logger)
 # print(bytescount0, filedic)
-#print("-" * 60)
-#nzb = "/home/stephan/.ginzibix/nzb/Yogi.Baer.German.DVDRiP.XViD-ROOR{{STUFF4YOU}}.nzb"
-#filedic, bytescount0 = decompose_nzb(nzb, logger)
-#print(bytescount0)
+print("-" * 60)
+nzb = "/home/stephan/.ginzibix/nzb_bak/Die.Schtis.in.Paris.Eine.Familie.auf.Abwegen.German.2018.AC3.BDRip.x264-iNKLUSiON.nzb"
+filedic, bytescount0 = decompose_nzb(nzb, logger)
+print("-" * 60)
+nzb = "/home/stephan/.ginzibix/nzb_bak/Das.Boot.2018.S01E01.GERMAN.1080p.HDTV.h264.INTERNAL-ACED-xpost.nzb"
+filedic, bytescount0 = decompose_nzb(nzb, logger)'''

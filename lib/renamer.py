@@ -143,7 +143,6 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                 oldft = pwdb.exc("db_file_get_orig_filetype", [a_name], {})
                 # pwdb.db_file_set_renamed_name(a_name, r_name)
                 pwdb.exc("db_file_set_renamed_name", [a_name, r_name], {})
-                # pwdb.db_file_set_file_type(a_name, "rar")
                 pwdb.exc("db_file_set_file_type", [a_name, "rar"], {})
                 renamer_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
                 # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")

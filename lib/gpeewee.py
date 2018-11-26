@@ -1125,7 +1125,7 @@ class PWDB():
                     self.logger.warning(whoami() + "not all par2vol downloaded, deleting nzb in db/filesystem")
                     self.nzb_reset(nzbname, incompletedir, nzbdir)
                     return None
-            # check all other filetypes if complete
+            # check all other filetypepars if complete
             inconsistent = False
             for fset in ["par2", "rar", "sfv", "nfo", "etc"]:
                 if filetypecounter[fset]["max"] > filetypecounter[fset]["counter"]:

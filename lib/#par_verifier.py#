@@ -204,7 +204,7 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nz
         # pwdb.db_msg_insert(nzbname, "rar file repair failed, no par files available", "error")
         pwdb.exc("db_msg_insert", ["nzbname", "rar file repair failed, no par files available", "error"], {})
         logger.warning(whoami() + "some rars are corrupt but cannot repair (no par2 files)")
-        pwdb.exc("db_nzb_update_verify_status", [nzbname, 2], {})
+        pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
         # pwdb.db_nzb_update_verify_status(nzbname, 2)
     logger.info(whoami() + "terminated!")
 

@@ -2,6 +2,8 @@
 # move part of postprocessor to own routine
 # parallel download
 
+unrarer does not start after repair
+	is never started if no file appears in verifiedrardir (e.g. if all rars are corrupt)
 gui download levelbar% does not update regularely
 messages "downloaded" and "md5 hash does not match" not in sync
 
