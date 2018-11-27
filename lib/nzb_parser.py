@@ -82,19 +82,10 @@ def decompose_nzb(nzb, logger):
                         pass
                 if not hn:
                     hn = subjectyenc[0]
-
-            '''hn_list = subject.split('"')
-            # If no "" for filenames -> :: is separator
-            if len(hn_list) == 1:
-                hn_list = subject.split("::")
-            # else: take full name
-            if len(hn_list) == 1:
-                hn_list = list(subject)
-            if hn_list[1].startswith("."):
-                hn = hn_list[1].lstrip(".")         # must not start with "." to be detected by "glob"
-            else:
-                hn = hn_list[1]
-            # print(subject, hn)'''
+            # remove spaces, / and \ in filennames and replace with "."
+            hn = hn.replace(" ", ".")
+            hn = hn.replace("/", ".")
+            hn = hn.replace("\\", ".")
         except Exception as e:
             continue
         for s in r:
