@@ -379,7 +379,10 @@ class Downloader():
         infolist = infolist00
         files = files00
         failed = 0
+        articles_processed = 0
         while True:
+            if articles_processed > 10:
+                break
             try:
                 resultarticle = self.resultqueue.get_nowait()
                 self.resultqueue.task_done()
@@ -413,6 +416,7 @@ class Downloader():
                 pass
             except (queue.Empty, EOFError):
                 break
+            articles_processed += 1
         if len(avgmiblist) > 50:
             avgmiblist = avgmiblist[:50]
         return newresult, avgmiblist, infolist, files, failed
@@ -806,17 +810,6 @@ class Downloader():
         self.make_dirs(nzbname)
         self.sighandler.main_dir = self.main_dir
 
-        # start decoder mpp
-        #self.logger.debug(whoami() + "starting decoder process ...")
-        #self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
-        #self.mpp_decoder.start()
-        #self.mpp["decoder"] = self.mpp_decoder
-
-        # start renamer
-        '''self.logger.debug(whoami() + "starting renamer process ...")
-        self.mpp_renamer = mp.Process(target=renamer, args=(self.download_dir, self.rename_dir, self.cfg, self.mp_result_queue, self.logger, ))
-        self.mpp_renamer.start()
-        self.mpp["renamer"] = self.mpp_renamer'''
         self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir))
 
         self.sighandler.mpp = self.mpp
@@ -833,11 +826,9 @@ class Downloader():
 
         # sanity check
         inject_set_sanity = []
-        # if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.db_nzb_loadpar2vols(nzbname):
         if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.exc("db_nzb_loadpar2vols", [nzbname], {}):
             sanity0 = self.do_sanity_check(allfileslist, files, infolist, bytescount0, filetypecounter)
             if sanity0 < 1:
-                # self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
                 self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
                 overall_size = overall_size_wparvol
                 self.logger.info(whoami() + "queuing par2vols")
@@ -1044,12 +1035,10 @@ class Downloader():
                 if (article_health < self.crit_art_health_wo_par and filetypecounter["par2vol"]["max"] == 0) \
                    or (filetypecounter["parvols"]["max"] > 0 and article_health <= self.crit_art_health_w_par):
                     self.logger.info(whoami() + "articles missing and cannot repair, exiting download")
-                    # self.pwdb.db_nzb_update_status(nzbname, -2)
                     self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
                     self.guiconnector.set_data((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname,
                                                 article_health, overall_size, already_downloaded_size), self.ct.threads,
                                                self.ct.servers.server_config, "failed", self.serverconfig())
-                    # self.pwdb.db_msg_insert(nzbname, "critical health threashold exceeded", "error")
                     self.pwdb.exc("db_msg_insert", [nzbname, "critical health threashold exceeded", "error"], {})
                     return_reason = "dl_failed"
                     return nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,

@@ -1020,6 +1020,7 @@ class GUI_Poller(Thread):
         # self.socket.RCVTIMEO = 1000
         dl_running = True
         order_changed = False
+        lastt0 = time.time()
         while True:
             sortednzblist = []
             with self.lock:
@@ -1029,14 +1030,14 @@ class GUI_Poller(Thread):
                 closeall = self.appdata.closeall
             if closeall:
                 msg0 = "SET_CLOSEALL"
-                self.logger.error("GUI_ConnectorMain: send closeall to guiconnector")
+                self.logger.debug(whoami() + "sending closeall to guiconnector")
                 try:
                     self.socket.send_pyobj((msg0, None))
                     datatype, datarec = self.socket.recv_pyobj()
                     with self.lock:
                         self.appdata.closeall = False
                 except Exception as e:
-                    self.logger.error("GUI_ConnectorMain: " + str(e))
+                    self.logger.error(whoami() + str(e))
             # if download state switched -> send to main.py
             elif dl_running_new != dl_running:
                 dl_running = dl_running_new
@@ -1074,19 +1075,25 @@ class GUI_Poller(Thread):
                     self.socket.send_pyobj(("REQ", None))
                     datatype, datarec = self.socket.recv_pyobj()
                     if datatype == "NOOK":
-                        time.sleep(self.delay)
+                        #print(lastt0 - time.time(), "NOOK")
+                        #lastt0 = time.time()
+                        # time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
                         data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
                             article_health, connection_health, dlconfig, full_data = datarec
                         try:
+                            #print(lastt0 - time.time(), "DATA")
+                            #lastt0 = time.time()
                             GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
+                            time.sleep(self.delay)
+                            continue
                         except Exception as e:
                             self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
-            time.sleep(self.delay)
+            # time.sleep(self.delay)
 
 
 class File_Poller(Thread):

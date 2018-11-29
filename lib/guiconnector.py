@@ -68,13 +68,18 @@ class GUI_Connector(Thread):
         self.deleted_nzb_name = None
         self.old_t = 0
         self.oldbytes0 = 0
-        self.send_data = True
         self.sorted_nzbs = None
         self.sorted_nzbshistory = None
         self.dlconfig = None
         self.netstatlist = []
         self.last_update_for_gui = 0
         self.closeall = False
+        self.oldret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
+        try:
+            self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
+        except Exception as e:
+            self.logger.debug(whoami() + str(e) + ": setting update delay to 0.5 sec")
+            self.update_delay = 0.5
 
     def set_health(self, article_health, connection_health):
         with self.lock:
@@ -87,7 +92,6 @@ class GUI_Connector(Thread):
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
                 self.data = data
                 self.nzbname = nzbname
-                # self.pwdb_msg = self.pwdb.db_msg_get(nzbname)
                 self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
                 self.server_config = server_config
                 self.status = status
@@ -96,9 +100,6 @@ class GUI_Connector(Thread):
                 for k, (t, last_timestamp) in enumerate(threads):
                     append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
                     self.threads.append(append_tuple)
-                self.send_data = True
-            else:
-                self.send_data = False
 
     def get_netstat(self):
         pid = os.getpid()
@@ -129,24 +130,19 @@ class GUI_Connector(Thread):
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
         with self.lock:
-            lastt = self.pwdb.exc("get_last_update_for_gui", [], {})
-        if lastt > self.last_update_for_gui:
-            self.send_data = True
-            with self.lock:
-                full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
-            self.last_update_for_gui = lastt
-        else:
-            full_data_for_gui = None
-        with self.lock:
+            full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
-        if self.send_data:
-            with self.lock:
-                try:
-                    ret0 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
-                            self.get_netstat(), self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
-                            self.dlconfig, full_data_for_gui)
-                except Exception as e:
-                    self.logger.warning(whoami() + str(e))
+            try:
+                ret1 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
+                        self.get_netstat(), self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
+                        self.dlconfig, full_data_for_gui)
+                match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
+                # only send new data if something has changed (except network usage) or network_usage_change > 5%
+                if match_ret != [6] or (match_ret == [6] and abs(ret1[6] / self.oldret0[6] - 1) > 0.05):
+                    self.oldret0 = ret1
+                    ret0 = ret1
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
         return ret0
 
     def has_first_nzb_changed(self):
@@ -171,12 +167,15 @@ class GUI_Connector(Thread):
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
             if msg == "REQ":
-                getdata = self.get_data()
-                gd1, _, _, _, _, _, _, sortednzbs, _, _, _, _, _ = getdata
-                if gd1:
-                    sendtuple = ("DL_DATA", getdata)
-                else:
-                    sendtuple = ("NOOK", getdata)
+                try:
+                    getdata = self.get_data()
+                    gd1, _, _, _, _, _, _, _, _, _, _, _, _ = getdata
+                    if gd1:
+                        sendtuple = ("DL_DATA", getdata)
+                    else:
+                        sendtuple = ("NOOK", getdata)
+                except Exception as e:
+                    self.logger.error(whoami() + str(e))
                 try:
                     self.socket.send_pyobj(sendtuple)
                 except Exception as e:
