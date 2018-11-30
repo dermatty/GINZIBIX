@@ -156,11 +156,9 @@ def ParseNZB(cfg, dirs, logger):
             for nzb in glob.glob("*.nzb"):
                 nzb0 = nzb.split("/")[-1]
                 if pwdb.exc("db_nzb_exists", [nzb0], {}):
-                    # if pwdb.db_nzb_exists(nzb0):
                     logger.warning(whoami() + " NZB file " + nzb0 + " already exists in DB")
                     continue
                 logger.info(whoami() + "inserting " + nzb0 + "into db")
-                # newnzb = pwdb.db_nzb_insert(nzb0)
                 newnzb = pwdb.exc("db_nzb_insert", [nzb0], {})
                 if newnzb:
                     logger.info(whoami() + "new NZB file " + nzb0 + " detected")
@@ -169,7 +167,6 @@ def ParseNZB(cfg, dirs, logger):
                     filedic, bytescount = decompose_nzb(nzb, logger)
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
-                        # pwdb.db_nzb_update_status(nzb0, -2)         # status "cannot queue / -2"
                         pwdb.exc("db_nzb_update_status", [nzb0, -2], {})   # status "cannot queue / -2"
                     else:
                         size_gb = bytescount / (1024 * 1024 * 1024)
@@ -179,25 +176,28 @@ def ParseNZB(cfg, dirs, logger):
                         for key, items in filedic.items():
                             data = []
                             for i, it in enumerate(items):
+                                if TERMINATED:
+                                    break
                                 if i == 0:
                                     age, nr0 = it
                                     ftype = get_file_type(key)
                                     logger.debug(whoami() + "analysing and inserting file " + key + " + articles: age=" + str(age) + " / nr=" + str(nr0)
                                                  + " / type=" + ftype)
-                                    # newfile = pwdb.db_file_insert(key, newnzb, nr0, age, ftype)
                                     newfile = pwdb.exc("db_file_insert", [key, newnzb, nr0, age, ftype], {})
                                 else:
                                     fn, no, size = it
                                     data.append((fn, newfile, size, no, time.time()))
-                            # pwdb.db_article_insert_many(data)
+                            if TERMINATED:
+                                break
                             pwdb.exc("db_article_insert_many", [data], {})
+                        if TERMINATED:
+                            break
                         logger.info(whoami() + "Added NZB: " + infostr + " to database / queue")
-                        # pwdb.db_nzb_update_status(nzb0, 1)         # status "queued / 1"
                         pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
                         pwdb.exc("store_sorted_nzbs", [], {})
                         pwdb.exc("create_allfile_list_via_name", [nzb0, incompletedir], {})
-            time.sleep(3)
+            time.sleep(0.2)
             isfirstrun = False
     os.chdir(cwd0)
     logger.debug(whoami() + "exited!")

@@ -1109,7 +1109,8 @@ class Downloader():
 
 
 def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
-    # waiting for nzb_parser to insert all nzbs in nzbdir into db
+    # waiting for nzb_parser to insert all nzbs in nzbdir into db ---> this is a problem, because startup takes
+    # long with many nzbs!!
     try:
         nzbs_in_nzbdirs = [n.split("/")[-1] for n in glob.glob(dirs["nzb"] + "*")]
         if nzbs_in_nzbdirs:

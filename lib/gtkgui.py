@@ -272,7 +272,9 @@ class AppWindow(Gtk.ApplicationWindow):
         self.update_nzbhistory_liststore()
         treeview = Gtk.TreeView(model=self.liststore_nzbhistory)
         # treeview.set_reorderable(True)
-        # treeview.get_selection().connect("changed", self.on_selection_changed)
+        sel = treeview.get_selection()
+        sel.set_mode(Gtk.SelectionMode.NONE)
+        # treeview.get_selection().connect("changed", self.on_selection_changed_nzbhistory)
         # 0st column: NZB name
         renderer_text0 = Gtk.CellRendererText()
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
@@ -768,14 +770,15 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore.set_value(iter, 5, str(n_perc) + "%")
         self.liststore.set_value(iter, 7, self.nzb_status_string)
         self.liststore.set_value(iter, 8, n_bgcolor)
-
-        # print("*********", n_perc)
-        if self.appdata.mbitsec > 0 and self.dl_running:
-            eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
-            if eta0 < 0:
-                eta0 = 0
-            etastr = str(datetime.timedelta(seconds=int(eta0)))
-        else:
+        try:
+            if self.appdata.mbitsec > 0 and self.dl_running:
+                eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
+                if eta0 < 0:
+                    eta0 = 0
+                etastr = str(datetime.timedelta(seconds=int(eta0)))
+            else:
+                etastr = "-"
+        except Exception as e:
             etastr = "-"
         self.liststore.set_value(iter, 4, etastr)
         if len(self.appdata.nzbs) > 0:
@@ -808,6 +811,11 @@ class AppWindow(Gtk.ApplicationWindow):
 
     def on_selection_changed(self, selection):
         (model, iter) = selection.get_selected()
+
+    def on_selection_changed_nzbhistory(self, selection):
+        # (model, iter) = selection.get_selected()
+        print("------")
+        pass
 
     def header_bar(self):
         hb = Gtk.HeaderBar(spacing=20)

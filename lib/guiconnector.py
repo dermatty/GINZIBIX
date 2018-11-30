@@ -102,17 +102,25 @@ class GUI_Connector(Thread):
                     self.threads.append(append_tuple)
 
     def get_netstat(self):
-        pid = os.getpid()
-        with open("/proc/" + str(pid) + "/net/netstat", "r") as f:
-            bytes0 = None
-            for line in f:
-                if line.startswith("IpExt"):
-                    line0 = line.split(" ")
-                    try:
-                        bytes0 = int(line0[7])
-                        break
-                    except Exception:
-                        pass
+        try:
+            if self.threads:
+                bytes0 = sum([bytesdownloaded for bytesdownloaded, _, _, _ in self.threads])
+            else:
+                bytes0 = 0
+        except Exception as e:
+            print(str(e))
+            
+        #pid = os.getpid()
+        #with open("/proc/" + str(pid) + "/net/netstat", "r") as f:
+        #    bytes0 = None
+        #    for line in f:
+        #        if line.startswith("IpExt"):
+        #            line0 = line.split(" ")
+        #            try:
+        #                bytes0 = int(line0[7])
+        #                break
+        #            except Exception:
+        #                pass
         if bytes0:
             dt = time.time() - self.old_t
             if dt == 0:
@@ -121,7 +129,7 @@ class GUI_Connector(Thread):
             mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
             self.oldbytes0 = bytes0
             self.netstatlist.append(mbitcurr)
-            if len(self.netstatlist) > 4:
+            if len(self.netstatlist) > 20:
                 del self.netstatlist[0]
             return mean(self.netstatlist)
         else:

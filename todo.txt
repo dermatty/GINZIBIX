@@ -1,7 +1,12 @@
-# sighandler does not always stop!!
-# move part of postprocessor to own routine
 # parallel download
 
-messages "downloaded" and "md5 hash does not match" not in sync
-
-
+1. nzb nzb parser in case ginzibix terminated -> should work, test
+2. nzbparser takes too long to start up with many nzbs -> problem is 1114 ff in main.py
+4. messages "downloaded" and "md5 hash does not match" not in sync
+5. show overall eta in gui / NZB_QUEUE
+6. if press on_select in NZB_HISTORY -> no headers in NZB_QUEUE anymore!
+   gtkgui l275 - get_selection ?????
+7. implement "add nzb" feature in gtkgui / NZB_QUEUE
+8. restart ginzibix with interrupted download before hangs / is slow with many
+nzbs
+9. NZB_HISTORY only updated if NZB_QUEUE is updated
