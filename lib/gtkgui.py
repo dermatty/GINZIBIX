@@ -129,6 +129,7 @@ class AppData:
         self.connection_health = 0
         self.fulldata = None
         self.closeall = False
+        self.nzbs_history = []
 
 
 class AppWindow(Gtk.ApplicationWindow):
@@ -142,6 +143,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.lock = threading.Lock()
         self.liststore = None
         self.liststore_s = None
+        self.liststore_nzbhistory = None
         self.mbitlabel2 = None
         self.single_selected = None
         try:
@@ -257,6 +259,35 @@ class AppWindow(Gtk.ApplicationWindow):
         frame2 = Gtk.Frame()
         frame2.set_label("NZB History")
         stackdetails_box.pack_start(frame2, True, True, 0)
+        # scrolled window
+        scrolled_window = Gtk.ScrolledWindow()
+        scrolled_window.set_border_width(10)
+        scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled_window.set_property("min-content-height", 380)
+        frame2.add(scrolled_window)
+        listbox = Gtk.ListBox()
+        row = Gtk.ListBoxRow()
+        # populate liststore_nzbhistory
+        self.liststore_nzbhistory = Gtk.ListStore(str, int)
+        self.update_nzbhistory_liststore()
+        treeview = Gtk.TreeView(model=self.liststore_nzbhistory)
+        # treeview.set_reorderable(True)
+        # treeview.get_selection().connect("changed", self.on_selection_changed)
+        # 0st column: NZB name
+        renderer_text0 = Gtk.CellRendererText()
+        column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
+        column_text0.set_expand(True)
+        column_text0.set_min_width(320)
+        treeview.append_column(column_text0)
+        # 1th column status
+        renderer_text1 = Gtk.CellRendererText()
+        column_text1 = Gtk.TreeViewColumn("Status", renderer_text1, text=1)
+        column_text1.set_min_width(80)
+        treeview.append_column(column_text1)
+        # final
+        row.add(treeview)
+        listbox.add(row)
+        scrolled_window.add(listbox)
 
     def show_nzb_stack(self, stacknzb_box):
         frame2 = Gtk.Frame()
@@ -637,6 +668,15 @@ class AppWindow(Gtk.ApplicationWindow):
             log_as_list.append(fg)
             self.logliststore.append(log_as_list)
 
+    def update_nzbhistory_liststore(self):
+        self.liststore_nzbhistory.clear()
+        for i, nzb in enumerate(self.appdata.nzbs_history):
+            nzb_as_list = list(nzb)
+            if i == 0:
+                self.current_iter = self.liststore_nzbhistory.append(nzb_as_list)
+            else:
+                self.liststore_nzbhistory.append(nzb_as_list)
+
     def update_liststore(self, only_eta=False):
         # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
         if only_eta:
@@ -850,10 +890,21 @@ class AppWindow(Gtk.ApplicationWindow):
             self.appdata.connection_health = connection_health
             self.update_health()
 
-        #if logdata != self.appdata.logdata:
-        #    self.appdata.logdata = logdata
-        #    self.update_logstore()
+        # nzbhistory
+        if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
+            if sortednzbhistorylist0 == [-1]:
+                sortednzbhistorylist = []
+            else:
+                sortednzbhistorylist = sortednzbhistorylist0
+            nzbs_copy = self.appdata.nzbs_history.copy()
+            self.appdata.nzbs_history = []
+            for idx1, (n_name, n_prio, n_updatedate, n_status, n_siz, n_downloaded) in enumerate(sortednzbhistorylist):
+                self.appdata.nzbs_history.append((n_name, n_status))
+            if nzbs_copy != self.appdata.nzbs_history:
+                self.update_nzbhistory_liststore()
+            self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
 
+        # downloading nzbs
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
             # sort again just to make sure
             # print(sortednzblist0, self.appdata.sortednzblist)

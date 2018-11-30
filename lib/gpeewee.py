@@ -96,7 +96,6 @@ class PWDB():
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
             date_updated = DateTimeField(default=datetime.datetime.now())
-            date_created = DateTimeField(default=datetime.datetime.now())
             timestamp = TimeField()
             # nzb status:
             #    0 ... not queued yet
@@ -222,15 +221,6 @@ class PWDB():
         global TERMINATED
         TERMINATED = True
 
-    def get_last_update_for_gui(self):
-        with self.lock:
-            res0 = self.last_update_for_gui
-        return res0
-
-    def set_last_update_for_gui(self):
-        with self.lock:
-            self.last_update_for_gui = time.time()
-
     def get_all_data_for_gui(self):
         nzb_data = {}
         all_sorted_nzbs, _ = self.db_nzb_getall_sortedV2()
@@ -284,7 +274,6 @@ class PWDB():
             return None
 
     def db_msg_removeall(self, nzbname0):
-        self.set_last_update_for_gui()
         try:
             query = self.MSG.delete().where(self.MSG.nzbname == nzbname0)
             query.execute()
@@ -349,11 +338,9 @@ class PWDB():
         except Exception as e:
             new_nzbname = None
             self.logger.warning(whoami() + str(e))
-        self.set_last_update_for_gui()
         return new_nzbname
 
     def db_nzb_delete(self, nzbname):
-        self.set_last_update_for_gui()
         files = self.FILE.select().where(self.FILE.nzb.name == nzbname)
         for f0 in files:
             query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry.orig_name == f0.orig_name)
@@ -372,12 +359,10 @@ class PWDB():
             return False
 
     def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
-        self.set_last_update_for_gui()
         query = self.NZB.update(bytes_in_resultqueue=resqueue_size, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_loadpar2vols(self, name0, lp2):
-        self.set_last_update_for_gui()
         query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
         query.execute()
         '''with self.db.atomic():
@@ -414,7 +399,6 @@ class PWDB():
             return False
 
     def db_nzb_deleteall(self):
-        self.set_last_update_for_gui()
         query = self.NZB.delete()
         query.execute()
 
@@ -428,7 +412,8 @@ class PWDB():
         query = self.NZB.select().order_by(+self.NZB.priority)
         nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue + self.db_nzb_get_downloadedsize(n.name))
                    for n in query if n.status in [1, 2, 3]]
-        nzblist_history = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue
+        query = self.NZB.select().order_by(-self.NZB.date_updated)
+        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue
                             + self.db_nzb_get_downloadedsize(n.priority)) for n in query if n.status in [4, -1, -2, -3, -4]]
         return nzblist, nzblist_history
 
@@ -446,7 +431,6 @@ class PWDB():
             return []
 
     def db_nzb_set_password(self, nzbname, pw):
-        self.set_last_update_for_gui()
         query = self.NZB.update(password=pw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
@@ -459,7 +443,6 @@ class PWDB():
             return None
 
     def db_nzb_set_ispw(self, nzbname, ispw):
-        self.set_last_update_for_gui()
         query = self.NZB.update(is_pw=ispw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
@@ -472,12 +455,10 @@ class PWDB():
             return None
 
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
-        self.set_last_update_for_gui()
         query = self.NZB.update(unrar_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
     def db_nzb_update_verify_status(self, nzbname, newstatus):
-        self.set_last_update_for_gui()
         query = self.NZB.update(verify_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
 
@@ -487,11 +468,6 @@ class PWDB():
             query.execute()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-        self.set_last_update_for_gui()
-        '''with self.db.atomic():
-            nzb0 = self.NZB.get((self.NZB.name == nzbname))
-            nzb0.status = newstatus
-            nzb0.save()'''
 
     def db_nzb_getstatus(self, nzbname):
         try:
@@ -554,7 +530,6 @@ class PWDB():
         if file0.status != 2:
             return 0
         return sum([a.size for a in file0.articles])
-        
 
     def db_file_getsize_renamed(self, name):
         file0 = self.FILE.get(self.FILE.renamed_name == name)
@@ -653,26 +628,17 @@ class PWDB():
             return None
 
     def db_file_update_status(self, filename, newstatus):
-        self.set_last_update_for_gui()
         query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
         query.execute()
-        ''' with self.db.atomic():
-            file0 = self.FILE.get((self.FILE.orig_name == filename))
-            file0.status = newstatus
-            file0.save()
-            if filename == "63fac4f2191957a9e956b885b3.nfo":
-                self.logger.info("#" * 30)'''
+        file0 = self.FILE.get((self.FILE.orig_name == filename))
+        file0.nzb.date_updated = datetime.datetime.now()
+        file0.nzb.save()
 
     def db_file_update_parstatus(self, filename, newparstatus):
-        self.set_last_update_for_gui()
         query = self.FILE.update(parverify_state=newparstatus).where(self.FILE.orig_name == filename)
         query.execute()
-        # file0 = self.FILE.get((self.FILE.orig_name == filename))
-        # file0.parverify_state = newparstatus
-        # file0.save()
 
     def db_file_update_nzbstatus(self, filename0, newnzbstatus0):
-        self.set_last_update_for_gui()
         file0 = self.FILE.get((self.FILE.orig_name == filename0))
         file0.nzb.status = newnzbstatus0
         file0.save()
@@ -683,18 +649,10 @@ class PWDB():
             query.execute()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-        self.set_last_update_for_gui()
-        # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
-        # file0.renamed_name = renamed_name
-        # file0.save()
 
     def db_file_set_file_type(self, orig_name0, ftype0):
-        self.set_last_update_for_gui()
         query = self.FILE.update(ftype=ftype0).where(self.FILE.orig_name == orig_name0)
         query.execute()
-        # file0 = self.FILE.get((self.FILE.orig_name == orig_name))
-        # file0.ftype = ftype
-        # file0.save()
 
     def db_fname_to_fentry(self, fname):
         try:
@@ -754,13 +712,11 @@ class PWDB():
         return files
 
     def db_file_deleteall(self):
-        self.set_last_update_for_gui()
         query = self.FILE.delete()
         query.execute()
 
     # ---- self.ARTICLE --------
     def db_article_insert(self, name, fileentry, size, number):
-        self.set_last_update_for_gui()
         try:
             new_article = self.ARTICLE.create(name=name, fileentry=fileentry, timestamp=time.time())
         except Exception as e:
@@ -774,7 +730,6 @@ class PWDB():
         return articles
 
     def db_article_deleteall(self):
-        self.set_last_update_for_gui()
         query = self.ARTICLE.delete()
         query.execute()
 
@@ -797,7 +752,6 @@ class PWDB():
                 self.logger.warning(whoami() + str(e))
             i += chunksize
         self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
-        self.set_last_update_for_gui()
 
     # ---- self.DB --------
     def db_close(self):
@@ -809,7 +763,6 @@ class PWDB():
 
     # ---- set new prios acc. to nzb list ----
     def set_nzbs_prios(self, new_nzb_list, delete=False):
-        self.set_last_update_for_gui()
         oldnzb_0 = self.NZB.select().order_by(self.NZB.priority)[0]
 
         if not new_nzb_list:
