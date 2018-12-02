@@ -859,6 +859,8 @@ class Downloader():
 
         while True:
 
+            print(time.time())
+
             # check if dl_stopped or nzbs_reordered signal received from gui
             return_reason = None
             with self.guiconnector.lock:
@@ -1111,7 +1113,15 @@ class Downloader():
 def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
     # waiting for nzb_parser to insert all nzbs in nzbdir into db ---> this is a problem, because startup takes
     # long with many nzbs!!
-    try:
+    while True:
+        try:
+            nextnzb = pwdb.exc("db_nzb_getnextnzb_for_download", [], {})
+            if nextnzb:
+                break
+        except Exception as e:
+            continue
+        time.sleep(0.3)
+    '''try:
         nzbs_in_nzbdirs = [n.split("/")[-1] for n in glob.glob(dirs["nzb"] + "*")]
         if nzbs_in_nzbdirs:
             while True:
@@ -1124,7 +1134,7 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
                     break
                 time.sleep(1)
     except Exception as e:
-        logger.error(whoami() + str(e))
+        logger.error(whoami() + str(e))'''
 
     logger.debug(whoami() + "looking for new NZBs ...")
     try:
@@ -1191,7 +1201,7 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
 
 
 def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
-    logger.debug(whoami() + "reading resultqueue and writing to db")
+    logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to db")
     resqlist = []
     bytes_in_resultqueue = 0
     while True:
@@ -1298,6 +1308,20 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         logger.debug(whoami() + ": " + str(e))
     # 8. stop mpp_renamer
     pipes["renamer"][0].send(("pause", None, None))
+    # 9. stop nzbparser
+    try:
+        mpid = None
+        if dl.mpp["nzbparser"]:
+            mpid = dl.mpp["nzbparser"].pid
+        if mpid:
+            logger.debug(whoami() + "terminating nzb_parser")
+            try:
+                os.kill(dl.mpp["nzbparser"].pid, signal.SIGTERM)
+                dl.mpp["nzbparser"].join()
+            except Exception as e:
+                logger.debug(whoami() + str(e))
+    except Exception as e:
+        logger.debug(whoami() + str(e))
     return
 
 

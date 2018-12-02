@@ -108,8 +108,9 @@ class GUI_Connector(Thread):
             else:
                 bytes0 = 0
         except Exception as e:
-            print(str(e))
-            
+            self.logger.error(whoami() + str(e))
+            bytes0 = 0
+
         #pid = os.getpid()
         #with open("/proc/" + str(pid) + "/net/netstat", "r") as f:
         #    bytes0 = None

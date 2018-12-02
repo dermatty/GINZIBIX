@@ -207,7 +207,8 @@ class PWDB():
                 if e.errno == zmq.EAGAIN:
                     continue
                 else:
-                    raise ValueError("do_loop error")
+                    self.logger.debug(whoami() + str(e) + ": " + funcstr)
+                    continue
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
@@ -281,9 +282,31 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
 
     # ---- self.NZB --------
+    def db_nzb_are_all_nzb_idle(self):
+        try:
+            busy_nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
+                                               | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+            if busy_nzb.name:
+                return False
+            else:
+                return True
+        except Exception as e:
+            return True
+
+    def db_nzb_getnextnzb_for_download(self):
+        try:
+            nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
+                                          | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+        except Exception as e:
+            return None
+        return nzb.name
+
     def db_nzb_store_resqlist(self, nzbname, resqlist):
-        query = self.NZB.update(resqlist_dill=resqlist, date_updated=time.time()).where(self.NZB.name == nzbname)
-        query.execute()
+        try:
+            query = self.NZB.update(resqlist_dill=resqlist, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
 
     def db_nzb_get_resqlist(self, nzbname):
         try:

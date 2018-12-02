@@ -154,6 +154,8 @@ def ParseNZB(cfg, dirs, logger):
             else:
                 logger.debug(whoami() + "got event in nzb_dir")
             for nzb in glob.glob("*.nzb"):
+                if TERMINATED:
+                    break
                 nzb0 = nzb.split("/")[-1]
                 if pwdb.exc("db_nzb_exists", [nzb0], {}):
                     logger.warning(whoami() + " NZB file " + nzb0 + " already exists in DB")
@@ -174,6 +176,8 @@ def ParseNZB(cfg, dirs, logger):
                         logger.debug(whoami() + "analysing NZB: " + infostr)
                         # insert files + articles
                         for key, items in filedic.items():
+                            if TERMINATED:
+                                break
                             data = []
                             for i, it in enumerate(items):
                                 if TERMINATED:
@@ -187,11 +191,10 @@ def ParseNZB(cfg, dirs, logger):
                                 else:
                                     fn, no, size = it
                                     data.append((fn, newfile, size, no, time.time()))
-                            if TERMINATED:
-                                break
                             pwdb.exc("db_article_insert_many", [data], {})
-                        if TERMINATED:
-                            break
+                            # if there are nzbs in the download queue, pause after insert 
+                            if not pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
+                                time.sleep(0.3)
                         logger.info(whoami() + "Added NZB: " + infostr + " to database / queue")
                         pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")

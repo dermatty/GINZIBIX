@@ -698,7 +698,10 @@ class AppWindow(Gtk.ApplicationWindow):
                     eta0 = (((overall_size - gbdown) * 1024) / (self.appdata.mbitsec / 8))
                     if eta0 < 0:
                         eta0 = 0
-                    etastr = str(datetime.timedelta(seconds=int(eta0)))
+                    try:
+                        etastr = str(datetime.timedelta(seconds=int(eta0)))
+                    except Exception as e:
+                        etastr = "-"
                 else:
                     etastr = "-"
                 self.liststore.set_value(iter, 4, etastr)
@@ -934,7 +937,10 @@ class AppWindow(Gtk.ApplicationWindow):
                     eta0 = (((n_size - n_dl) * 1024) / (self.appdata.mbitsec / 8))
                     if eta0 < 0:
                         eta0 = 0
-                    etastr = str(datetime.timedelta(seconds=int(eta0)))
+                    try:
+                        etastr = str(datetime.timedelta(seconds=int(eta0)))
+                    except Exception as e:
+                        etastr = "-"
                 else:
                     etastr = "-"
                 selected = False
