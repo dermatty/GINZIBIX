@@ -9,10 +9,9 @@ import multiprocessing as mp
 import psutil
 import re
 import threading
-from threading import Thread
 import shutil
 import glob
-import zmq
+import pickle
 from .renamer import renamer
 from .par_verifier import par_verifier
 from .par2lib import Par2File
@@ -49,7 +48,7 @@ class SigHandler_Main:
         self.mp_work_queue = mp_work_queue
         self.resultqueue = resultqueue
         self.articlequeue = articlequeue
-        self.main_dir = None
+        self.dirs = None
         self.nzbname = None
         self.pwdb = pwdb
 
@@ -106,10 +105,10 @@ class SigHandler_Main:
             except (queue.Empty, EOFError):
                 break
         # 5. write resultqueue to file
-        if self.main_dir and self.nzbname:
+        if self.dirs and self.nzbname:
             self.logger.debug(whoami() + "writing resultqueue to .gzbx file")
             time.sleep(0.5)
-            bytes_in_resultqueue = write_resultqueue_to_db(self.resultqueue, self.main_dir, self.pwdb, self.nzbname, self.logger)
+            bytes_in_resultqueue = write_resultqueue_to_file(self.resultqueue, self.dirs, self.pwdb, self.nzbname, self.logger)
             # self.pwdb.db_nzb_set_bytes_in_resultqueue(self.nzbname, bytes_in_resultqueue)
             self.pwdb.exc("db_nzb_set_bytes_in_resultqueue", [self.nzbname, bytes_in_resultqueue], {})
         # 6. stop unrarer
@@ -761,8 +760,18 @@ class Downloader():
         res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
         allfileslist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2 = res
 
-        resqlist = self.pwdb.exc("db_nzb_get_resqlist", [nzbname], {})
-        self.resqlist = resqlist
+        try:
+            nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
+            fn = self.dirs["incomplete"] + nzbdir + "rq_" + nzbname + ".gzbx"
+            with open(fn, "rb") as fp:
+                resqlist = pickle.load(fp)
+            self.resqlist = resqlist
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ": cannot load resqlist from file")
+            self.resqlist = None
+
+        # resqlist = self.pwdb.exc("db_nzb_get_resqlist", [nzbname], {})
+        # self.resqlist = resqlist
 
         self.logger.info(whoami() + "downloading " + nzbname)
         self.pwdb.exc("db_msg_insert", [nzbname, "initializing download", "info"], {})
@@ -808,7 +817,7 @@ class Downloader():
         # make dirs
         self.logger.debug(whoami() + "creating dirs")
         self.make_dirs(nzbname)
-        self.sighandler.main_dir = self.main_dir
+        self.sighandler.dirs = self.dirs
 
         self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir))
 
@@ -1200,6 +1209,42 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
     return None
 
 
+def write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger):
+    logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to file")
+    resqlist = []
+    bytes_in_resultqueue = 0
+    while True:
+        try:
+            res = resultqueue.get_nowait()
+            # (fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False)
+            _, _, _, _, _, art_name, _, inf0, _ = res
+            art_size = 0
+            if inf0 != "failed":
+                art_size = sum(len(i) for i in inf0)
+            bytes_in_resultqueue += art_size
+            resultqueue.task_done()
+            resqlist.append(res)
+        except (queue.Empty, EOFError):
+            break
+        except Exception as e:
+            logger.info(whoami() + ": " + str(e))
+    nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
+    fn = dirs["incomplete"] + nzbdir + "rq_" + nzbname + ".gzbx"
+    if resqlist:
+        try:
+            with open(fn, "wb") as fp:
+                pickle.dump(resqlist, fp)
+        except Exception as e:
+            logger.warning(whoami() + str(e) + ": cannot write " + fn)
+    else:
+        try:
+            os.remove(fn)
+        except Exception as e:
+            logger.warning(whoami() + str(e) + ": cannot remove resqueue.gzbx")
+    logger.debug(whoami() + "reading resultqueue and writing to file, done!")
+    return bytes_in_resultqueue
+
+
 def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
     logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to db")
     resqlist = []
@@ -1225,7 +1270,7 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
     return bytes_in_resultqueue
 
 
-def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger):
+def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger):
     # join all queues
     logger.debug(whoami() + "clearing articlequeue")
     # 1. clear articlequeue
@@ -1271,7 +1316,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         except (queue.Empty, EOFError):
             break
     # 5. save resultqueue
-    bytes_in_resultqueue = write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger)
+    bytes_in_resultqueue = write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger)
     pwdb.exc("db_nzb_set_bytes_in_resultqueue", [nzbname, bytes_in_resultqueue], {})
     # 6. stop unrarer
     mpid = None
@@ -1384,7 +1429,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     while True:
         sh.nzbname = None
-        sh.main_dir = None
+        sh.dirs = None
         guiconnector.set_health(0, 0)
         logger.info(whoami() + "*" * 20 + "dl_running: " + str(guiconnector.dl_running))
         with lock:
@@ -1405,31 +1450,31 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         logger.debug(whoami() + "downloader exited with status: " + str(stat0))
         if return_reason == "closeall":
             logger.debug(whoami() + "closing down")
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             sh.shutdown()
         if stat0 == 2:
             if return_reason == "connection_restart":
                 logger.debug(whoami() + "restarting connections")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 dl.restart_all_threads()
                 continue
             elif return_reason == "nzbs_reordered":
                 logger.debug(whoami() + "NZBs have been reordered")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 continue
             elif return_reason == "nzbs_deleted":
                 logger.debug(whoami() + "NZBs have been deleted")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                 remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
                 continue
             elif return_reason == "dl_stopped":
                 logger.debug(whoami() + "download paused")
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 # idle until start or nzbs_reordered signal comes from gtkgui
                 idlestart = time.time()
@@ -1439,7 +1484,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     dobreak = False
                     with guiconnector.lock:
                         if guiconnector.closeall:
-                            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+                            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
                             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                             sh.shutdown()
                         if guiconnector.dl_running:
@@ -1471,7 +1516,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             guiconnector.set_health(0, 0)
             logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
             dl.postprocess_nzb(nzbname, downloaddata)
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
             if stat0_0 == 4:
@@ -1484,6 +1529,6 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             guiconnector.set_health(0, 0)
             pwdb.exc("db_msg_insert", [nzbname, "download failed!", "error"], {})
             logger.info(whoami() + "download failed for NZB " + nzbname)
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, maindir, pipes, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             pwdb.exc("store_sorted_nzbs", [], {})
