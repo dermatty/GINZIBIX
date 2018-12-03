@@ -23,6 +23,7 @@ def whoami():
 
 
 TERMINATED = False
+IS_IDLE = False
 
 
 class SigHandler_Verifier:
@@ -33,6 +34,15 @@ class SigHandler_Verifier:
         global TERMINATED
         self.logger.info(whoami() + "terminating ...")
         TERMINATED = True
+
+
+def verifier_is_idle():
+    return IS_IDLE
+
+
+def set_idle(ie):
+    global IS_IDLE
+    IS_IDLE = ie
 
 
 def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nzbname, pvmode, cfg):
@@ -101,10 +111,13 @@ def par_verifier(mp_outqueue, renamed_dir, verifiedrar_dir, main_dir, logger, nz
         # allparstatus = pwdb.db_file_getallparstatus(0)
         allparstatus = pwdb.exc("db_file_getallparstatus", [0], {})
         if 0 not in allparstatus:
+            set_idle(False)
             logger.info(whoami() + "all renamed rars checked, exiting par_verifier")
             break
         events = get_inotify_events(inotify)
+        set_idle(True)
         if events or 0 in allparstatus:
+            set_idle(False)
             if pvmode == "verify" and not p2:
                 try:
                     # p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)

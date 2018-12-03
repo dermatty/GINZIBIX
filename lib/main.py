@@ -13,7 +13,7 @@ import shutil
 import glob
 import pickle
 from .renamer import renamer
-from .par_verifier import par_verifier
+from .par_verifier import par_verifier, verifier_is_idle
 from .par2lib import Par2File
 from .partial_unrar import partial_unrar, unrarer_is_idle
 from .nzb_parser import ParseNZB
@@ -503,7 +503,25 @@ class Downloader():
                         self.mp_parverify_inqueue.get_nowait()
                     except (queue.Empty, EOFError):
                         break
-                self.mpp["verifier"].join()
+                # kill par_verifier in deadlock
+                while True:
+                    self.mpp["verifier"].join(timeout=2)
+                    if self.mpp["verifier"].is_alive():
+                        # if not finished, check if idle longer than 5 sec -> deadlock!!!
+                        t0 = time.time()
+                        while verifier_is_idle() and time.time() - t0 < 5:
+                            time.sleep(0.5)
+                        if time.time() - t0 >= 5:
+                            self.logger.info(whoami() + "Verifier deadlock, killing unrarer!")
+                            try:
+                                os.kill(self.mpp["verifier"].pid, signal.SIGTERM)
+                            except Exception as e:
+                                self.logger.debug(whoami() + str(e))
+                            break
+                        else:
+                            continue
+                    else:
+                        break
             except Exception as e:
                 self.logger.warning(str(e))
             self.mpp["verifier"] = None
@@ -1123,6 +1141,8 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
     # waiting for nzb_parser to insert all nzbs in nzbdir into db ---> this is a problem, because startup takes
     # long with many nzbs!!
     while True:
+        if guiconnector.closeall:
+            return None
         try:
             nextnzb = pwdb.exc("db_nzb_getnextnzb_for_download", [], {})
             if nextnzb:
@@ -1150,6 +1170,8 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
         nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, -1)
     except Exception as e:
         logger.warning(whoami() + str(e))
+    if nzbname == -1:
+        return None
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug(whoami() + "polling for 30 sec. for new NZB before closing connections if alive ...")
@@ -1167,6 +1189,8 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
             logger.debug(whoami() + "polling for new nzbs now in blocking mode!")
             try:
                 nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, None)
+                if nzbname == -1:
+                    return None
             except Exception as e:
                 logger.warning(whoami() + str(e))
     pwdb.exc("store_sorted_nzbs", [], {})
@@ -1194,7 +1218,7 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
         delay0 = 1
     while True:
         if guiconnector.closeall:
-            return None
+            return -1
         try:
             nzbname = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
         except Exception as e:

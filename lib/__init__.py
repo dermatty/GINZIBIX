@@ -1,5 +1,5 @@
 from .renamer import renamer
-from .par_verifier import par_verifier
+from .par_verifier import par_verifier, verifier_is_idle
 from .par2lib import Par2File, calc_file_md5hash
 from .partial_unrar import partial_unrar, unrarer_is_idle
 from .nzb_parser import ParseNZB
