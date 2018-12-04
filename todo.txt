@@ -1,12 +1,9 @@
 # parallel download
 
-1. pause / resume superslow
-2. write resultqueueu to db -> delete, makes everything superslow!!!!!!!
-4. messages "downloaded" and "md5 hash does not match" not in sync
+0. pause / resume -> sometimes rar skipped etc. !!??
+1. test downloaded_size after resume
 5. show overall eta in gui / NZB_QUEUE
 6. if press on_select in NZB_HISTORY -> no headers in NZB_QUEUE anymore!
    gtkgui l275 - get_selection ?????
 7. implement "add nzb" feature in gtkgui / NZB_QUEUE
-8. restart ginzibix with interrupted download before hangs / is slow with many
-nzbs
 9. NZB_HISTORY only updated if NZB_QUEUE is updated

@@ -1140,6 +1140,7 @@ class Downloader():
 def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
     # waiting for nzb_parser to insert all nzbs in nzbdir into db ---> this is a problem, because startup takes
     # long with many nzbs!!
+    tt0 = time.time()
     while True:
         if guiconnector.closeall:
             return None
@@ -1148,22 +1149,17 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
             if nextnzb:
                 break
         except Exception as e:
-            continue
+            pass
+        if ct.threads and time.time() - tt0 > 30:
+            logger.debug(whoami() + "idle time > 30 sec, closing all server connections")
+            for t, _ in ct.threads:
+                    t.stop()
+                    t.join()
+            ct.servers.close_all_connections()
+            ct.threads = []
+            del ct.servers
+            logger.debug(whoami() + "all server connections closed")
         time.sleep(0.3)
-    '''try:
-        nzbs_in_nzbdirs = [n.split("/")[-1] for n in glob.glob(dirs["nzb"] + "*")]
-        if nzbs_in_nzbdirs:
-            while True:
-                all_nzbs_exist_in_db = True
-                for n in nzbs_in_nzbdirs:
-                    if not pwdb.exc("db_nzb_exists", [n], {}):
-                        all_nzbs_exist_in_db = False
-                        break
-                if all_nzbs_exist_in_db:
-                    break
-                time.sleep(1)
-    except Exception as e:
-        logger.error(whoami() + str(e))'''
 
     logger.debug(whoami() + "looking for new NZBs ...")
     try:
@@ -1186,6 +1182,7 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
                 ct.servers.close_all_connections()
                 ct.threads = []
                 del ct.servers
+                logger.debug(whoami() + "all server connections closed")
             logger.debug(whoami() + "polling for new nzbs now in blocking mode!")
             try:
                 nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, None)
@@ -1234,6 +1231,8 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
 
 
 def write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger):
+    if not nzbname:
+        return 0
     logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to file")
     resqlist = []
     bytes_in_resultqueue = 0
@@ -1252,6 +1251,8 @@ def write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger):
             break
         except Exception as e:
             logger.info(whoami() + ": " + str(e))
+            resqlist = None
+            break
     nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
     fn = dirs["incomplete"] + nzbdir + "rq_" + nzbname + ".gzbx"
     if resqlist:
@@ -1294,7 +1295,7 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
     return bytes_in_resultqueue
 
 
-def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger):
+def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=False):
     # join all queues
     logger.debug(whoami() + "clearing articlequeue")
     # 1. clear articlequeue
@@ -1317,21 +1318,22 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         if dl_not_done_yet:
             time.sleep(0.2)
     # 3. stop article_decoder
-    '''mpid = None
-    try:
-        if dl.mpp["decoder"]:
-            mpid = dl.mpp["decoder"].pid
-        if mpid:
-            logger.warning("terminating decoder")
-            try:
-                os.kill(dl.mpp["decoder"].pid, signal.SIGTERM)
-                dl.mpp["decoder"].join()
-                dl.mpp["decoder"] = None
-                dl.sighandler.mpp = dl.mpp
-            except Exception as e:
-                logger.debug(whoami() + str(e))
-    except Exception as e:
-        logger.debug(whoami() + ": " + str(e))'''
+    if stopall:
+        mpid = None
+        try:
+            if dl.mpp["decoder"]:
+                mpid = dl.mpp["decoder"].pid
+            if mpid:
+                logger.warning("terminating decoder")
+                try:
+                    os.kill(dl.mpp["decoder"].pid, signal.SIGTERM)
+                    dl.mpp["decoder"].join()
+                    dl.mpp["decoder"] = None
+                    dl.sighandler.mpp = dl.mpp
+                except Exception as e:
+                    logger.debug(whoami() + str(e))
+        except Exception as e:
+            logger.debug(whoami() + ": " + str(e))
     # 4. clear mp_work_queue
     logger.debug(whoami() + "clearing mp_work_queue")
     while True:
@@ -1340,9 +1342,11 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         except (queue.Empty, EOFError):
             break
     # 5. save resultqueue
+    logger.debug(whoami() + "writing resultqueue")
     bytes_in_resultqueue = write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger)
     pwdb.exc("db_nzb_set_bytes_in_resultqueue", [nzbname, bytes_in_resultqueue], {})
     # 6. stop unrarer
+    logger.debug(whoami() + "stopping unrarer")
     mpid = None
     try:
         if dl.mpp["unrarer"]:
@@ -1360,6 +1364,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     except Exception as e:
         logger.debug(whoami() + ": " + str(e))
     # 7. stop rar_verifier
+    logger.debug(whoami() + "stopping par_verifier")
     mpid = None
     try:
         if dl.mpp["verifier"]:
@@ -1376,21 +1381,24 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     except Exception as e:
         logger.debug(whoami() + ": " + str(e))
     # 8. stop mpp_renamer
+    logger.debug(whoami() + "stopping renamer")
     pipes["renamer"][0].send(("pause", None, None))
     # 9. stop nzbparser
-    try:
-        mpid = None
-        if dl.mpp["nzbparser"]:
-            mpid = dl.mpp["nzbparser"].pid
-        if mpid:
-            logger.debug(whoami() + "terminating nzb_parser")
-            try:
-                os.kill(dl.mpp["nzbparser"].pid, signal.SIGTERM)
-                dl.mpp["nzbparser"].join()
-            except Exception as e:
-                logger.debug(whoami() + str(e))
-    except Exception as e:
-        logger.debug(whoami() + str(e))
+    if stopall:
+        logger.debug(whoami() + "stopping nzb_parser")
+        try:
+            mpid = None
+            if dl.mpp["nzbparser"]:
+                mpid = dl.mpp["nzbparser"].pid
+            if mpid:
+                logger.debug(whoami() + "terminating nzb_parser")
+                try:
+                    os.kill(dl.mpp["nzbparser"].pid, signal.SIGTERM)
+                    dl.mpp["nzbparser"].join()
+                except Exception as e:
+                    logger.debug(whoami() + str(e))
+        except Exception as e:
+            logger.debug(whoami() + str(e))
     return
 
 
@@ -1455,14 +1463,16 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         sh.nzbname = None
         sh.dirs = None
         guiconnector.set_health(0, 0)
-        logger.info(whoami() + "*" * 20 + "dl_running: " + str(guiconnector.dl_running))
         with lock:
             if not guiconnector.dl_running:
                 time.sleep(1)
                 continue
+        logger.debug(whoami() + "waiting for next nzb")
         nzbname = get_next_nzb(pwdb, dirs, ct, guiconnector, logger)
         ct.reset_timestamps_bdl()
         if not nzbname:
+            logger.debug(whoami() + "closing down")
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)
             sh.shutdown()
             break
         logger.info(whoami() + "got next NZB: " + str(nzbname))
@@ -1474,7 +1484,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         logger.debug(whoami() + "downloader exited with status: " + str(stat0))
         if return_reason == "closeall":
             logger.debug(whoami() + "closing down")
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
+            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             sh.shutdown()
         if stat0 == 2:
@@ -1508,7 +1518,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     dobreak = False
                     with guiconnector.lock:
                         if guiconnector.closeall:
-                            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
+                            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)
                             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                             sh.shutdown()
                         if guiconnector.dl_running:
