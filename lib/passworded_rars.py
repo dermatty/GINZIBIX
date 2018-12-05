@@ -14,6 +14,7 @@ lpref = __name__ + " - "
 def get_sorted_rar_list(directory):
     rarlist = []
     minnr = -1000
+    i = 1
     for rarf in glob.glob(directory + "*"):
         ftype = get_file_type(rarf)
         # gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
@@ -35,10 +36,12 @@ def get_sorted_rar_list(directory):
                 try:
                     nr = int(gg.group().split(".r")[-1])
                     rarlist.append((nr, rarf))
+                    continue
                 except Exception as e:
                     pass
-            # todo: then: ".rar01"
-
+            # any other rar-wise file, no idea about sorting, let's hope the best
+            rarlist.append((i, rarf))
+            i += 1
             # rarlist.append((int(gg.group().split(".")[0]), rarf))
     rar_sortedlist = []
     if rarlist:

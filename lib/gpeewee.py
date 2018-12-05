@@ -224,7 +224,7 @@ class PWDB():
 
     def get_all_data_for_gui(self):
         nzb_data = {}
-        all_sorted_nzbs, _ = self.db_nzb_getall_sortedV2()
+        all_sorted_nzbs, _ = self.db_nzb_getall_sortedV3()
         for nzbdata in all_sorted_nzbs:
             n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
             nzb_data[n_name] = {}
@@ -236,6 +236,7 @@ class PWDB():
             for nzbf in nzb0.files:
                 nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
             nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
+        
         return nzb_data
 
     # ---- self.MSG --------
@@ -440,6 +441,15 @@ class PWDB():
                             + self.db_nzb_get_downloadedsize(n.priority)) for n in query if n.status in [4, -1, -2, -3, -4]]
         return nzblist, nzblist_history
 
+    def db_nzb_getall_sortedV3(self):
+        query = self.NZB.select().order_by(+self.NZB.priority)
+        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue + self.db_nzb_get_downloadedsize(n.name))
+                   for n in query]
+        query = self.NZB.select().order_by(-self.NZB.date_updated)
+        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue
+                            + self.db_nzb_get_downloadedsize(n.priority)) for n in query if n.status in [4, -1, -2, -3, -4]]
+        return nzblist, nzblist_history
+
     def db_nzb_getall_sorted(self):
         query = self.NZB.select()
         nzbs = []
@@ -626,7 +636,7 @@ class PWDB():
             if par2file0list:
                 par2file0 = par2file0list[0]
             else:
-                raise("multiple par2 files appeared!")
+                raise ValueError("multiple par2 files appeared or no par2files: " + str(par2file0list))
             if par2file0.renamed_name != "N/A":
                 self.logger.debug(whoami() + "got par2 file: " + par2file0.renamed_name)
                 p2 = Par2File(dir01 + par2file0.renamed_name)
@@ -643,7 +653,7 @@ class PWDB():
             if par2list:
                 par2 = par2list[0]
             else:
-                raise("multiple par2 files appeared!")
+                raise ValueError("multiple par2 files appeared or no par2files: " + str(par2list))
             # par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A", self.FILE.nzb.name == nzbname)
             return par2.renamed_name
         except Exception as e:

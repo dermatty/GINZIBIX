@@ -1143,7 +1143,12 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
     tt0 = time.time()
     while True:
         if guiconnector.closeall:
-            return None
+            return False, 0
+        if guiconnector.has_first_nzb_changed():
+            if not not guiconnector.has_nzb_been_deleted():
+                return False, -10     # return_reason = "nzbs_reordered"
+            else:
+                return False, -20     # return_reason = "nzbs_deleted"
         try:
             nextnzb = pwdb.exc("db_nzb_getnextnzb_for_download", [], {})
             if nextnzb:
@@ -1167,7 +1172,7 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
     except Exception as e:
         logger.warning(whoami() + str(e))
     if nzbname == -1:
-        return None
+        return False, 0
     # poll for 30 sec if no nzb immediately found
     if not nzbname:
         logger.debug(whoami() + "polling for 30 sec. for new NZB before closing connections if alive ...")
@@ -1191,7 +1196,7 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
             except Exception as e:
                 logger.warning(whoami() + str(e))
     pwdb.exc("store_sorted_nzbs", [], {})
-    return nzbname
+    return True, nzbname
 
 
 def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
@@ -1468,20 +1473,26 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                 time.sleep(1)
                 continue
         logger.debug(whoami() + "waiting for next nzb")
-        nzbname = get_next_nzb(pwdb, dirs, ct, guiconnector, logger)
+        retcode, nzbname = get_next_nzb(pwdb, dirs, ct, guiconnector, logger)
         ct.reset_timestamps_bdl()
-        if not nzbname:
-            logger.debug(whoami() + "closing down")
-            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)
-            sh.shutdown()
-            break
-        logger.info(whoami() + "got next NZB: " + str(nzbname))
+        if not retcode:
+            # code "closeall"
+            if nzbname == 0:
+                return_reason = "closeall"
+            # code "reordered"
+            elif nzbname == -10:
+                return_reason = "nzbs_reordered"
+            # code "deleted"
+            elif nzbname == -20:
+                return_reason = "nzbs_deleted"
+            stat0 = 2
+        else:
+            logger.info(whoami() + "got next NZB: " + str(nzbname))
+            nzbname, downloaddata, return_reason, maindir = dl.download(nzbname, servers_shut_down)
+            bytescount0, _, _, filetypecounter, _, _, overall_size, _, p2, overall_size_wparvol, allfileslist = downloaddata
 
-        nzbname, downloaddata, return_reason, maindir = dl.download(nzbname, servers_shut_down)
-        bytescount0, _, _, filetypecounter, _, _, overall_size, _, p2, overall_size_wparvol, allfileslist = downloaddata
-
-        stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
-        logger.debug(whoami() + "downloader exited with status: " + str(stat0))
+            stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+            logger.debug(whoami() + "downloader exited with status: " + str(stat0))
         if return_reason == "closeall":
             logger.debug(whoami() + "closing down")
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)

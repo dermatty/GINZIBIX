@@ -1,5 +1,7 @@
 # parallel download
 
+0. article/connection health not set to zero when waiting for NZB, although
+set 0
 0. pause / resume -> sometimes rar skipped etc. !!??
 1. test downloaded_size after resume
 5. show overall eta in gui / NZB_QUEUE

@@ -896,8 +896,11 @@ class AppWindow(Gtk.ApplicationWindow):
             if newhealth:
                 self.update_crit_health_levelbars()
 
-        if self.appdata.article_health != article_health or self.appdata.connection_health != connection_health:
+        if (article_health and self.levelbar_arthealth != article_health):
             self.appdata.article_health = article_health
+            self.update_health()
+
+        if (connection_health and self.levelbar_connhealth != connection_health):
             self.appdata.connection_health = connection_health
             self.update_health()
 

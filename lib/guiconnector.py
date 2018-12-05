@@ -101,6 +101,11 @@ class GUI_Connector(Thread):
                     append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
                     self.threads.append(append_tuple)
 
+    def set_data_msg(self, nzbname):
+        with self.lock:
+            if nzbname:
+                self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
+
     def get_netstat(self):
         try:
             if self.threads:
@@ -178,11 +183,11 @@ class GUI_Connector(Thread):
             if msg == "REQ":
                 try:
                     getdata = self.get_data()
-                    gd1, _, _, _, _, _, _, _, _, _, _, _, _ = getdata
-                    if gd1:
-                        sendtuple = ("DL_DATA", getdata)
-                    else:
-                        sendtuple = ("NOOK", getdata)
+                    # gd1, _, _, _, _, _, _, _, _, _, _, _, _ = getdata
+                    # if gd1:
+                    sendtuple = ("DL_DATA", getdata)
+                    #else:
+                    #    sendtuple = ("NOOK", getdata)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
                 try:
