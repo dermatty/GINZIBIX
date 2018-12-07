@@ -183,11 +183,9 @@ class GUI_Connector(Thread):
             if msg == "REQ":
                 try:
                     getdata = self.get_data()
-                    # gd1, _, _, _, _, _, _, _, _, _, _, _, _ = getdata
-                    # if gd1:
                     sendtuple = ("DL_DATA", getdata)
                     #else:
-                    #    sendtuple = ("NOOK", getdata)
+                    #    sendtuple = ("NOOK", None)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
                 try:

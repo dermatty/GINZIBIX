@@ -1164,7 +1164,7 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
             ct.threads = []
             del ct.servers
             logger.debug(whoami() + "all server connections closed")
-        time.sleep(0.3)
+        time.sleep(0.5)
 
     logger.debug(whoami() + "looking for new NZBs ...")
     try:
@@ -1412,6 +1412,8 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     logger.debug(whoami() + "starting ...")
 
+    nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2 = (None, ) * 6
+
     pwdb = PWDBSender()
 
     mp_work_queue = mp.Queue()
@@ -1468,6 +1470,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         sh.nzbname = None
         sh.dirs = None
         guiconnector.set_health(0, 0)
+        # unelegant: to enable last update of GUI
         with lock:
             if not guiconnector.dl_running:
                 time.sleep(1)
@@ -1496,7 +1499,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         if return_reason == "closeall":
             logger.debug(whoami() + "closing down")
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)
-            pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
+            pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})            
             sh.shutdown()
         if stat0 == 2:
             if return_reason == "connection_restart":

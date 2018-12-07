@@ -152,7 +152,7 @@ class ConnectionWorker(Thread):
                 test_article = artlist[-1]
             except IndexError:
                 self.lock.release()
-                # time.sleep(0.1)
+                time.sleep(0.1)
                 continue
             if not test_article:
                 article = self.articlequeue.get()

@@ -1143,6 +1143,7 @@ class GUI_Poller(Thread):
                     self.socket.send_pyobj(("REQ", None))
                     datatype, datarec = self.socket.recv_pyobj()
                     if datatype == "NOOK":
+                        print("NOOK")
                         #print(lastt0 - time.time(), "NOOK")
                         #lastt0 = time.time()
                         # time.sleep(self.delay)

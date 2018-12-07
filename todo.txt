@@ -1,11 +1,12 @@
 # parallel download
 
-0. article/connection health not set to zero when waiting for NZB, although
+2. article/connection health not set to zero when waiting for NZB, although
 set 0
-0. pause / resume -> sometimes rar skipped etc. !!??
-1. test downloaded_size after resume
-5. show overall eta in gui / NZB_QUEUE
-6. if press on_select in NZB_HISTORY -> no headers in NZB_QUEUE anymore!
+3. pause / resume -> sometimes rar skipped etc. !!??
+4. test downloaded_size after resume
+5. if rars have no ending and no par2 -> check in separate textfile. SV S01E10 e.g.
+6. show overall eta in gui / NZB_QUEUE
+7. if press on_select in NZB_HISTORY -> no headers in NZB_QUEUE anymore!
    gtkgui l275 - get_selection ?????
-7. implement "add nzb" feature in gtkgui / NZB_QUEUE
+8. implement "add nzb" feature in gtkgui / NZB_QUEUE
 9. NZB_HISTORY only updated if NZB_QUEUE is updated

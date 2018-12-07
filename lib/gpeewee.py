@@ -321,16 +321,22 @@ class PWDB():
             return False
 
     def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2):
-        query = self.NZB.update(allfilelist_dill=allfilelist, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
-        query = self.NZB.update(filetypecounter_dill=filetypecounter, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
-        already_downloaded_size = self.calc_already_downloaded_size(nzbname)
-        allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
-        query = self.NZB.update(allfilesizes_dill=allfilesizes0, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
-        query = self.NZB.update(p2_dill=p2, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
+        if not nzbname:
+            return False
+        try:
+            query = self.NZB.update(allfilelist_dill=allfilelist, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+            query = self.NZB.update(filetypecounter_dill=filetypecounter, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+            already_downloaded_size = self.calc_already_downloaded_size(nzbname)
+            allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
+            query = self.NZB.update(allfilesizes_dill=allfilesizes0, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+            query = self.NZB.update(p2_dill=p2, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return False
 
     def db_nzb_get_allfile_list(self, nzbname):
         try:
@@ -1134,7 +1140,7 @@ def wrapper_main(cfg, dirs, logger):
     pwwt.do_loop()
 
     try:
-        pwwt.db.backup(pwwt.db_file)
+        # pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:
