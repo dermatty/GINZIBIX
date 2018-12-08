@@ -92,6 +92,14 @@ class ConnectionWorker(Thread):
         self.bandwidth_bytes += bytesdownloaded
         return status, bytesdownloaded, info0
 
+    def wait_running(self, sec):
+        tt0 = time.time()
+        while time.time() - tt0 < sec:
+            if not self.running:
+                break
+            time.sleep(0.1)
+        return
+
     def retry_connect(self):
         if self.nntpobj or not self.running:
             self.connectionstate = 1
@@ -108,10 +116,12 @@ class ConnectionWorker(Thread):
                 self.bytesdownloaded = 0
                 self.bandwidth_bytes = 0
                 self.connectionstate = 1
-                time.sleep(1)
+                self.wait_running(1)
                 return
             self.logger.warning(whoami() + "Could not connect to server " + idn + ", will retry in 5 sec.")
-            time.sleep(5)
+            self.wait_running(5)
+            if not self.running:
+                break
             idx += 1
         if not self.running:
             self.logger.warning(whoami() + "No connection retries anymore due to exiting")
@@ -143,6 +153,8 @@ class ConnectionWorker(Thread):
             with self.lock:
                 self.download_done = True
             self.retry_connect()
+            if not self.running:
+                break
             if not self.nntpobj:
                 time.sleep(5)
                 continue

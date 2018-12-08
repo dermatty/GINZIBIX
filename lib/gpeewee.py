@@ -1140,7 +1140,7 @@ def wrapper_main(cfg, dirs, logger):
     pwwt.do_loop()
 
     try:
-        pwwt.db.backup(pwwt.db_file)
+        # pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:
