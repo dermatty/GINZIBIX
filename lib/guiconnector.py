@@ -115,18 +115,6 @@ class GUI_Connector(Thread):
         except Exception as e:
             self.logger.error(whoami() + str(e))
             bytes0 = 0
-
-        #pid = os.getpid()
-        #with open("/proc/" + str(pid) + "/net/netstat", "r") as f:
-        #    bytes0 = None
-        #    for line in f:
-        #        if line.startswith("IpExt"):
-        #            line0 = line.split(" ")
-        #            try:
-        #                bytes0 = int(line0[7])
-        #                break
-        #            except Exception:
-        #                pass
         if bytes0:
             dt = time.time() - self.old_t
             if dt == 0:
@@ -152,9 +140,10 @@ class GUI_Connector(Thread):
                         self.dlconfig, full_data_for_gui)
                 match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
                 # only send new data if something has changed (except network usage) or network_usage_change > 5%
-                if match_ret != [6] or (match_ret == [6] and abs(ret1[6] / self.oldret0[6] - 1) > 0.05):
-                    self.oldret0 = ret1
-                    ret0 = ret1
+                if match_ret:
+                    if match_ret != [6] or (match_ret == [6] and abs(ret1[6] / self.oldret0[6] - 1) > 0.05):
+                        self.oldret0 = ret1
+                        ret0 = ret1
             except Exception as e:
                 self.logger.warning(whoami() + str(e))
         return ret0
@@ -183,9 +172,11 @@ class GUI_Connector(Thread):
             if msg == "REQ":
                 try:
                     getdata = self.get_data()
-                    sendtuple = ("DL_DATA", getdata)
-                    #else:
-                    #    sendtuple = ("NOOK", None)
+                    # if one element in getdata has changed - send:
+                    if getdata.count(None) != len(getdata):
+                        sendtuple = ("DL_DATA", getdata)
+                    else:
+                        sendtuple = ("NOOK", None)
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
                 try:

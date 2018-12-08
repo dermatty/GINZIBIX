@@ -1,7 +1,6 @@
 # parallel download
 
-2. article/connection health not set to zero when waiting for NZB, although
-set 0
+1. postprocess hangs at terminating par_verifier sometimes(!?)
 3. pause / resume -> sometimes rar skipped etc. !!??
 4. test downloaded_size after resume
 5. if rars have no ending and no par2 -> check in separate textfile. SV S01E10 e.g.

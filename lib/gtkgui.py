@@ -896,11 +896,11 @@ class AppWindow(Gtk.ApplicationWindow):
             if newhealth:
                 self.update_crit_health_levelbars()
 
-        if (article_health and self.levelbar_arthealth != article_health):
+        if (article_health is not None and self.appdata.article_health != article_health):
             self.appdata.article_health = article_health
             self.update_health()
 
-        if (connection_health and self.levelbar_connhealth != connection_health):
+        if (connection_health is not None and self.appdata.connection_health != connection_health):
             self.appdata.connection_health = connection_health
             self.update_health()
 
@@ -921,7 +921,6 @@ class AppWindow(Gtk.ApplicationWindow):
         # downloading nzbs
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
             # sort again just to make sure
-            # print(sortednzblist0, self.appdata.sortednzblist)
             if sortednzblist0 == [-1]:
                 sortednzblist = []
             else:
@@ -1143,17 +1142,12 @@ class GUI_Poller(Thread):
                     self.socket.send_pyobj(("REQ", None))
                     datatype, datarec = self.socket.recv_pyobj()
                     if datatype == "NOOK":
-                        print("NOOK")
-                        #print(lastt0 - time.time(), "NOOK")
-                        #lastt0 = time.time()
-                        # time.sleep(self.delay)
+                        time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
                         data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
                             article_health, connection_health, dlconfig, full_data = datarec
                         try:
-                            #print(lastt0 - time.time(), "DATA")
-                            #lastt0 = time.time()
                             GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
                             time.sleep(self.delay)
@@ -1162,58 +1156,3 @@ class GUI_Poller(Thread):
                             self.logger.debug(lpref + whoami() + ": " + str(e))
                 except Exception as e:
                     self.logger.error("GUI_ConnectorMain: " + str(e))
-            # time.sleep(self.delay)
-
-
-class File_Poller(Thread):
-
-    def __init__(self, lock, appdata, update_mainwindow, logger, port="36601"):
-        Thread.__init__(self)
-        self.daemon = True
-        self.lock = lock
-        self.data = None
-        self.nzbname = None
-        self.delay = 1
-        self.appdata = appdata
-        self.update_mainwindow = update_mainwindow
-        self.logger = logger
-        self.inotify = inotify_simple.INotify()
-        self.nzbdir = "/home/stephan/.ginzibix/"
-        self.nzbfile = "NZB_DATA.TXT"
-        self.nzbfile_full = self.nzbdir + self.nzbfile
-        watch_flags = inotify_simple.flags.CREATE | inotify_simple.flags.DELETE | inotify_simple.flags.MODIFY | inotify_simple.flags.DELETE_SELF
-        self.inotify.add_watch(self.nzbdir, watch_flags)
-        sortednzblist = self.read_nzb_file()
-        GLib.idle_add(self.update_mainwindow, None, None, None, None, None, None, sortednzblist)
-
-    def get_inotify_events(self):
-        noevent = True
-        while noevent:
-            for event in self.inotify.read():
-                if event.name == self.nzbfile:
-                    for flg in inotify_simple.flags.from_mask(event.mask):
-                        if "flags.MODIFY" in str(flg):
-                            noevent = False
-                            break
-
-    def read_nzb_file(self):
-        sortednzblist = []
-        with open(self.nzbfile_full, "r") as fp:
-            for line in fp:
-                ll = line.split()
-                if ll:
-                    linetuple = (ll[0], int(ll[1]), int(ll[2]), int(ll[3]), int(ll[4]), int(ll[5]))
-                    sortednzblist.append(linetuple)
-        return sorted(sortednzblist, key=lambda prio: prio[1])
-
-    def run(self):
-        while True:
-            self.get_inotify_events()
-            sortednzblist = self.read_nzb_file()
-            GLib.idle_add(self.update_mainwindow, None, None, None, None, None, None, sortednzblist)
-            time.sleep(self.delay)
-
-
-# app = Application()
-# exit_status = app.run(sys.argv)
-# sys.exit(exit_status)

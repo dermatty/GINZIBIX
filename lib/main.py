@@ -495,7 +495,7 @@ class Downloader():
                 self.logger.info(str(e))
         # join verifier
         if self.mpp["verifier"]:
-            self.logger.info("Waiting for par_verifier to complete")
+            self.logger.info(whoami() + "Waiting for par_verifier to complete")
             try:
                 # clear queue
                 while True:
@@ -525,6 +525,7 @@ class Downloader():
             except Exception as e:
                 self.logger.warning(str(e))
             self.mpp["verifier"] = None
+            self.logger.debug(whoami() + "par_verifier completed/terminated!")
         # if unrarer not running (if e.g. all files)
         ispw = self.pwdb.exc("db_nzb_get_ispw", [nzbname], {})
         if ispw:
@@ -601,7 +602,7 @@ class Downloader():
                     self.logger.debug(whoami() + str(e))
             self.mpp["unrarer"] = None
             self.sighandler.mpp = self.mpp
-            self.logger.debug(whoami() + "Unrarer stopped!")
+            self.logger.debug(whoami() + "unrarer completed/terminated!")
         # get status
         finalverifierstate = (self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
         finalnonrarstate = self.pwdb.exc("db_allnonrarfiles_getstate", [nzbname], {})
@@ -885,8 +886,6 @@ class Downloader():
                                    self.ct.servers.server_config, "downloading", self.serverconfig())
 
         while True:
-
-            print(time.time())
 
             # check if dl_stopped or nzbs_reordered signal received from gui
             return_reason = None
@@ -1528,6 +1527,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                 idlestart = time.time()
                 servers_shut_down = False
                 dl.ct.reset_timestamps_bdl()
+                guiconnector.set_health(0, 0)
                 while True:
                     dobreak = False
                     with guiconnector.lock:
