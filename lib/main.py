@@ -157,9 +157,8 @@ class SigHandler_Main:
         # 9. stop nzbparser
         try:
             mpid = None
-            if self.mpp["nzbparser"]:
+            if self.mpp["nzbparser"].is_alive():
                 mpid = self.mpp["nzbparser"].pid
-            if mpid:
                 self.logger.debug(whoami() + "terminating nzb_parser")
                 try:
                     os.kill(self.mpp["nzbparser"].pid, signal.SIGTERM)
@@ -1176,6 +1175,8 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
     if not nzbname:
         logger.debug(whoami() + "polling for 30 sec. for new NZB before closing connections if alive ...")
         nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, 30 * 1000)
+        if nzbname == -1:
+            return False, 0
         if not nzbname:
             if ct.threads:
                 # if no success: close all connections and poll blocking
@@ -1191,7 +1192,7 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
             try:
                 nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, None)
                 if nzbname == -1:
-                    return None
+                    return False, 0
             except Exception as e:
                 logger.warning(whoami() + str(e))
     pwdb.exc("store_sorted_nzbs", [], {})
@@ -1466,6 +1467,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     servers_shut_down = True
 
     while True:
+        pwdb.exc("store_sorted_nzbs", [], {})
         sh.nzbname = None
         sh.dirs = None
         guiconnector.set_health(0, 0)
@@ -1479,7 +1481,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         ct.reset_timestamps_bdl()
         if not retcode:
             # code "closeall"
-            if nzbname == 0:
+            if nzbname == 0 or nzbname == -1:
                 return_reason = "closeall"
             # code "reordered"
             elif nzbname == -10:
@@ -1571,7 +1573,6 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                 pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
             else:
                 pwdb.exc("db_msg_insert", [nzbname, "download and/or postprocessing failed!", "error"], {})
-            pwdb.exc("store_sorted_nzbs", [], {})
             logger.info(whoami() + nzbname + " finished with status " + str(stat0_0))
         elif stat0 == -2:
             guiconnector.set_health(0, 0)
@@ -1579,4 +1580,3 @@ def ginzi_main(cfg, dirs, subdirs, logger):
             logger.info(whoami() + "download failed for NZB " + nzbname)
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
-            pwdb.exc("store_sorted_nzbs", [], {})

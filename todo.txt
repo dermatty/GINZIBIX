@@ -1,11 +1,11 @@
 # parallel download
 
 1. postprocess hangs at terminating par_verifier sometimes(!?)
+2. enable quick shutdown auf unrarer (if in the middle of unraring)
 3. pause / resume -> sometimes rar skipped etc. !!??
 4. test downloaded_size after resume
 5. if rars have no ending and no par2 -> check in separate textfile. SV S01E10 e.g.
 6. show overall eta in gui / NZB_QUEUE
-7. if press on_select in NZB_HISTORY -> no headers in NZB_QUEUE anymore!
-   gtkgui l275 - get_selection ?????
+7. enable more robust shutdown of connections in case they are unstable e.g
 8. implement "add nzb" feature in gtkgui / NZB_QUEUE
-9. NZB_HISTORY only updated if NZB_QUEUE is updated
+9. make gzbx more robust if there are no cennctions, e.g. with shutdown

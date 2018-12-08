@@ -183,7 +183,7 @@ class AppWindow(Gtk.ApplicationWindow):
         # stack
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
-        stack.set_transition_duration(200)
+        stack.set_transition_duration(10)
 
         stack_switcher = Gtk.StackSidebar()
         stack_switcher.set_stack(stack)
@@ -256,40 +256,40 @@ class AppWindow(Gtk.ApplicationWindow):
         box_main.pack_start(stack, True, True, 0)
 
     def show_details_stack(self, stackdetails_box):
-        frame2 = Gtk.Frame()
-        frame2.set_label("NZB History")
-        stackdetails_box.pack_start(frame2, True, True, 0)
+        detailsframe2 = Gtk.Frame()
+        detailsframe2.set_label("NZB History")
+        stackdetails_box.pack_start(detailsframe2, True, True, 0)
         # scrolled window
-        scrolled_window = Gtk.ScrolledWindow()
-        scrolled_window.set_border_width(10)
-        scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled_window.set_property("min-content-height", 380)
-        frame2.add(scrolled_window)
-        listbox = Gtk.ListBox()
-        row = Gtk.ListBoxRow()
+        detailsscrolled_window = Gtk.ScrolledWindow()
+        detailsscrolled_window.set_border_width(10)
+        detailsscrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        detailsscrolled_window.set_property("min-content-height", 380)
+        detailsframe2.add(detailsscrolled_window)
+        #detailslistbox = Gtk.ListBox()
+        #detailsrow = Gtk.ListBoxRow()
         # populate liststore_nzbhistory
         self.liststore_nzbhistory = Gtk.ListStore(str, int)
         self.update_nzbhistory_liststore()
-        treeview = Gtk.TreeView(model=self.liststore_nzbhistory)
-        # treeview.set_reorderable(True)
-        sel = treeview.get_selection()
+        self.treeview_history = Gtk.TreeView(model=self.liststore_nzbhistory)
+        self.treeview_history.set_reorderable(False)
+        sel = self.treeview_history.get_selection()
         sel.set_mode(Gtk.SelectionMode.NONE)
-        # treeview.get_selection().connect("changed", self.on_selection_changed_nzbhistory)
+        # treeview.get_selection().connect("changed", self.on_selection_changed)
         # 0st column: NZB name
-        renderer_text0 = Gtk.CellRendererText()
-        column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
-        column_text0.set_expand(True)
-        column_text0.set_min_width(320)
-        treeview.append_column(column_text0)
+        detailsrenderer_text0 = Gtk.CellRendererText()
+        detailscolumn_text0 = Gtk.TreeViewColumn("NZB name", detailsrenderer_text0, text=0)
+        detailscolumn_text0.set_expand(True)
+        detailscolumn_text0.set_min_width(320)
+        self.treeview_history.append_column(detailscolumn_text0)
         # 1th column status
-        renderer_text1 = Gtk.CellRendererText()
-        column_text1 = Gtk.TreeViewColumn("Status", renderer_text1, text=1)
-        column_text1.set_min_width(80)
-        treeview.append_column(column_text1)
+        detailsrenderer_text1 = Gtk.CellRendererText()
+        detailscolumn_text1 = Gtk.TreeViewColumn("Status", detailsrenderer_text1, text=1)
+        detailscolumn_text1.set_min_width(80)
+        self.treeview_history.append_column(detailscolumn_text1)
         # final
-        row.add(treeview)
-        listbox.add(row)
-        scrolled_window.add(listbox)
+        #detailsrow.add(self.treeview_history)
+        #detailslistbox.add(detailsrow)
+        detailsscrolled_window.add(self.treeview_history)
 
     def show_nzb_stack(self, stacknzb_box):
         frame2 = Gtk.Frame()
@@ -302,59 +302,61 @@ class AppWindow(Gtk.ApplicationWindow):
         scrolled_window.set_property("min-content-height", 380)
         frame2.add(scrolled_window)
         # listbox
-        listbox = Gtk.ListBox()
-        row = Gtk.ListBoxRow()
+        #listbox = Gtk.ListBox()
+        #row = Gtk.ListBoxRow()
         # populate liststore
         self.liststore = Gtk.ListStore(str, int, float, float, str, str, bool, str, str)
         self.update_liststore()
         # set treeview + actions
-        treeview = Gtk.TreeView(model=self.liststore)
-        treeview.set_reorderable(True)
-        treeview.get_selection().connect("changed", self.on_selection_changed)
+        self.treeview_nzb = Gtk.TreeView(model=self.liststore)
+        self.treeview_nzb.set_reorderable(False)
+        sel = self.treeview_nzb.get_selection()
+        sel.set_mode(Gtk.SelectionMode.NONE)
+        # self.treeview_nzb.get_selection().connect("changed", self.on_selection_changed)
         # 0th selection toggled
         renderer_toggle = Gtk.CellRendererToggle()
         renderer_toggle.connect("toggled", self.on_inverted_toggled)
         column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=6)
-        treeview.append_column(column_toggle)
+        self.treeview_nzb.append_column(column_toggle)
         # 1st column: NZB name
         renderer_text0 = Gtk.CellRendererText()
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
         column_text0.set_expand(True)
         column_text0.set_min_width(320)
-        treeview.append_column(column_text0)
+        self.treeview_nzb.append_column(column_text0)
         # 2nd: progressbar
         renderer_progress = Gtk.CellRendererProgress()
         column_progress = Gtk.TreeViewColumn("Progress", renderer_progress, value=1, text=5)
         column_progress.set_min_width(260)
         column_progress.set_expand(True)
-        treeview.append_column(column_progress)
+        self.treeview_nzb.append_column(column_progress)
         # 3rd downloaded GiN
         renderer_text1 = Gtk.CellRendererText()
         column_text1 = Gtk.TreeViewColumn("Downloaded", renderer_text1, text=2)
         column_text1.set_cell_data_func(renderer_text1, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 2)[0]) + " GiB"))
-        treeview.append_column(column_text1)
+        self.treeview_nzb.append_column(column_text1)
         # 4th overall GiB
         renderer_text2 = Gtk.CellRendererText()
         column_text2 = Gtk.TreeViewColumn("Overall", renderer_text2, text=3)
         column_text2.set_cell_data_func(renderer_text2, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
         column_text2.set_min_width(80)
-        treeview.append_column(column_text2)
+        self.treeview_nzb.append_column(column_text2)
         # 5th Eta
         renderer_text3 = Gtk.CellRendererText()
         column_text3 = Gtk.TreeViewColumn("Eta", renderer_text3, text=4)
         column_text3.set_min_width(80)
-        treeview.append_column(column_text3)
+        self.treeview_nzb.append_column(column_text3)
         # 7th status
         renderer_text7 = Gtk.CellRendererText()
         column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
         column_text7.set_min_width(80)
-        treeview.append_column(column_text7)
+        self.treeview_nzb.append_column(column_text7)
         # final
-        row.add(treeview)
-        listbox.add(row)
-        scrolled_window.add(listbox)
+        #row.add(self.treeview_nzb)
+        #listbox.add(row)
+        scrolled_window.add(self.treeview_nzb)
 
         self.gridbuttonlist = self.add_action_bar(stacknzb_box)
 
@@ -369,8 +371,8 @@ class AppWindow(Gtk.ApplicationWindow):
         scrolled_window_log.set_property("min-content-height", 140)
         frame3.add(scrolled_window_log)
 
-        loglistbox = Gtk.ListBox()
-        logrow = Gtk.ListBoxRow()
+        #loglistbox = Gtk.ListBox()
+        #logrow = Gtk.ListBoxRow()
 
         self.logliststore = Gtk.ListStore(str, str, str, str, str)
         logtreeview = Gtk.TreeView(model=self.logliststore)
@@ -391,9 +393,9 @@ class AppWindow(Gtk.ApplicationWindow):
         column_log2.set_min_width(520)
         logtreeview.append_column(column_log2)
 
-        logrow.add(logtreeview)
-        loglistbox.add(logrow)
-        scrolled_window_log.add(loglistbox)
+        #logrow.add(logtreeview)
+        #loglistbox.add(logrow)
+        scrolled_window_log.add(logtreeview)
 
     def add_action_bar(self, container):
         # box for record/stop/.. selected
@@ -674,10 +676,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.liststore_nzbhistory.clear()
         for i, nzb in enumerate(self.appdata.nzbs_history):
             nzb_as_list = list(nzb)
-            if i == 0:
-                self.current_iter = self.liststore_nzbhistory.append(nzb_as_list)
-            else:
-                self.liststore_nzbhistory.append(nzb_as_list)
+            self.liststore_nzbhistory.append(nzb_as_list)
 
     def update_liststore(self, only_eta=False):
         # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
@@ -738,10 +737,7 @@ class AppWindow(Gtk.ApplicationWindow):
                     bgcolor = get_bg_color(n_status_s)
             nzb_as_list[7] = n_status_s
             nzb_as_list.append(bgcolor)
-            if i == 0:
-                self.current_iter = self.liststore.append(nzb_as_list)
-            else:
-                self.liststore.append(nzb_as_list)
+            self.liststore.append(nzb_as_list)
 
     def update_liststore_dldata(self):
         if len(self.liststore) == 0:
@@ -813,11 +809,11 @@ class AppWindow(Gtk.ApplicationWindow):
                 b.set_sensitive(False)
 
     def on_selection_changed(self, selection):
-        (model, iter) = selection.get_selected()
+        self.show_nzb_stack(self.stacknzb_box)
+        pass
 
     def on_selection_changed_nzbhistory(self, selection):
         # (model, iter) = selection.get_selected()
-        print("------")
         pass
 
     def header_bar(self):
