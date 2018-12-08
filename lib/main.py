@@ -17,11 +17,10 @@ from .par_verifier import par_verifier, verifier_is_idle
 from .par2lib import Par2File
 from .partial_unrar import partial_unrar, unrarer_is_idle
 from .nzb_parser import ParseNZB
-from .article_decoder import decode_articles
+from .article_decoder import decode_articles, decoder_is_idle
 from .passworded_rars import is_rar_password_protected, get_password
 from .connections import ConnectionWorker, ConnectionThreads
 from .server import Servers
-from statistics import mean
 from .aux import PWDBSender
 from .guiconnector import GUI_Connector, remove_nzb_files_and_db
 import inspect
@@ -457,6 +456,7 @@ class Downloader():
 
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata0):
+        self.logger.debug(whoami() + "starting postprocess")
         bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
         downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
         self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
@@ -475,6 +475,13 @@ class Downloader():
             except (queue.Empty, EOFError):
                 break
         self.resultqueue.join()
+        # join decoder somehow
+        self.logger.debug(whoami() + "Joining article decoder")
+        try:
+            while self.mp_work_queue.qsize() > 0:
+                time.sleep(0.5)
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
         # join renamer
         if self.mpp["renamer"]:
             try:
@@ -885,6 +892,8 @@ class Downloader():
                                    self.ct.servers.server_config, "downloading", self.serverconfig())
 
         while True:
+
+            print(time.time())
 
             # check if dl_stopped or nzbs_reordered signal received from gui
             return_reason = None

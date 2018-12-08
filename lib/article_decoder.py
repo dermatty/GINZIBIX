@@ -20,6 +20,16 @@ lpref = __name__.split("lib.")[-1] + " - "
 
 TERMINATED = False
 MAX_THREADS = 4
+IS_IDLE = False
+
+
+def decoder_is_idle():
+    return IS_IDLE
+
+
+def decoder_set_idle(ie):
+    global IS_IDLE
+    IS_IDLE = ie
 
 
 class SigHandler_Decoder:
@@ -45,6 +55,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
     bytesfinal = bytearray()
     while not TERMINATED:
         res0 = None
+        decoder_set_idle(True)
         while not TERMINATED:
             try:
                 res0 = mp_work_queue0.get_nowait()
@@ -57,6 +68,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
         if not res0 or TERMINATED:
             logger.info(whoami() + "exiting decoder process!")
             break
+        decoder_set_idle(False)
 
         infolist, save_dir, filename, filetype = res0
         # del bytes0

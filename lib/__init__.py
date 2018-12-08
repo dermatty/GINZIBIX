@@ -4,7 +4,7 @@ from .par2lib import Par2File, calc_file_md5hash
 from .partial_unrar import partial_unrar, unrarer_is_idle
 from .nzb_parser import ParseNZB
 from .gpeewee import PWDB, wrapper_main
-from .article_decoder import decode_articles
+from .article_decoder import decode_articles, decoder_is_idle
 from .connections import ConnectionWorker, ConnectionThreads
 from .server import Servers
 # from .sighandler import SigHandler
