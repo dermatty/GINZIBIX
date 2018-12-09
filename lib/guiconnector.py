@@ -74,6 +74,8 @@ class GUI_Connector(Thread):
         self.netstatlist = []
         self.last_update_for_gui = 0
         self.closeall = False
+        self.article_health = 0
+        self.connection_health = 0
         self.oldret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
         try:
             self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])

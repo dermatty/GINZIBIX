@@ -192,7 +192,7 @@ class ConnectionWorker(Thread):
                 self.download_done = False
             status, bytesdownloaded, info = self.download_article(art_name, age)
             # if ctrl-c - exit thread
-            if status == -3:
+            if status == -3 or not self.running:
                 break
             # if download successfull - put to resultqueue
             elif status == 1:
