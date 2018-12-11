@@ -92,6 +92,16 @@ class PWDB():
             message = CharField()
             level = CharField()
 
+        class STATUS(BaseModel):
+            name = CharField(unique=True)
+            downloader = CharField(default="N/A")
+            renamer = CharField(default="N/A")
+            unrarer = CharField(default="N/A")
+            nzbparser = CharField(default="N/A")
+            verifier = CharField(default="N/A")
+            decoder = CharField(default="N/A")
+            postprocessor = CharField(default="N/A")
+
         class NZB(TimestampedModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
@@ -184,7 +194,8 @@ class PWDB():
         self.NZB = NZB
         self.FILE = FILE
         self.ARTICLE = ARTICLE
-        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG]
+        self.STATUS = STATUS
+        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.STATUS]
 
         if self.db_file_exists:
             try:
@@ -236,8 +247,48 @@ class PWDB():
             for nzbf in nzb0.files:
                 nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
             nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
-        
         return nzb_data
+
+    # ---- self.STATUS ----
+    def db_status_init(self):
+        try:
+            self.STATUS.create(name="monitor", downloader="not started", renamer="not started",
+                               unrarer="not started", nzbparser="not started", verifier="not started",
+                               decoder="not started", postprocessor="not started")
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
+        return True
+
+    def db_status_set(self, procname, status):
+        query = None
+        try:
+            if procname == "downloader":
+                query = self.STATUS.update(downloader=status).where(self.STATUS.name == "monitor")
+            elif procname == "renamer":
+                query = self.STATUS.update(renamer=status).where(self.STATUS.name == "monitor")
+            elif procname == "unrarer":
+                query = self.STATUS.update(unrarer=status).where(self.STATUS.name == "monitor")
+            elif procname == "nzbparser":
+                query = self.STATUS.update(nzbparser=status).where(self.STATUS.name == "monitor")
+            elif procname == "verifier":
+                query = self.STATUS.update(verifier=status).where(self.STATUS.name == "monitor")
+            elif procname == "decoder":
+                query = self.STATUS.update(dexoswe=status).where(self.STATUS.name == "monitor")
+            elif procname == "postprocessor":
+                query = self.STATUS.update(postprocessor=status).where(self.STATUS.name == "monitor")
+            else:
+                return False
+            if query:
+                query.execute()
+                return True
+            else:
+                return False
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
+        
+        
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):

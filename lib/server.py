@@ -71,13 +71,13 @@ class Servers():
                         try:
                             self.logger.debug(whoami() + "Opening connection # " + str(conn_nr) + "to server " + server_name)
                             if usessl:
-                                nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True, timeout=5)
+                                nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True)
                             else:
                                 # this is just for ginzicut preloading
                                 if user.lower() == "ginzicut" or password.lower() == "ginzicut":
                                     nntpobj = nntplib.NNTP(server_url, port=port)
                                 else:
-                                    nntpobj = nntplib.NNTP(server_url, user=user, password=password, readermode=True, port=port, timeout=5)
+                                    nntpobj = nntplib.NNTP(server_url, user=user, password=password, readermode=True, port=port)
                             self.logger.debug(whoami() + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
                             result = nntpobj
                             self.all_connections[idx] = (sn, cn, rt, nntpobj)

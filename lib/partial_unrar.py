@@ -30,7 +30,10 @@ class SigHandler_Unrar:
 
     def sighandler_unrar(self, a, b):
         global TERMINATED
-        os.chdir(self.wd)
+        try:
+            os.chdir(self.wd)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
         self.logger.info(whoami() + "terminating ...")
         TERMINATED = True
 

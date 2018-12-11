@@ -4,7 +4,8 @@ import nntplib
 import time
 import inspect
 from .server import Servers
-
+import socket
+import queue
 
 def whoami():
     outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
@@ -52,6 +53,7 @@ class ConnectionWorker(Thread):
     def download_article(self, article_name, article_age):
         sn, _ = self.connection
         bytesdownloaded = 0
+        info0 = None
         server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
         if self.mode == "sanitycheck":
             try:
@@ -70,33 +72,52 @@ class ConnectionWorker(Thread):
         try:
             # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
-            if resp[:3] != "222":
-                self.logger.warning(whoami() + "Could not find " + article_name + " on " + self.idn)
-                status = 0
-                info0 = None
-            else:
+            if resp.startswith("222"):
                 status = 1
                 info0 = [inf + b"\r\n" if not inf.endswith(b"\r\n") else inf for inf in info.lines]
                 bytesdownloaded = sum(len(i) for i in info0)
-        except nntplib.NNTPTemporaryError:
-            self.logger.warning(whoami() + "Could not find " + article_name + " on " + self.idn)
+            else:
+                self.logger.warning(whoami() + resp + ": could not find " + article_name + " on " + self.idn)
+                status = 0
+        # nntpError 4xx - Command was syntactically correct but failed for some reason
+        except nntplib.NNTPTemporaryError as e:
+            errcode = e.response.strip()[:3]
+            if errcode == "400":
+                # server quits, new connection has to be established
+                status = -2
+            else:
+                status = 0
+            self.logger.warning(whoami() + e.response + ": could not find " + article_name + " on " + self.idn)
+        # nntpError 5xx - Command unknown error
+        except nntplib.NNTPPermanentError as e:
+            errcode = e.response.strip()[:3]
+            if errcode in ["503", "502"]:
+                # timeout, closing connection
+                status = -2
+            else:
+                status = 0
+            self.logger.warning(whoami() + e.response + ": could not find " + article_name + " on " + self.idn)
             status = 0
-            info0 = None
+        except nntplib.NNTPError as e:
+            status = 0
+            self.logger.warning(whoami() + e.response + ": could not find " + article_name + " on " + self.idn)
         except KeyboardInterrupt:
             status = -3
-            info0 = None
-        except Exception as e:
-            self.logger.error(whoami() + str(e) + self.idn + " for article " + article_name)
+        except socket.timeout:
             status = -2
-            info0 = None
+            self.logger.warning(whoami() + "socket.timeout on " + self.idn)
+        except AttributeError as e:
+            status = 0
+            self.logger.warning(whoami() + str(e) + ": " + article_name + " on " + self.idn)
+        except Exception as e:
+            status = 0
+            self.logger.warning(whoami() + str(e) + ": " + article_name + " on " + self.idn)
         self.bandwidth_bytes += bytesdownloaded
         return status, bytesdownloaded, info0
 
     def wait_running(self, sec):
         tt0 = time.time()
-        while time.time() - tt0 < sec:
-            if not self.running:
-                break
+        while time.time() - tt0 < sec and self.running:
             time.sleep(0.1)
         return
 
@@ -148,17 +169,17 @@ class ConnectionWorker(Thread):
 
     def run(self):
         self.logger.info(whoami() + self.idn + " thread starting !")
-        timeout = 5
-        while True and self.running:
+        timeout = 2
+        while self.running:
             with self.lock:
                 self.download_done = True
             self.retry_connect()
             if not self.running:
                 break
             if not self.nntpobj:
-                time.sleep(5)
+                self.wait_running(3)
                 continue
-            self.lock.acquire()
+            '''self.lock.acquire()
             artlist = list(self.articlequeue.queue)
             try:
                 test_article = artlist[-1]
@@ -172,37 +193,43 @@ class ConnectionWorker(Thread):
                 self.lock.release()
                 self.logger.warning(self.idn + ": got poison pill!")
                 break
-            _, _, _, _, _, _, remaining_servers = test_article
-            # no servers left
+            _, _, _, _, _, _, remaining_servers = test_article'''
             # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
-            if not remaining_servers:
-                article = self.articlequeue.get()
-                self.lock.release()
-                self.resultqueue.put(article + (None,))
+            try:
+                article = self.articlequeue.get_nowait()
+                self.articlequeue.task_done()
+            except (queue.Empty, EOFError):
+                time.sleep(0.2)
                 continue
-            if self.name not in remaining_servers[0]:
-                self.lock.release()
-                # time.sleep(0.1)
+            except Exception as e:
+                self.logger.warning(whoami() + str(e) + ": problem in clearing article queue")
+                time.sleep(0.2)
                 continue
-            article = self.articlequeue.get()
-            self.lock.release()
-            filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
             # avoid ctrl-c to interrup downloading itself
             with self.lock:
                 self.download_done = False
+            filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
+            if not remaining_servers1:
+                self.resultqueue.put(article + (None,))
+                continue
+            if self.name not in remaining_servers1[0]:
+                time.sleep(0.1)
+                continue
             status, bytesdownloaded, info = self.download_article(art_name, age)
             # if ctrl-c - exit thread
             if status == -3 or not self.running:
                 break
             # if download successfull - put to resultqueue
             elif status == 1:
+                self.logger.debug(whoami() + "Downloaded article " + art_name + " on server " + self.idn)
+                timeout = 2
                 self.bytesdownloaded += bytesdownloaded
                 self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
-                self.articlequeue.task_done()
-            # if server connection error - disconnect
+                # self.articlequeue.task_done()
+            # if 400 error
             elif status == -2:
                 # disconnect
-                self.logger.warning("Stopping server " + self.idn)
+                self.logger.warning(whoami() + self.idn + " server connection error, reconnecting ...")
                 self.connectionstate = -1
                 try:
                     self.nntpobj.quit()
@@ -210,29 +237,30 @@ class ConnectionWorker(Thread):
                     pass
                 self.nntpobj = None
                 # take next server
-                next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
+                next_servers = self.remove_from_remaining_servers(self.name, remaining_servers1)
                 next_servers.append([self.name])    # add current server to end of list
-                self.logger.warning(whoami() + "Requeuing " + art_name + " on server " + self.idn)
+                self.logger.debug(whoami() + "Requeuing " + art_name + " on server " + self.idn)
                 # requeue
-                self.articlequeue.task_done()
+                # self.articlequeue.task_done()
                 self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-                time.sleep(timeout)
-                timeout += 3
+                self.wait_running(timeout)
+                timeout *= 2
                 if timeout > 30:
-                    timeout = 5
+                    timeout = 2
                 continue
             # if article could not be found on server / retention not good enough - requeue to other server
             elif status in [0, -1]:
-                next_servers = self.remove_from_remaining_servers(self.name, remaining_servers)
-                self.articlequeue.task_done()
+                timeout = 2
+                next_servers = self.remove_from_remaining_servers(self.name, remaining_servers1)
+                # self.articlequeue.task_done()
                 if not next_servers:
-                    self.logger.error(whoami() + "Download finally failed on server " + self.idn + ": for article #" + str(art_nr) + " " + str(next_servers))
+                    self.logger.error(whoami() + "Download finally failed on server " + self.idn + ": for article " + art_name + " " + str(next_servers))
                     self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
                 else:
-                    self.logger.warning(whoami() + "Download failed on server " + self.idn + ": for article #" + str(art_nr) + ", queueing: "
-                                        + str(next_servers))
+                    self.logger.debug(whoami() + "Download failed on server " + self.idn + ": for article " + art_name + ", queueing: "
+                                      + str(next_servers))
                     self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-        self.logger.debug(whoami() + self.idn + " exited!")
+        self.logger.info(whoami() + self.idn + " exited!")
 
 
 # this class deals on a meta-level with usenet connections

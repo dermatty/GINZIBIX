@@ -53,4 +53,4 @@ class Monitor(Thread):
                   "NZB_Parser: ", nzbparser_is_alive)
             print("ArtQueue: ", lenartqueue,  " -> ResQueue: ", lenresqueue, " -> WorkQueue ", lenworkqueue)
             print("*" * 40)
-            time.sleep(0.5)
+            time.sleep(0.1)

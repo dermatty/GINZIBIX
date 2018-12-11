@@ -77,7 +77,7 @@ class SigHandler_Main:
                 break
         self.articlequeue.join()
         # 2. wait for all downloads to be finished
-        self.logger.debug(whoami() + "waiting for all remaining articles to be downloaded")
+        '''self.logger.debug(whoami() + "waiting for all remaining articles to be downloaded")
         dl_not_done_yet = True
         while dl_not_done_yet:
             dl_not_done_yet = False
@@ -86,7 +86,7 @@ class SigHandler_Main:
                     dl_not_done_yet = True
                     break
             if dl_not_done_yet:
-                time.sleep(0.2)
+                time.sleep(0.2)'''
         # 3. stop decoder
         mpid = None
         try:
@@ -174,9 +174,12 @@ class SigHandler_Main:
         # 10. threads + servers
         if self.ct.threads:
             self.logger.debug(whoami() + "stopping download threads")
-            for t, _ in self.ct.threads:
-                t.stop()
-                t.join()
+            try:
+                for t, _ in self.ct.threads:
+                    t.stop()
+                    t.join()
+            except Exception as e:
+                print(str(e))
         try:
             if self.ct.servers:
                 self.logger.debug(whoami() + "closing all server connections")
@@ -1332,9 +1335,13 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             articlequeue.task_done()
         except (queue.Empty, EOFError):
             break
+        except Exception as e:
+            logger.warning(whoami() + str(e) + ": problem in clearing article queue")
+            break
     articlequeue.join()
+    logger.debug(whoami() + "articlequeue task_done!")
     # 2. wait for all remaining articles to be downloaded
-    logger.debug(whoami() + "waiting for all remaining articles to be downloaded")
+    '''logger.debug(whoami() + "waiting for all remaining articles to be downloaded")
     dl_not_done_yet = True
     while dl_not_done_yet:
         dl_not_done_yet = False
@@ -1343,7 +1350,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
                 dl_not_done_yet = True
                 break
         if dl_not_done_yet:
-            time.sleep(0.2)
+            time.sleep(0.2)'''
     # 3. stop article_decoder
     if stopall:
         mpid = None
@@ -1397,7 +1404,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         if dl.mpp["verifier"]:
             mpid = dl.mpp["verifier"].pid
         if mpid:
-            logger.warning("terminating rar_verifier")
+            logger.warning(whoami() + "terminating rar_verifier")
             try:
                 os.kill(dl.mpp["verifier"].pid, signal.SIGTERM)
                 dl.mpp["verifier"].join()
@@ -1437,6 +1444,9 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2 = (None, ) * 6
 
     pwdb = PWDBSender()
+
+    logger.debug(whoami() + "init monitor status to 'not started'")
+    pwdb.exc("db_status_init", [], {})
 
     mp_work_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
