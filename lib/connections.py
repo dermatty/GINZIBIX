@@ -19,14 +19,13 @@ lpref = __name__.split("lib.")[-1] + " - "
 
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
-    def __init__(self, lock, connection, articlequeue, resultqueue, servers, logger):
+    def __init__(self, connection, articlequeue, resultqueue, servers, logger):
         Thread.__init__(self)
         self.daemon = True
         self.logger = logger
         self.connection = connection
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
-        self.lock = lock
         self.servers = servers
         self.nntpobj = None
         self.running = True
@@ -37,6 +36,7 @@ class ConnectionWorker(Thread):
         self.mode = "download"
         self.download_done = True
         self.bandwidth_bytes = 0
+        self.last_downloaded_ts = None
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
@@ -122,9 +122,6 @@ class ConnectionWorker(Thread):
         return
 
     def retry_connect(self):
-        if self.nntpobj or not self.running:
-            self.connectionstate = 1
-            return
         idx = 0
         name, conn_nr = self.connection
         idn = name + " #" + str(conn_nr)
@@ -140,7 +137,7 @@ class ConnectionWorker(Thread):
                 self.wait_running(1)
                 return
             self.logger.warning(whoami() + "Could not connect to server " + idn + ", will retry in 5 sec.")
-            self.wait_running(5)
+            self.wait_running(2)
             if not self.running:
                 break
             idx += 1
@@ -148,6 +145,7 @@ class ConnectionWorker(Thread):
             self.logger.warning(whoami() + "No connection retries anymore due to exiting")
         else:
             self.logger.error(whoami() + "Connect retries to " + idn + " failed!")
+            self.connectionstate = -1
 
     def remove_from_remaining_servers(self, name, remaining_servers):
         next_servers = []
@@ -162,58 +160,40 @@ class ConnectionWorker(Thread):
         return next_servers
 
     def is_download_done(self):
-        dld = None
-        with self.lock:
-            dld = self.download_done
-        return dld
+        return self.download_done
 
     def run(self):
         self.logger.info(whoami() + self.idn + " thread starting !")
         timeout = 2
         while self.running:
-            with self.lock:
-                self.download_done = True
-            self.retry_connect()
+            self.download_done = True
+            if not self.nntpobj:
+                self.retry_connect()
             if not self.running:
                 break
             if not self.nntpobj:
                 self.wait_running(3)
                 continue
-            '''self.lock.acquire()
-            artlist = list(self.articlequeue.queue)
-            try:
-                test_article = artlist[-1]
-            except IndexError:
-                self.lock.release()
-                time.sleep(0.1)
-                continue
-            if not test_article:
-                article = self.articlequeue.get()
-                self.articlequeue.task_done()
-                self.lock.release()
-                self.logger.warning(self.idn + ": got poison pill!")
-                break
-            _, _, _, _, _, _, remaining_servers = test_article'''
             # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
             try:
                 article = self.articlequeue.get_nowait()
                 self.articlequeue.task_done()
             except (queue.Empty, EOFError):
-                time.sleep(0.2)
+                time.sleep(0.1)
                 continue
             except Exception as e:
                 self.logger.warning(whoami() + str(e) + ": problem in clearing article queue")
-                time.sleep(0.2)
+                time.sleep(0.1)
                 continue
             # avoid ctrl-c to interrup downloading itself
-            with self.lock:
-                self.download_done = False
+            self.download_done = False
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
+            if self.name not in remaining_servers1[0]:
+                self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1))
+                time.sleep(0.1)
+                continue
             if not remaining_servers1:
                 self.resultqueue.put(article + (None,))
-                continue
-            if self.name not in remaining_servers1[0]:
-                time.sleep(0.1)
                 continue
             status, bytesdownloaded, info = self.download_article(art_name, age)
             # if ctrl-c - exit thread
@@ -221,7 +201,8 @@ class ConnectionWorker(Thread):
                 break
             # if download successfull - put to resultqueue
             elif status == 1:
-                self.logger.debug(whoami() + "Downloaded article " + art_name + " on server " + self.idn)
+                self.last_downloaded_ts = time.time()
+                # self.logger.debug(whoami() + "Downloaded article " + art_name + " on server " + self.idn)
                 timeout = 2
                 self.bytesdownloaded += bytesdownloaded
                 self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
@@ -241,7 +222,6 @@ class ConnectionWorker(Thread):
                 next_servers.append([self.name])    # add current server to end of list
                 self.logger.debug(whoami() + "Requeuing " + art_name + " on server " + self.idn)
                 # requeue
-                # self.articlequeue.task_done()
                 self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
                 self.wait_running(timeout)
                 timeout *= 2
@@ -269,7 +249,6 @@ class ConnectionThreads:
         self.cfg = cfg
         self.logger = logger
         self.threads = []
-        self.lock = threading.Lock()
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
         self.servers = None
@@ -284,11 +263,30 @@ class ConnectionThreads:
             self.logger.debug(whoami() + "starting download threads")
             self.init_servers()
             for sn, scon, _, _ in self.all_connections:
-                t = ConnectionWorker(self.lock, (sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
+                t = ConnectionWorker((sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
                 self.threads.append((t, time.time()))
                 t.start()
         else:
             self.logger.debug(whoami() + "threads already started")
+
+    def stop_threads(self):
+        if not self.threads:
+            self.logger.debug(whoami() + "no threads running, exiting ...")
+        try:
+            self.logger.debug(whoami() + "stopping download threads + servers")
+            for t, _ in self.threads:
+                t.stop()
+                t.last_downloaded_ts = None
+            for t, _ in self.threads:
+                t.join()
+            del self.threads
+            self.threads = []
+            if self.servers:
+                self.servers.close_all_connections()
+                del self.servers
+                self.servers = None
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
 
     def reset_timestamps(self):
         for t, _ in self.threads:

@@ -172,20 +172,8 @@ class SigHandler_Main:
         except Exception as e:
             self.logger.debug(whoami() + str(e))
         # 10. threads + servers
-        if self.ct.threads:
-            self.logger.debug(whoami() + "stopping download threads")
-            try:
-                for t, _ in self.ct.threads:
-                    t.stop()
-                    t.join()
-            except Exception as e:
-                print(str(e))
-        try:
-            if self.ct.servers:
-                self.logger.debug(whoami() + "closing all server connections")
-                self.servers.close_all_connections()
-        except Exception:
-            pass
+        self.ct.stop_threads()
+
         self.logger.info(whoami() + "exited!")
         sys.exit()
 
@@ -437,22 +425,9 @@ class Downloader():
         return 1 - nodownthreads / (nothreads + 0.00001)
 
     def restart_all_threads(self):
-        print("---->")
         self.logger.debug(whoami() + "connection-restart: shutting down")
-        if self.ct.threads:
-            for t, _ in self.ct.threads:
-                t.stop()
-                t.join()
-        try:
-            if self.ct.servers:
-                self.servers.close_all_connections()
-        except Exception:
-            pass
-        del self.ct.servers
-        del self.ct.threads
-        time.sleep(3)
-        self.ct.servers = None
-        self.ct.threads = []
+        self.ct.stop_threads()
+        time.sleep(2)
         self.logger.debug(whoami() + "connection-restart: restarting")
         try:
             self.ct.init_servers()
@@ -462,7 +437,6 @@ class Downloader():
         except Exception as e:
             self.logger.warning(whoami() + "cannot restart servers + threads")
             # !!! todo: return to main loop here with status = failed
-        print("<----")
 
     # postprocessor
     def postprocess_nzb(self, nzbname, downloaddata0):
@@ -1179,14 +1153,8 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
         except Exception as e:
             pass
         if ct.threads and time.time() - tt0 > 30:
-            logger.debug(whoami() + "idle time > 30 sec, closing all server connections")
-            for t, _ in ct.threads:
-                    t.stop()
-                    t.join()
-            ct.servers.close_all_connections()
-            ct.threads = []
-            del ct.servers
-            logger.debug(whoami() + "all server connections closed")
+            logger.debug(whoami() + "idle time > 30 sec, closing threads & connections")
+            ct.stop_threads()
         time.sleep(0.5)
 
     logger.debug(whoami() + "looking for new NZBs ...")
@@ -1205,14 +1173,8 @@ def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
         if not nzbname:
             if ct.threads:
                 # if no success: close all connections and poll blocking
-                logger.debug(whoami() + "idle time > 30 sec, closing all server connections")
-                for t, _ in ct.threads:
-                    t.stop()
-                    t.join()
-                ct.servers.close_all_connections()
-                ct.threads = []
-                del ct.servers
-                logger.debug(whoami() + "all server connections closed")
+                logger.debug(whoami() + "idle time > 30 sec, closing all threads + server connections")
+                ct.stop_threads()
             logger.debug(whoami() + "polling for new nzbs now in blocking mode!")
             try:
                 nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, None)
@@ -1536,19 +1498,11 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         if return_reason == "closeall":
             logger.debug(whoami() + "closing down")
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=True)
-            pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})            
+            pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             sh.shutdown()
         if stat0 == 2:
             if return_reason == "connection_restart":
-                print("closing connections")
-                logger.debug(whoami() + "restarting connections")
-                for t, _ in dl.ct.threads:
-                    t.stop()
-                    t.join()
-                dl.ct.threads = []
-                dl.ct.servers.close_all_connections()
-                del dl.ct.servers
-                print("closed")
+                ct.stop_threads()
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                 servers_shut_down = True
@@ -1594,15 +1548,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     time.sleep(1)
                     # after 2min idle -> stop threads
                     if not servers_shut_down and time.time() - idlestart > 2 * 60:
-                        # stop all threads
-                        logger.debug(whoami() + "stopping all threads")
-                        for t, _ in dl.ct.threads:
-                            t.stop()
-                            t.join()
-                        dl.ct.threads = []
-                        dl.ct.servers.close_all_connections()
-                        del dl.ct.servers
-                        servers_shut_down = True
+                        ct.stop_threads()
                     time.sleep(1)
                 continue
 
