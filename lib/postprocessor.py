@@ -34,13 +34,17 @@ class SigHandler_Postprocessing:
         TERMINATED = True
 
 
-def postprocess_nzb(self, nzbname, downloaddata0, logger):
+def postprocess_nzb(self, nzbname, postproc_queue, logger):
     logger.debug(whoami() + "starting ...")
     sh = SigHandler_Postprocessing(logger)
     signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
     signal.signal(signal.SIGTERM, sh.sighandler_postprocessing)
 
     pwdb = PWDBSender()
+
+    while True:
+        
+
 
     bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
     downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
