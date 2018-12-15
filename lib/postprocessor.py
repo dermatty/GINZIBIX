@@ -34,7 +34,7 @@ class SigHandler_Postprocessing:
         TERMINATED = True
 
 
-def postprocess_nzb(self, nzbname, postproc_queue, logger):
+def postprocess_nzb(self, nzbname, postprocqueue, logger):
     logger.debug(whoami() + "starting ...")
     sh = SigHandler_Postprocessing(logger)
     signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
@@ -43,63 +43,21 @@ def postprocess_nzb(self, nzbname, postproc_queue, logger):
     pwdb = PWDBSender()
 
     while True:
-        
-
-
-    bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
-    downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
-    self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
-    pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
-    while True:
         try:
-            self.articlequeue.get_nowait()
-            self.articlequeue.task_done()
+            res = postprocqueue.get_nowait()
         except (queue.Empty, EOFError):
-            break
-    self.articlequeue.join()
-    while True:
-        try:
-            self.resultqueue.get_nowait()
-            self.resultqueue.task_done()
-        except (queue.Empty, EOFError):
-            break
-    self.resultqueue.join()
-    # join decoder somehow
-    if self.mpp["decoder"]:
-        if self.mpp["decoder"].is_alive():
-            logger.debug(whoami() + "Joining article decoder")
-            try:
-                while self.mp_work_queue.qsize() > 0:
-                    time.sleep(0.5)
-            except Exception as e:
-                logger.debug(whoami() + str(e))
-    # join renamer
-    if self.mpp["renamer"]:
-        try:
-            # to do: loop over downloaded and wait until empty
-            logger.debug(whoami() + "Waiting for renamer.py clearing download dir")
-            while True:
-                for _, _, fs in os.walk(self.download_dir):
-                    if not fs:
-                        break
-                else:
-                    time.sleep(1)
-                    continue
-                break
-            logger.debug(whoami() + "Download dir empty!")
-            self.pipes["renamer"][0].send(("pause", None, None))
+            time.sleep(0.5)
+            continue
         except Exception as e:
-            logger.info(str(e))
+            logger.warning(whoami() + str(e))
+
+        nzbname, mpp, download_dir = res
+        pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
+
     # join verifier
     if self.mpp["verifier"]:
         logger.info(whoami() + "Waiting for par_verifier to complete")
         try:
-            # clear queue
-            while True:
-                try:
-                    self.mp_parverify_inqueue.get_nowait()
-                except (queue.Empty, EOFError):
-                    break
             # kill par_verifier in deadlock
             while True:
                 self.mpp["verifier"].join(timeout=2)

@@ -436,36 +436,53 @@ class Downloader():
             self.logger.warning(whoami() + "cannot restart servers + threads")
             # !!! todo: return to main loop here with status = failed
 
-    # postprocessor
-    def postprocess_nzb(self, nzbname, downloaddata0):
-        self.logger.debug(whoami() + "starting postprocess")
-        bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
-        downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
-        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
-        self.pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
+    def clear_queues_and_pipes(self, onlyarticlequeue=False):
+        self.logger.debug(whoami() + "starting clearing queues & pipes")
+
+        # clear articlequeue
         while True:
             try:
                 self.articlequeue.get_nowait()
                 self.articlequeue.task_done()
-            except (queue.Empty, EOFError):
+            except (queue.Empty, EOFError, ValueError):
                 break
+            except Exception as e:
+                self.logger.error(whoami() + str(e))
+                return False
         self.articlequeue.join()
+        if onlyarticlequeue:
+            return True
+
+        # clear resultqueue
         while True:
             try:
                 self.resultqueue.get_nowait()
                 self.resultqueue.task_done()
-            except (queue.Empty, EOFError):
+            except (queue.Empty, EOFError, ValueError):
                 break
+            except Exception as e:
+                self.logger.error(whoami() + str(e))
+                return False
         self.resultqueue.join()
-        # join decoder somehow
+
+        # clear pipes
+        try:
+            for key, item in self.pipes.items():
+                if self.pipes[key][0].poll():
+                    self.pipes[key][0].recv()
+        except Exception as e:
+            self.logger.error(whoami() + str(e))
+            return False
+
+        # join decoder
         if self.mpp["decoder"]:
             if self.mpp["decoder"].is_alive():
-                self.logger.debug(whoami() + "Joining article decoder")
                 try:
                     while self.mp_work_queue.qsize() > 0:
                         time.sleep(0.5)
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
+
         # join renamer
         if self.mpp["renamer"]:
             try:
@@ -483,17 +500,21 @@ class Downloader():
                 self.pipes["renamer"][0].send(("pause", None, None))
             except Exception as e:
                 self.logger.info(str(e))
+
+        self.logger.debug(whoami() + "clearing queues & pipes done!")
+        return True
+
+    # postprocessor
+    def postprocess_nzb(self, nzbname, downloaddata0):
+        self.logger.debug(whoami() + "starting postprocess")
+        bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
+        downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
+        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
+        self.pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
         # join verifier
         if self.mpp["verifier"]:
             self.logger.info(whoami() + "Waiting for par_verifier to complete")
             try:
-                # clear queue
-                #while True:
-                #    try:
-                #        self.mp_parverify_inqueue.get_nowait()
-                #    except (queue.Empty, EOFError):
-                #        break
-                # kill par_verifier in deadlock
                 while True:
                     self.mpp["verifier"].join(timeout=2)
                     if self.mpp["verifier"].is_alive():
@@ -1292,18 +1313,7 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
 def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger, stopall=False):
     # join all queues
     logger.debug(whoami() + "clearing articlequeue")
-    # 1. clear articlequeue
-    while True:
-        try:
-            articlequeue.get_nowait()
-            articlequeue.task_done()
-        except (queue.Empty, EOFError):
-            break
-        except Exception as e:
-            logger.warning(whoami() + str(e) + ": problem in clearing article queue")
-            break
-    articlequeue.join()
-    logger.debug(whoami() + "articlequeue task_done!")
+    dl.clear_queues_and_pipes(onlyarticlequeue=True)
     # 2. wait for all remaining articles to be downloaded
     '''logger.debug(whoami() + "waiting for all remaining articles to be downloaded")
     dl_not_done_yet = True
@@ -1413,6 +1423,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     pwdb.exc("db_status_init", [], {})
 
     mp_work_queue = mp.Queue()
+    postproc_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
     renamer_result_queue = mp.Queue()
@@ -1561,10 +1572,17 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         elif stat0 == 3:
             guiconnector.set_health(0, 0)
             logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
-            dl.postprocess_nzb(nzbname, downloaddata)
+            res_clearq = dl.clear_queues_and_pipes()
+            if res_clearq:
+                logger.debug(whoami() + "clearing pipes & queues success, now postprocessing")
+                dl.postprocess_nzb(nzbname, downloaddata)
+                stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+            else:
+                logger.debug(whoami() + "clearing pipes & queues failed!")
+                pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                stat0_0 = -4
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
-            stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
             if stat0_0 == 4:
                 pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
             else:
