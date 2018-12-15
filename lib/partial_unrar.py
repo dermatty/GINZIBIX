@@ -18,7 +18,6 @@ def whoami():
 
 
 TERMINATED = False
-IS_IDLE = False
 
 lpref = __name__ + " - "
 
@@ -38,15 +37,6 @@ class SigHandler_Unrar:
         TERMINATED = True
 
 
-def unrarer_is_idle():
-    return IS_IDLE
-
-
-def set_idle(ie):
-    global IS_IDLE
-    IS_IDLE = ie
-
-
 def get_rar_files(directory):
     rarlist = []
     for rarf in glob.glob("*.rar"):
@@ -55,9 +45,11 @@ def get_rar_files(directory):
     return rarlist
 
 
-def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
+def partial_unrar(directory, unpack_dir, nzbname, logger, password, event_idle, cfg):
     logger.debug(whoami() + "starting ...")
     pwdb = PWDBSender()
+
+    event_idle.clear()
 
     cwd0 = os.getcwd()
     sh = SigHandler_Unrar(cwd0, logger)
@@ -106,7 +98,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
     while not TERMINATED:
         oldnextrarname = nextrarname.split("/")[-1]
         str0 = ""
-        set_idle(True)
+        event_idle.set()
         while True:
             try:
                 a = child.read_nonblocking(timeout=120).decode("utf-8")
@@ -117,7 +109,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
                 logger.warning(whoami() + str(e))
             if str0[-6:] == "[Q]uit":
                 break
-        set_idle(False)
+        event_idle.clear()
         if "WARNING: You need to start extraction from a previous volume" in str0:
             child.close(force=True)
             statmsg = "WARNING: You need to start extraction from a previous volume"
@@ -157,7 +149,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
         logger.debug(whoami() + "Waiting for next rar: " + nextrarname)
         gotnextrar = False
         # todo: hier deadlock/unendliches Warten im Postprocess vermeiden, wenn rar nicht auftaucht!
-        set_idle(True)
+        event_idle.set()
         while not gotnextrar and not TERMINATED:
             time.sleep(1)
             for f0 in glob.glob(directory + "*"):
@@ -167,7 +159,7 @@ def partial_unrar(directory, unpack_dir, nzbname, logger, password, cfg):
                         break
                     except Exception as e:
                         logger.warning(whoami() + str(e))
-        set_idle(False)
+        event_idle.clear()
         if TERMINATED:
             child.kill(signal.SIGKILL)
             break

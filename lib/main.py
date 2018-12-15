@@ -13,15 +13,13 @@ import shutil
 import glob
 import pickle
 from .renamer import renamer
-from .par_verifier import par_verifier, verifier_is_idle
+from .par_verifier import par_verifier
 from .par2lib import Par2File
-from .partial_unrar import partial_unrar, unrarer_is_idle
+from .partial_unrar import partial_unrar
 from .nzb_parser import ParseNZB
-from .article_decoder import decode_articles, decoder_is_idle
+from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected, get_password
-from .connections import ConnectionWorker, ConnectionThreads
-from .server import Servers
-from .monitor import Monitor
+from .connections import ConnectionThreads
 from .aux import PWDBSender
 from .guiconnector import GUI_Connector, remove_nzb_files_and_db
 import inspect
@@ -183,7 +181,9 @@ class SigHandler_Main:
 
 # Handles download of a NZB file
 class Downloader():
-    def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, pipes, renamer_result_queue, logger):
+    def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, pipes, renamer_result_queue, mp_events, logger):
+        self.event_unrareridle = mp_events["unrarer"]
+        self.event_verifieridle = mp_events["verifier"]
         self.cfg = cfg
         self.pipes = pipes
         self.pwdb = PWDBSender()
@@ -474,6 +474,21 @@ class Downloader():
             self.logger.error(whoami() + str(e))
             return False
 
+        self.logger.debug(whoami() + "clearing queues & pipes done!")
+        return True
+
+    # postprocessor
+    def postprocess_nzb(self, nzbname, downloaddata0):
+        self.logger.debug(whoami() + "starting postprocess")
+        bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
+        downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
+        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
+        self.pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
+        res_queues = self.clear_queues_and_pipes()
+        if not res_queues:
+            self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            self.logger.info("Postprocessing/clearing of queues & pipes of " + nzbname + " failed!")
+            return -1
         # join decoder
         if self.mpp["decoder"]:
             if self.mpp["decoder"].is_alive():
@@ -482,7 +497,6 @@ class Downloader():
                         time.sleep(0.5)
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
-
         # join renamer
         if self.mpp["renamer"]:
             try:
@@ -499,18 +513,7 @@ class Downloader():
                 self.logger.debug(whoami() + "Download dir empty!")
                 self.pipes["renamer"][0].send(("pause", None, None))
             except Exception as e:
-                self.logger.info(str(e))
-
-        self.logger.debug(whoami() + "clearing queues & pipes done!")
-        return True
-
-    # postprocessor
-    def postprocess_nzb(self, nzbname, downloaddata0):
-        self.logger.debug(whoami() + "starting postprocess")
-        bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size, _, _, _ = downloaddata0
-        downloaddata = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
-        self.guiconnector.set_data(downloaddata, self.ct.threads, self.ct.servers.server_config, "postprocessing", self.serverconfig())
-        self.pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
+                self.logger.debug(str(e))
         # join verifier
         if self.mpp["verifier"]:
             self.logger.info(whoami() + "Waiting for par_verifier to complete")
@@ -520,7 +523,7 @@ class Downloader():
                     if self.mpp["verifier"].is_alive():
                         # if not finished, check if idle longer than 5 sec -> deadlock!!!
                         t0 = time.time()
-                        while verifier_is_idle() and time.time() - t0 < 5:
+                        while self.event_verifieridle.is_set() and time.time() - t0 < 5:
                             time.sleep(0.5)
                         if time.time() - t0 >= 5:
                             self.logger.info(whoami() + "Verifier deadlock, killing unrarer!")
@@ -560,7 +563,7 @@ class Downloader():
                 self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                 return -1
             self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                      nzbname, self.logger, pw, self.cfg, ))
+                                                                      nzbname, self.logger, pw, self.event_unrareridle, self.cfg, ))
             self.mpp_unrarer.start()
             self.mpp["unrarer"] = self.mpp_unrarer
             self.sighandler.mpp = self.mpp
@@ -575,7 +578,7 @@ class Downloader():
                 try:
                     self.logger.debug(whoami() + "unrarer passiv until now, starting ...")
                     self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                              nzbname, self.logger, None, self.cfg, ))
+                                                                              nzbname, self.logger, None, self.event_unrareridle, self.cfg, ))
                     self.mpp_unrarer.start()
                     self.mpp["unrarer"] = self.mpp_unrarer
                     self.sighandler.mpp = self.mpp
@@ -592,7 +595,7 @@ class Downloader():
                     if self.mpp["unrarer"].is_alive():
                         # if not finished, check if idle longer than 5 sec -> deadlock!!!
                         t0 = time.time()
-                        while unrarer_is_idle() and time.time() - t0 < 5:
+                        while self.event_unrareridle.is_set() and time.time() - t0 < 5:
                             time.sleep(0.5)
                         if time.time() - t0 >= 5:
                             self.logger.info(whoami() + "Unrarer deadlock, killing unrarer!")
@@ -1031,7 +1034,7 @@ class Downloader():
                         # self.pwdb.db_nzb_set_ispw(nzbname, False)
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
                         self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                                  nzbname, self.logger, None, self.cfg, ))
+                                                                                  nzbname, self.logger, None, self.event_unrareridle, self.cfg, ))
                         self.mpp_unrarer.start()
                         self.mpp["unrarer"] = self.mpp_unrarer
                         self.sighandler.mpp = self.mpp
@@ -1054,7 +1057,7 @@ class Downloader():
                     if pvmode:
                         self.logger.debug(whoami() + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
                         self.mpp_verifier = mp.Process(target=par_verifier, args=(self.pipes["verifier"][1], self.rename_dir, self.verifiedrar_dir,
-                                                                                  self.main_dir, self.logger, nzbname, pvmode, self.cfg, ))
+                                                                                  self.main_dir, self.logger, nzbname, pvmode, self.event_verifieridle, self.cfg, ))
                         self.mpp_verifier.start()
                         self.mpp["verifier"] = self.mpp_verifier
                         self.sighandler.mpp = self.mpp
@@ -1422,6 +1425,10 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     logger.debug(whoami() + "init monitor status to 'not started'")
     pwdb.exc("db_status_init", [], {})
 
+    mp_events = {}
+    mp_events["unrarer"] = mp.Event()
+    mp_events["verifier"] = mp.Event()
+
     mp_work_queue = mp.Queue()
     postproc_queue = mp.Queue()
     articlequeue = queue.LifoQueue()
@@ -1472,7 +1479,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     except Exception as e:
         logger.warning(whoami() + str(e))
 
-    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, pipes, renamer_result_queue, logger)
+    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, pipes, renamer_result_queue, mp_events, logger)
     servers_shut_down = True
 
     #mon = Monitor(mpp, articlequeue, resultqueue, mp_work_queue, logger)
@@ -1572,15 +1579,8 @@ def ginzi_main(cfg, dirs, subdirs, logger):
         elif stat0 == 3:
             guiconnector.set_health(0, 0)
             logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
-            res_clearq = dl.clear_queues_and_pipes()
-            if res_clearq:
-                logger.debug(whoami() + "clearing pipes & queues success, now postprocessing")
-                dl.postprocess_nzb(nzbname, downloaddata)
-                stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
-            else:
-                logger.debug(whoami() + "clearing pipes & queues failed!")
-                pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
-                stat0_0 = -4
+            dl.postprocess_nzb(nzbname, downloaddata)
+            stat0_0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
             clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, logger)
             pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
             if stat0_0 == 4:

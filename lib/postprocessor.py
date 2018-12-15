@@ -3,13 +3,13 @@ import queue
 import time
 import os
 import multiprocessing as mp
-from .par_verifier import verifier_is_idle
 from .passworded_rars import get_password
-from .partial_unrar import partial_unrar, unrarer_is_idle
+from .partial_unrar import partial_unrar
 import signal
 import re
 import glob
 import shutil
+import sys
 from .aux import PWDBSender
 
 
@@ -34,25 +34,69 @@ class SigHandler_Postprocessing:
         TERMINATED = True
 
 
-def postprocess_nzb(self, nzbname, postprocqueue, logger):
+def postprocess_nzb(self, nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg, verifiedrar_dir,
+                    unpack_dir, pw_file, logger):
     logger.debug(whoami() + "starting ...")
     sh = SigHandler_Postprocessing(logger)
     signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
     signal.signal(signal.SIGTERM, sh.sighandler_postprocessing)
 
+    event_verifieridle = mp_events["verifier"]
+    event_unrareridle = mp_events["unrarer"]
+
     pwdb = PWDBSender()
 
+    pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
+    self.logger.debug(whoami() + "starting clearing queues & pipes")
+
+    # clear articlequeue
     while True:
         try:
-            res = postprocqueue.get_nowait()
-        except (queue.Empty, EOFError):
-            time.sleep(0.5)
-            continue
+            articlequeue.get_nowait()
+            articlequeue.task_done()
+        except (queue.Empty, EOFError, ValueError):
+            break
         except Exception as e:
-            logger.warning(whoami() + str(e))
+            logger.error(whoami() + str(e))
+            pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            pwdb.exc("db_msg_insert", [nzbname, nzbname + ": postprocessing/clearing articlequeue failed!", "error"], {})
+            sys.exit()
+    articlequeue.join()
 
-        nzbname, mpp, download_dir = res
-        pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
+    # clear resultqueue
+    while True:
+        try:
+            resultqueue.get_nowait()
+            resultqueue.task_done()
+        except (queue.Empty, EOFError, ValueError):
+            break
+        except Exception as e:
+            logger.error(whoami() + str(e))
+            pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            pwdb.exc("db_msg_insert", [nzbname, nzbname + ": postprocessing/clearing resultqueue failed!", "error"], {})
+            sys.exit()
+    resultqueue.join()
+
+    # clear pipes
+    try:
+        for key, item in pipes.items():
+            if pipes[key][0].poll():
+                pipes[key][0].recv()
+    except Exception as e:
+        logger.error(whoami() + str(e))
+        pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+        pwdb.exc("db_msg_insert", [nzbname, nzbname + ": postprocessing/clearing pipes failed!", "error"], {})
+        sys.exit()
+    self.logger.debug(whoami() + "clearing queues & pipes done!")
+
+    # join decoder
+    if mpp["decoder"]:
+        if mpp["decoder"].is_alive():
+            try:
+                while mp_work_queue.qsize() > 0:
+                    time.sleep(0.5)
+            except Exception as e:
+                logger.debug(whoami() + str(e))
 
     # join verifier
     if self.mpp["verifier"]:
@@ -60,16 +104,16 @@ def postprocess_nzb(self, nzbname, postprocqueue, logger):
         try:
             # kill par_verifier in deadlock
             while True:
-                self.mpp["verifier"].join(timeout=2)
-                if self.mpp["verifier"].is_alive():
+                mpp["verifier"].join(timeout=2)
+                if mpp["verifier"].is_alive():
                     # if not finished, check if idle longer than 5 sec -> deadlock!!!
                     t0 = time.time()
-                    while verifier_is_idle() and time.time() - t0 < 5:
+                    while event_verifieridle.is_set() and time.time() - t0 < 5:
                         time.sleep(0.5)
                     if time.time() - t0 >= 5:
                         logger.info(whoami() + "Verifier deadlock, killing unrarer!")
                         try:
-                            os.kill(self.mpp["verifier"].pid, signal.SIGTERM)
+                            os.kill(mpp["verifier"].pid, signal.SIGTERM)
                         except Exception as e:
                             logger.debug(whoami() + str(e))
                         break
@@ -81,18 +125,19 @@ def postprocess_nzb(self, nzbname, postprocqueue, logger):
             logger.warning(str(e))
         self.mpp["verifier"] = None
         logger.debug(whoami() + "par_verifier completed/terminated!")
+
     # if unrarer not running (if e.g. all files)
     ispw = pwdb.exc("db_nzb_get_ispw", [nzbname], {})
     if ispw:
         get_pw_direct0 = False
         try:
-            get_pw_direct0 = (self.cfg["OPTIONS"]["GET_PW_DIRECTLY"].lower() == "yes")
+            get_pw_direct0 = (cfg["OPTIONS"]["GET_PW_DIRECTLY"].lower() == "yes")
         except Exception as e:
             logger.warning(whoami() + str(e))
         if pwdb.exc("db_nzb_get_password", [nzbname], {}) == "N/A":
             logger.info("Trying to get password from file for NZB " + nzbname)
             pwdb.exc("db_msg_insert", [nzbname, "trying to get password", "info"], {})
-            pw = get_password(self.verifiedrar_dir, self.pw_file, nzbname, logger, get_pw_direct=get_pw_direct0)
+            pw = get_password(verifiedrar_dir, pw_file, nzbname, logger, get_pw_direct=get_pw_direct0)
             if pw:
                 logger.info("Found password " + pw + " for NZB " + nzbname)
                 pwdb.exc("db_msg_insert", [nzbname, "found password " + pw, "info"], {})
@@ -102,14 +147,15 @@ def postprocess_nzb(self, nzbname, postprocqueue, logger):
         if not pw:
             logger.error("Cannot find password for NZB " + nzbname + "in postprocess, exiting ...")
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
-            return -1
-        self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                  nzbname, logger, pw, self.cfg, ))
-        self.mpp_unrarer.start()
-        self.mpp["unrarer"] = self.mpp_unrarer
-        self.sighandler.mpp = self.mpp
+            mpp["unrarer"] = None
+            # sighandler.mpp = self.mpp
+            sys.exit()
+        mpp_unrarer = mp.Process(target=partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, logger, pw, cfg, ))
+        mpp_unrarer.start()
+        mpp["unrarer"] = self.mpp_unrarer
+        # sighandler.mpp = self.mpp
     # start unrarer if never started and ok verified/repaired
-    elif not self.mpp["unrarer"]:
+    elif not mpp["unrarer"]:
         try:
             verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
             unrarstatus = pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
@@ -118,11 +164,8 @@ def postprocess_nzb(self, nzbname, postprocqueue, logger):
         if verifystatus > 0 and unrarstatus == 0:
             try:
                 logger.debug(whoami() + "unrarer passiv until now, starting ...")
-                self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                          nzbname, logger, None, self.cfg, ))
-                self.mpp_unrarer.start()
-                self.mpp["unrarer"] = self.mpp_unrarer
-                self.sighandler.mpp = self.mpp
+                mpp_unrarer = mp.Process(target=partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, logger, None, cfg, ))
+                mpp_unrarer.start()
             except Exception as e:
                 logger.warning(whoami() + str(e))
     finalverifierstate = (pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
@@ -132,11 +175,11 @@ def postprocess_nzb(self, nzbname, postprocqueue, logger):
             logger.info("Waiting for unrar to complete")
             while True:
                 # try to join unrarer
-                self.mpp["unrarer"].join(timeout=2)
-                if self.mpp["unrarer"].is_alive():
+                mpp["unrarer"].join(timeout=2)
+                if mpp["unrarer"].is_alive():
                     # if not finished, check if idle longer than 5 sec -> deadlock!!!
                     t0 = time.time()
-                    while unrarer_is_idle() and time.time() - t0 < 5:
+                    while event_unrareridle.is_set() and time.time() - t0 < 5:
                         time.sleep(0.5)
                     if time.time() - t0 >= 5:
                         logger.info(whoami() + "Unrarer deadlock, killing unrarer!")
