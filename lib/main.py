@@ -191,8 +191,6 @@ class Downloader():
         self.resultqueue = ct.resultqueue
         self.mp_work_queue = mp_work_queue
         self.renamer_result_queue = renamer_result_queue
-        self.mp_parverify_outqueue = mp.Queue()
-        self.mp_parverify_inqueue = mp.Queue()
         self.mp_unrarqueue = mp.Queue()
         self.mp_nzbparser_outqueue = mp.Queue()
         self.mp_nzbparser_inqueue = mp.Queue()
@@ -490,11 +488,11 @@ class Downloader():
             self.logger.info(whoami() + "Waiting for par_verifier to complete")
             try:
                 # clear queue
-                while True:
-                    try:
-                        self.mp_parverify_inqueue.get_nowait()
-                    except (queue.Empty, EOFError):
-                        break
+                #while True:
+                #    try:
+                #        self.mp_parverify_inqueue.get_nowait()
+                #    except (queue.Empty, EOFError):
+                #        break
                 # kill par_verifier in deadlock
                 while True:
                     self.mpp["verifier"].join(timeout=2)
@@ -947,12 +945,16 @@ class Downloader():
                                       overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist)), return_reason, self.main_dir
 
             # get mp_parverify_inqueue
+            # self.pipes["renamer"][0].send(("pause", None, None))
+
             if not loadpar2vols:
-                while True:
-                    try:
-                        loadpar2vols = self.mp_parverify_inqueue.get_nowait()
-                    except (queue.Empty, EOFError):
-                        break
+                if self.pipes["verifier"][0].poll():
+                    loadpar2vols = self.pipes["verifier"][0].recv()
+                # while True:
+                #    try:
+                #        loadpar2vols = self.mp_parverify_inqueue.get_nowait()
+                #    except (queue.Empty, EOFError):
+                #        break
                 if loadpar2vols:
                     # self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
                     self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
@@ -1030,7 +1032,7 @@ class Downloader():
                         pvmode = "copy"
                     if pvmode:
                         self.logger.debug(whoami() + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
-                        self.mpp_verifier = mp.Process(target=par_verifier, args=(self.mp_parverify_inqueue, self.rename_dir, self.verifiedrar_dir,
+                        self.mpp_verifier = mp.Process(target=par_verifier, args=(self.pipes["verifier"][1], self.rename_dir, self.verifiedrar_dir,
                                                                                   self.main_dir, self.logger, nzbname, pvmode, self.cfg, ))
                         self.mpp_verifier.start()
                         self.mpp["verifier"] = self.mpp_verifier
@@ -1417,8 +1419,10 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     renamer_parent_pipe, renamer_child_pipe = mp.Pipe()
     unrarer_parent_pipe, unrarer_child_pipe = mp.Pipe()
+    verifier_parent_pipe, verifier_child_pipe = mp.Pipe()
     pipes = {"renamer": [renamer_parent_pipe, renamer_child_pipe],
-             "unrarer": [unrarer_parent_pipe, unrarer_child_pipe]}
+             "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
+             "verifier": [verifier_parent_pipe, verifier_child_pipe]}
 
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
@@ -1549,6 +1553,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     # after 2min idle -> stop threads
                     if not servers_shut_down and time.time() - idlestart > 2 * 60:
                         ct.stop_threads()
+                        servers_shut_down = True
                     time.sleep(1)
                 continue
 

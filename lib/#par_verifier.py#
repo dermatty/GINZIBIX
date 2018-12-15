@@ -149,7 +149,8 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                             pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
                             if not doloadpar2vols:
                                 doloadpar2vols = True
-                                mp_outqueue.put(doloadpar2vols)
+                                child_pipe.send(doloadpar2vols)
+                                # mp_outqueue.put(doloadpar2vols)
                         else:
                             logger.info(whoami() + f_short + "md5 hash match ok, copying to verified_rar dir")
                             shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
