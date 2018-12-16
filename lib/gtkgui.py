@@ -878,7 +878,8 @@ class AppWindow(Gtk.ApplicationWindow):
 
         if fulldata and self.appdata.fulldata != fulldata:
             self.appdata.fulldata = fulldata
-            self.update_logstore()
+
+        self.update_logstore()
 
         if dlconfig:
             crit_art_health, crit_conn_health = dlconfig

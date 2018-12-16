@@ -4,7 +4,7 @@ import queue
 import shutil
 from .par2lib import calc_file_md5hash
 import subprocess
-import re
+import sys
 import time
 import pexpect
 import inotify_simple
@@ -213,6 +213,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
         pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
         # pwdb.db_nzb_update_verify_status(nzbname, 2)
     logger.info(whoami() + "terminated!")
+    sys.exit()
 
 
 def get_inotify_events(inotify):
