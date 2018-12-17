@@ -76,11 +76,13 @@ def make_complete_dir(dirs, nzbdir, logger):
 
 
 def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg, verifiedrar_dir,
-                    unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, logger):
+                    unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, event_queues_cleared, logger):
     logger.debug(whoami() + "starting ...")
-    #sh = SigHandler_Postprocessing(logger)
-    #signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
-    #signal.signal(signal.SIGTERM, sh.sighandler_postprocessing)
+    event_queues_cleared.clear()     # queues not cleared yet
+
+    # sh = SigHandler_Postprocessing(logger)
+    # signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
+    # signal.signal(signal.SIGTERM, sh.sighandler_postprocessing)
 
     event_verifieridle = mp_events["verifier"]
     event_unrareridle = mp_events["unrarer"]
@@ -138,6 +140,9 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                     time.sleep(0.5)
             except Exception as e:
                 logger.debug(whoami() + str(e))
+
+    # queues & pipes cleared
+    event_queues_cleared.set()
 
     # join verifier
     if mpp["verifier"]:

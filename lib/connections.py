@@ -7,6 +7,7 @@ from .server import Servers
 import socket
 import queue
 
+
 def whoami():
     outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
     outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
@@ -37,6 +38,7 @@ class ConnectionWorker(Thread):
         self.download_done = True
         self.bandwidth_bytes = 0
         self.last_downloaded_ts = None
+        self.paused = False
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
@@ -167,6 +169,9 @@ class ConnectionWorker(Thread):
         timeout = 2
         while self.running:
             self.download_done = True
+            if self.paused:
+                time.sleep(0.2)
+                continue
             if not self.nntpobj:
                 self.retry_connect()
             if not self.running:
@@ -268,6 +273,18 @@ class ConnectionThreads:
                 t.start()
         else:
             self.logger.debug(whoami() + "threads already started")
+
+    def pause_threads(self):
+        if self.threads:
+            for t, _ in self.threads:
+                t.paused = True
+            self.reset_timestamps_bdl()
+
+    def resume_threads(self):
+        if self.threads:
+            for t, _ in self.threads:
+                t.paused = False
+            self.reset_timestamps_bdl()
 
     def stop_threads(self):
         if not self.threads:
