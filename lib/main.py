@@ -1496,6 +1496,9 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     guiconnector.set_health(0, 0)
 
     while True:
+
+        time.sleep(0.1)
+        
         try:
             pwdb.exc("store_sorted_nzbs", [], {})
 
@@ -1596,6 +1599,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                                                                         dl.download_dir, dl.dirs, dl.pw_file, mp_events["post"], logger, ))
                     mpp_post.start()
                     mpp["post"] = mpp_post
+                    sh.mpp = mpp
                 # if download failed
                 elif stat0 == -2:
                     logger.info(whoami() + "download failed for NZB " + nzbname)
@@ -1618,6 +1622,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     guiconnector.set_data(downloaddata_gc, ct.threads, ct.servers.server_config, "success", dl.serverconfig())
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
                     mpp["post"] = None
+                    sh.mpp = mpp
                     # set 'flags' for getting next nzb
                     dl.stop()
                     dl.join()
@@ -1634,6 +1639,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     guiconnector.set_data(downloaddata_gc, ct.threads, ct.servers.server_config, "failed", dl.serverconfig())
                     pwdb.exc("db_msg_insert", [nzbname, "download and/or postprocessing failed!", "error"], {})
                     mpp["post"] = None
+                    sh.mpp = mpp
                     # set 'flags' for getting next nzb
                     dl.stop()
                     dl.join()

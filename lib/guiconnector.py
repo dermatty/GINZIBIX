@@ -112,39 +112,8 @@ class GUI_Connector(Thread):
                     mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
                     self.oldbytes0 = bytes0
                     self.old_t = time.time()
-                    netstatlist0 = [(mbit, t) for mbit, t in self.netstatlist if time.time() - t <= 1.0]
-                    self.netstatlist = netstatlist0[:]
-                    self.netstatlist.append((mbitcurr, time.time()))
+                    self.netstatlist = [(mbit, t) for mbit, t in self.netstatlist if time.time() - t <= 1.0] + [(mbitcurr, time.time())]
                     self.mean_netstat = sum([mbit for mbit, _ in self.netstatlist]) / len(self.netstatlist)
-
-    def set_data_msg(self, nzbname):
-        with self.lock:
-            if nzbname:
-                self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
-
-    def get_netstat(self):
-        bytes0 = 0
-        try:
-            if self.threads:
-                bytes0 = sum([bytesdownloaded for bytesdownloaded, _, _, _ in self.threads])
-            else:
-                bytes0 = 0
-        except Exception as e:
-            self.logger.error(whoami() + str(e))
-            bytes0 = 0
-        if bytes0:
-            dt = time.time() - self.old_t
-            if dt == 0:
-                dt = 0.001
-            self.old_t = time.time()
-            mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
-            self.oldbytes0 = bytes0
-            self.netstatlist.append(mbitcurr)
-            if len(self.netstatlist) > 3:
-                del self.netstatlist[0]
-            return mean(self.netstatlist)
-        else:
-            return 0
 
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)

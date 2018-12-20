@@ -1,5 +1,13 @@
 # parallel download
 
+1. shutdown incl. postprocessor!!!! -> incl. events
+2. implement pause/resume
+
+
+
+
+
+
 1. postprocess hangs at terminating par_verifier sometimes(!?)
 2. enable quick shutdown auf unrarer (if in the middle of unraring)
 2a. if 2 nzbs -> after first download speed levelbar not updated for a longer
