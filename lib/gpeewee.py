@@ -130,6 +130,7 @@ class PWDB():
             #    1 ... verifier running
             #    2 ... verifier done + success
             #    -1 .. verifier done + failure
+            #    -2 .. verifier running, failure
             verify_status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
             is_pw = BooleanField(default=False)

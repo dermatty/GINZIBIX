@@ -949,13 +949,14 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.appdata.nzbs.append((n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
             if nzbs_copy != self.appdata.nzbs:
                 self.update_liststore()
+                # self.update_liststore_dldata()
             self.appdata.sortednzblist = sortednzblist0[:]
             self.appdata.block_update_dldata = False
 
         if (sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist):
             pass
 
-        if data and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
+        if data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
             is_locked = False
             try:

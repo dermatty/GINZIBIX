@@ -76,6 +76,7 @@ class GUI_Connector(Thread):
         self.closeall = False
         self.article_health = 0
         self.connection_health = 0
+        self.mean_netstat = 0
         self.oldret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
         try:
             self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
@@ -99,9 +100,22 @@ class GUI_Connector(Thread):
                 self.status = status
                 self.dlconfig = dlconfig
                 self.threads = []
+                bytes0 = 0
                 for k, (t, last_timestamp) in enumerate(threads):
                     append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
                     self.threads.append(append_tuple)
+                    bytes0 += t.bytesdownloaded
+                if bytes0 > 0:
+                    dt = time.time() - self.old_t
+                    if dt == 0:
+                        dt = 0.001
+                    mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
+                    self.oldbytes0 = bytes0
+                    self.old_t = time.time()
+                    netstatlist0 = [(mbit, t) for mbit, t in self.netstatlist if time.time() - t <= 1.0]
+                    self.netstatlist = netstatlist0[:]
+                    self.netstatlist.append((mbitcurr, time.time()))
+                    self.mean_netstat = sum([mbit for mbit, _ in self.netstatlist]) / len(self.netstatlist)
 
     def set_data_msg(self, nzbname):
         with self.lock:
@@ -109,6 +123,7 @@ class GUI_Connector(Thread):
                 self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
 
     def get_netstat(self):
+        bytes0 = 0
         try:
             if self.threads:
                 bytes0 = sum([bytesdownloaded for bytesdownloaded, _, _, _ in self.threads])
@@ -125,7 +140,7 @@ class GUI_Connector(Thread):
             mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
             self.oldbytes0 = bytes0
             self.netstatlist.append(mbitcurr)
-            if len(self.netstatlist) > 20:
+            if len(self.netstatlist) > 3:
                 del self.netstatlist[0]
             return mean(self.netstatlist)
         else:
@@ -138,7 +153,7 @@ class GUI_Connector(Thread):
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
             try:
                 ret1 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
-                        self.get_netstat(), self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
+                        self.mean_netstat, self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
                         self.dlconfig, full_data_for_gui)
                 match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
                 # only send new data if something has changed (except network usage) or network_usage_change > 5%

@@ -78,6 +78,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
 
         # sabyenc
         full_filename = save_dir + filename
+        i = 0
         for info in infolist:
             try:
                 lastline = info[-1].decode("latin-1")
@@ -89,12 +90,16 @@ def decode_articles(mp_work_queue0, cfg, logger):
                 size = int(sum(len(i) for i in info.lines) * 1.1)
             try:
                 decoded_data, output_filename, crc, crc_yenc, crc_correct = sabyenc.decode_usenet_chunks(info, size)
+                #if filename.endswith("part01.rar") and i == 3:
+                #    pass
+                #else:
                 bytesfinal.extend(decoded_data)
             except Exception as e:
                 logger.warning(whoami() + str(e) + ": cannot perform sabyenc3")
                 status = -3
                 statusmsg = "Sabyenc3 decoding error!"
                 # continue decoding, maybe it can be repaired ...?
+            i += 1
         try:
             if not os.path.isdir(save_dir):
                 os.makedirs(save_dir)
@@ -116,6 +121,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
             logger.debug(whoami() + "updated DB for " + filename + ", db.status=" + str(pwdbstatus))
         except Exception as e:
             logger.error(whoami() + str(e) + ": cannot update DB for " + filename)
+        i += 1
     logger.debug(whoami() + "exited!")
 
 

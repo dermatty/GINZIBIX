@@ -76,6 +76,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                 pwdb.exc("db_file_update_parstatus", [f_origname, -1], {})
                 # pwdb.db_msg_insert(nzbname, "error in md5 hash match for file " + f_short, "warning")
                 pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
+                pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
                 doloadpar2vols = True
             else:
                 logger.info(whoami() + f_short + "md5 hash match ok, copying to verified_rar dir")
@@ -134,9 +135,8 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0_renamedname]
                         if False in md5match:
                             logger.warning(whoami() + "error in md5 hash match for file " + f_short)
-                            # pwdb.db_msg_insert(nzbname, "error in md5 hash match for file " + f_short, "warning")
                             pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
-                            # pwdb.db_file_update_parstatus(f0_origname, -1)
+                            pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
                             pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
                             if not doloadpar2vols:
                                 doloadpar2vols = True
@@ -199,9 +199,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                 shutil.copy(renamed_dir + c_renamedname, verifiedrar_dir)
         else:
             logger.error(whoami() + "repair failed!")
-            # pwdb.db_msg_insert(nzbname, "rar file repair failed", "error")
             pwdb.exc("db_msg_insert", [nzbname, "rar file repair failed", "error"], {})
-            # pwdb.db_nzb_update_verify_status(nzbname, -1)
             pwdb.exc("db_nzb_update_verify_status", [nzbname, -1], {})
             for _, c_origname in corruptrars:
                 # pwdb.db_file_update_parstatus(c_origname, -2)
