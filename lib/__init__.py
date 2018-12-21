@@ -15,4 +15,4 @@ from .gtkgui import Application
 # from .gpwwrapper import wrapper_main
 from .aux import PWDBSender, make_dirs
 from .guiconnector import GUI_Connector, remove_nzb_files_and_db
-from .postprocessor import postprocess_nzb
+from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume

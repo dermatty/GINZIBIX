@@ -1,5 +1,6 @@
 # parallel download
 
+0. check autocal mbit
 1. shutdown incl. postprocessor!!!! -> incl. events
 2. implement pause/resume
 

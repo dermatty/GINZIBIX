@@ -170,7 +170,7 @@ class ConnectionWorker(Thread):
         while self.running:
             self.download_done = True
             if self.paused:
-                time.sleep(0.2)
+                time.sleep(0.25)
                 continue
             if not self.nntpobj:
                 self.retry_connect()
@@ -278,13 +278,13 @@ class ConnectionThreads:
         if self.threads:
             for t, _ in self.threads:
                 t.paused = True
-            self.reset_timestamps_bdl()
 
     def resume_threads(self):
         if self.threads:
             for t, _ in self.threads:
                 t.paused = False
-            self.reset_timestamps_bdl()
+        else:
+            self.start_threads()
 
     def stop_threads(self):
         if not self.threads:

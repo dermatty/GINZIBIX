@@ -20,6 +20,30 @@ def whoami():
     return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
+TERMINATED = False
+PAUSED = False
+
+
+def stop_wait():
+    global TERMINATED, PAUSED
+    while PAUSED and not TERMINATED:
+        print(time.time())
+        time.sleep(0.25)
+    if TERMINATED:
+        return True
+    return False
+
+
+def postproc_pause():
+    global PAUSED
+    PAUSED = True
+
+
+def postproc_resume():
+    global PAUSED
+    PAUSED = False
+
+
 class SigHandler_Postprocessing:
     def __init__(self, logger):
         self.logger = logger
@@ -75,19 +99,34 @@ def make_complete_dir(dirs, nzbdir, logger):
         return False
 
 
-def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg, verifiedrar_dir,
+def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp0, mp_events, cfg, verifiedrar_dir,
                     unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, event_queues_cleared, logger):
+
+    if stop_wait():
+        sys.exit()
+
     logger.debug(whoami() + "starting ...")
     event_queues_cleared.clear()     # queues not cleared yet
 
-    # sh = SigHandler_Postprocessing(logger)
-    # signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
-    # signal.signal(signal.SIGTERM, sh.sighandler_postprocessing)
+    mpp = mpp0.copy()
+
+    sh = SigHandler_Postprocessing(logger)
+    signal.signal(signal.SIGINT, sh.sighandler_postprocessing)
+    signal.signal(signal.SIGTERM, sh.sighandler_postprocessing)
 
     event_verifieridle = mp_events["verifier"]
     event_unrareridle = mp_events["unrarer"]
 
     pwdb = PWDBSender()
+    post_status = pwdb.exc("db_nzb_get_poststatus", [nzbname], {})
+
+    if post_status == 4:
+        pwdb.exc("db_msg_insert", [nzbname, "postprocessing already done/not needed!", "info"], {})
+        sys.exit()
+
+    if post_status == -4:
+        pwdb.exc("db_msg_insert", [nzbname, "postprocessing already failed!", "error"], {})
+        sys.exit()
 
     pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
     logger.debug(whoami() + "starting clearing queues & pipes")
@@ -102,6 +141,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         except Exception as e:
             logger.error(whoami() + str(e))
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            pwdb.exc("db_nzb_update_post_status", [nzbname, -1], {})
             pwdb.exc("db_msg_insert", [nzbname, "postprocessing/clearing articlequeue failed!", "error"], {})
             sys.exit()
     articlequeue.join()
@@ -116,6 +156,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         except Exception as e:
             logger.error(whoami() + str(e))
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            pwdb.exc("db_nzb_update_post_status", [nzbname, -1], {})
             pwdb.exc("db_msg_insert", [nzbname, "postprocessing/clearing resultqueue failed!", "error"], {})
             sys.exit()
     resultqueue.join()
@@ -128,6 +169,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     except Exception as e:
         logger.error(whoami() + str(e))
         pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+        pwdb.exc("db_nzb_update_post_status", [nzbname, -1], {})
         pwdb.exc("db_msg_insert", [nzbname, "postprocessing/clearing pipes failed!", "error"], {})
         sys.exit()
     logger.debug(whoami() + "clearing queues & pipes done!")
@@ -143,9 +185,13 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
 
     # queues & pipes cleared
     event_queues_cleared.set()
+    # post status "clearing done"
+    pwdb.exc("db_nzb_update_post_status", [nzbname, 1], {})
+    if stop_wait():
+        sys.exit()
 
     # join verifier
-    if mpp["verifier"]:
+    if abs(post_status) < 2 and mpp["verifier"]:
         logger.info(whoami() + "Waiting for par_verifier to complete")
         try:
             # kill par_verifier in deadlock
@@ -167,15 +213,19 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                         continue
                 else:
                     break
+            pwdb.exc("db_nzb_update_post_status", [nzbname, 2], {})
         except Exception as e:
             logger.warning(str(e))
+            pwdb.exc("db_nzb_update_post_status", [nzbname, -2], {})
         mpp["verifier"] = None
         logger.debug(whoami() + "par_verifier completed/terminated!")
+    if stop_wait():
+        sys.exit()
 
     # if unrarer not running (if e.g. all files)
     ispw = pwdb.exc("db_nzb_get_ispw", [nzbname], {})
     unrarernewstarted = False
-    if ispw:
+    if ispw and abs(post_status) < 3:
         get_pw_direct0 = False
         try:
             get_pw_direct0 = (cfg["OPTIONS"]["GET_PW_DIRECTLY"].lower() == "yes")
@@ -204,7 +254,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         mpp["unrarer"] = mpp_unrarer
         # sighandler.mpp = self.mpp
     # start unrarer if never started and ok verified/repaired
-    elif not mpp["unrarer"]:
+    elif not mpp["unrarer"] and abs(post_status) < 3:
         logger.debug(whoami() + "checking if unrarer should be started")
         try:
             verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
@@ -223,8 +273,11 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             except Exception as e:
                 logger.warning(whoami() + str(e))
     finalverifierstate = (pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
+    if stop_wait():
+        sys.exit()
+
     # join unrarer
-    if mpp["unrarer"]:
+    if mpp["unrarer"] and abs(post_status) < 3:
         if finalverifierstate:
             logger.info(whoami() + "Waiting for unrar to complete")
             while True:
@@ -245,6 +298,11 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                         logger.info(whoami() + "Unrarer deadlock, killing unrarer!")
                         try:
                             os.kill(mpp["unrarer"].pid, signal.SIGTERM)
+                            if unrarernewstarted:
+                                mpp["unrarer"].join()
+                            else:
+                                mp_join(mpp["unrarer"])
+                            mpp["unrarer"] = None
                         except Exception as e:
                             logger.debug(whoami() + str(e))
                         break
@@ -258,15 +316,27 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             logger.info(whoami() + "Repair/unrar not possible, killing unrarer!")
             try:
                 os.kill(mpp["unrarer"].pid, signal.SIGTERM)
+                if unrarernewstarted:
+                    mpp["unrarer"].join()
+                else:
+                    mp_join(mpp["unrarer"])
+                mpp["unrarer"] = None
             except Exception as e:
                 logger.debug(whoami() + str(e))
         mpp["unrarer"] = None
         # sighandler.mpp = self.mpp
         logger.debug(whoami() + "unrarer completed/terminated!")
+    if stop_wait():
+        sys.exit()
+
     # get status
     finalverifierstate = (pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) in [0, 2])
     finalnonrarstate = pwdb.exc("db_allnonrarfiles_getstate", [nzbname], {})
     finalrarstate = (pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) in [0, 2])
+    if finalrarstate:
+        pwdb.exc("db_nzb_update_post_status", [nzbname, 3], {})
+    else:
+        pwdb.exc("db_nzb_update_post_status", [nzbname, -3], {})
     logger.info(whoami() + "Finalverifierstate: " + str(finalverifierstate) + " / Finalrarstate: " + str(finalrarstate) + " / Finalnonrarstate: "
                 + str(finalnonrarstate))
     if finalrarstate and finalnonrarstate and finalverifierstate:
@@ -275,7 +345,14 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
         pwdb.exc("db_msg_insert", [nzbname, "unrar/par-repair failed!", "error"], {})
         logger.info("postprocess of NZB " + nzbname + " failed!")
+        pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
         sys.exit()
+    if stop_wait():
+        sys.exit()
+
+    if not abs(post_status) < 4:
+        sys.exit()
+
     # copy to complete
     pwdb.exc("db_msg_insert", [nzbname, "copying & cleaning directories", "info"], {})
     complete_dir = make_complete_dir(dirs, nzbdir, logger)
@@ -284,6 +361,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
         logger.info("Cannot create complete_dir for " + nzbname + ", exiting ...")
         pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
+        pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
         sys.exit()
     # move all non-rar/par2/par2vol files from renamed to complete
     for f00 in glob.glob(rename_dir + "*"):
@@ -303,6 +381,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                 except Exception as e:
                     pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                     logger.warning(whoami() + str(e) + ": cannot remove corrupt rar file!")
+                    pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
             else:    # if unknown file (not in db) move to complete anyway
                 try:
                     shutil.move(f00, complete_dir)
@@ -316,6 +395,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                 logger.debug(whoami() + "removed rar/par2 file " + f0)
             except Exception as e:
                 pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
                 logger.warning(whoami() + str(e) + ": cannot remove rar/par2 file!")
         else:
             try:
@@ -329,6 +409,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         shutil.rmtree(download_dir)
     except Exception as e:
         pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+        pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
         logger.warning(whoami() + str(e) + ": cannot remove download_dir!")
     # move content of unpack dir to complete
     logger.debug(whoami() + "moving unpack_dir to complete: " + unpack_dir)
@@ -343,6 +424,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             except Exception as e:
                 logger.debug(whoami() + f00 + " already exists but cannot delete")
                 pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
                 break
         else:
             logger.debug(whoami() + complete_dir + d0 + " does not exist!")
@@ -352,6 +434,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                 shutil.move(f00, complete_dir)
             except Exception as e:
                 pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
                 logger.warning(str(e) + ": cannot move unrared file to complete dir!")
         else:
             if os.path.isdir(complete_dir + d0):
@@ -359,11 +442,13 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                     shutil.rmtree(complete_dir + d0)
                 except Exception as e:
                     pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                    pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
                     logger.warning(str(e) + ": cannot remove unrared dir in complete!")
             try:
                 shutil.copytree(f00, complete_dir + d0)
             except Exception as e:
                 pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+                pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
                 logger.warning(str(e) + ": cannot move non-rar/non-par2 file!")
     # remove unpack_dir
     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) != -4:
@@ -372,6 +457,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             shutil.rmtree(verifiedrar_dir)
         except Exception as e:
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
             logger.warning(str(e) + ": cannot remove unpack_dir / verifiedrar_dir")
     # remove incomplete_dir
     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) != -4:
@@ -379,13 +465,16 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             shutil.rmtree(main_dir)
         except Exception as e:
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
             logger.warning(str(e) + ": cannot remove incomplete_dir!")
     # finalize
     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) == -4:
         logger.info("Copy/Move of NZB " + nzbname + " failed!")
+        pwdb.exc("db_nzb_update_post_status", [nzbname, -4], {})
         sys.exit()
     else:
         logger.info("Copy/Move of NZB " + nzbname + " success!")
         pwdb.exc("db_nzb_update_status", [nzbname, 4], {})
+        pwdb.exc("db_nzb_update_post_status", [nzbname, 4], {})
         logger.info("Postprocess of NZB " + nzbname + " ok!")
         sys.exit()

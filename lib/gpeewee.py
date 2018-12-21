@@ -132,6 +132,17 @@ class PWDB():
             #    -1 .. verifier done + failure
             #    -2 .. verifier running, failure
             verify_status = IntegerField(default=0)
+            # post_status:
+            #   0 ... not started
+            #   1 ... clearing queues & pipes done
+            #   2 ... verifier done
+            #   3 ... unrarer done
+            #   4 ... copy/move files done
+            #   -1 .. clearing queues & pipes failed
+            #   -2 .. verifier failed
+            #   -3 .. unrarer failed
+            #   -4 .. copy/move files failed
+            post_status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
             is_pw = BooleanField(default=False)
             password = CharField(default="N/A")
@@ -552,6 +563,21 @@ class PWDB():
     def db_nzb_update_verify_status(self, nzbname, newstatus):
         query = self.NZB.update(verify_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
+
+    def db_nzb_update_post_status(self, nzbname, newstatus):
+        try:
+            query = self.NZB.update(post_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+
+    def db_nzb_get_poststatus(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.post_status
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return None
 
     def db_nzb_update_status(self, nzbname, newstatus):
         try:
