@@ -1530,7 +1530,6 @@ def ginzi_main(cfg, dirs, subdirs, logger):
     dl = None
     nzbname = None
     paused = False
-    tt_waiting_for_nzb = None
     guiconnector.set_health(0, 0)
 
     while True:
