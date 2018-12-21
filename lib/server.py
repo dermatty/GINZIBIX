@@ -92,11 +92,28 @@ class Servers():
                         break
         return result
 
+    def close_connection(self, server_name0, conn_nr):
+        res = False
+        for idx, (sn, cn, rt, nobj) in enumerate(self.all_connections):
+            if sn == server_name0 and cn == conn_nr:
+                if nobj:
+                    try:
+                        nobj.quit()
+                        self.logger.warning(whoami() + "Closed connection #" + str(cn) + " on " + sn)
+                        self.all_connections[idx] = (sn, cn, rt, None)
+                        res = True
+                    except Exception as e:
+                        self.logger.error(whoami() + "Server " + server_name0 + " connect error: " + str(e))
+                        res = False
+                    break
+        return res
+
     def close_all_connections(self):
-        for (sn, cn, _, nobj) in self.all_connections:
+        for idx, (sn, cn, rt, nobj) in enumerate(self.all_connections):
             if nobj:
                 try:
                     nobj.quit()
+                    self.all_connections[idx] = (sn, cn, rt, None)
                     self.logger.warning(whoami() + "Closed connection #" + str(cn) + " on " + sn)
                 except Exception as e:
                     self.logger.warning(whoami() + "Cannot quit server " + sn + ": " + str(e))

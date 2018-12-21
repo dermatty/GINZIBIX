@@ -20,7 +20,7 @@ lpref = __name__.split("lib.")[-1] + " - "
 
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
-    def __init__(self, connection, articlequeue, resultqueue, servers, logger):
+    def __init__(self, connection, articlequeue, resultqueue, servers, cfg, logger):
         Thread.__init__(self)
         self.daemon = True
         self.logger = logger
@@ -43,6 +43,10 @@ class ConnectionWorker(Thread):
         # 1 ... running ok
         # -1 ... connection problem
         self.connectionstate = 0
+        try:
+            self.connection_idle_time = int(cfg["OPTIONS"]["CONNECTION_IDLE_TIMEOUT"])
+        except Exception:
+            self.connection_idle_time = 45
 
     def stop(self):
         self.running = False
@@ -133,8 +137,8 @@ class ConnectionWorker(Thread):
             if self.nntpobj:
                 self.logger.debug(whoami() + "Server " + idn + " connected!")
                 self.last_timestamp = time.time()
-                self.bytesdownloaded = 0
-                self.bandwidth_bytes = 0
+                # self.bytesdownloaded = 0
+                # self.bandwidth_bytes = 0
                 self.connectionstate = 1
                 self.wait_running(1)
                 return
@@ -167,11 +171,22 @@ class ConnectionWorker(Thread):
     def run(self):
         self.logger.info(whoami() + self.idn + " thread starting !")
         timeout = 2
+        tt_pause_started = None
         while self.running:
             self.download_done = True
             if self.paused:
+                if not tt_pause_started:
+                    tt_pause_started = time.time()
+                elif time.time() - tt_pause_started > self.connection_idle_time and self.nntpobj:
+                    name, conn_nr = self.connection
+                    if self.servers.close_connection(name, conn_nr):
+                        self.logger.info(whoami() + self.idn + " connection idle, closed!")
+                        self.nntpobj = None
+                        self.connectionstate = -1
                 time.sleep(0.25)
                 continue
+            else:
+                tt_pause_started = None
             if not self.nntpobj:
                 self.retry_connect()
             if not self.running:
@@ -218,7 +233,9 @@ class ConnectionWorker(Thread):
                 self.logger.warning(whoami() + self.idn + " server connection error, reconnecting ...")
                 self.connectionstate = -1
                 try:
-                    self.nntpobj.quit()
+                    name, conn_nr = self.connection
+                    if self.servers.close_connection(name, conn_nr):
+                        self.nntpobj = None
                 except Exception as e:
                     pass
                 self.nntpobj = None
