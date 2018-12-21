@@ -1182,7 +1182,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
              "verifier": [verifier_parent_pipe, verifier_child_pipe]}
 
-    ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
+    ct = ConnectionThreads(cfg, articlequeue, resultqueue, cfg, logger)
 
     # init sighandler
     logger.debug(whoami() + "initializing sighandler")
