@@ -95,7 +95,6 @@ class GUI_Connector(Thread):
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
                 self.data = data
                 self.nzbname = nzbname
-                self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
                 self.server_config = server_config
                 self.status = status
                 self.dlconfig = dlconfig
@@ -115,20 +114,20 @@ class GUI_Connector(Thread):
                     self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 2.0] + [mbitcurr])
 
     def get_data(self):
-        ret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
+        ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
         with self.lock:
             full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
             try:
-                ret1 = (self.data, self.pwdb_msg, self.server_config, self.threads, self.dl_running, self.status,
+                ret0 = (self.data, self.server_config, self.threads, self.dl_running, self.status,
                         self.mean_netstat, self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
                         self.dlconfig, full_data_for_gui)
-                match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
+                # match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
                 # only send new data if something has changed (except network usage) or network_usage_change > 5%
-                if match_ret:
-                    if match_ret != [6] or (match_ret == [6] and abs(ret1[6] / self.oldret0[6] - 1) > 0.05):
-                        self.oldret0 = ret1
-                        ret0 = ret1
+                #if match_ret:
+                #    if match_ret != [6] or (match_ret == [6] and abs(ret1[6] / self.oldret0[6] - 1) > 0.05):
+                #        self.oldret0 = ret1
+                #        ret0 = ret1
             except Exception as e:
                 self.logger.warning(whoami() + str(e))
         return ret0

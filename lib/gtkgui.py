@@ -873,7 +873,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.levelbar_connhealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_HIGH, crit_conn_health + (1 - crit_conn_health) * 0.75)
         self.levelbar_connhealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_conn_health)) * 100)) + "%")
 
-    def update_mainwindow(self, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
+    def update_mainwindow(self, data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
                           sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata):
 
         if fulldata and self.appdata.fulldata != fulldata:
@@ -1142,10 +1142,10 @@ class GUI_Poller(Thread):
                         time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
-                        data, pwdb_msg, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
+                        data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
                             article_health, connection_health, dlconfig, full_data = datarec
                         try:
-                            GLib.idle_add(self.update_mainwindow, data, pwdb_msg, server_config, threads, dl_running, nzb_status_string,
+                            GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
                             time.sleep(self.delay)
                             continue
