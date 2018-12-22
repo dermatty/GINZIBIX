@@ -299,9 +299,7 @@ class PWDB():
                 return False
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-            return False
-        
-        
+            return False 
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):

@@ -73,7 +73,7 @@ class ConnectionWorker(Thread):
             return status, 0, 0
         if retention < article_age * 0.95:
             self.logger.warning(whoami() + "Retention on " + server_name + " not sufficient for article " + article_name)
-            return -1, None
+            return -1, 0, None
         try:
             resp, info = self.nntpobj.body(article_name)
             if resp.startswith("222"):

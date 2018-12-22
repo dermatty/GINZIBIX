@@ -403,13 +403,19 @@ class Downloader(Thread):
                 resultarticle = self.resultqueue.get_nowait()
                 self.resultqueue.task_done()
                 filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
+                # if inf0 == 0 -> this is a remains of sanity-check (should not happen but sometimes does ...)
+                if inf0 == 0:
+                    continue
                 if inf0 == "failed":
                     failed += 1
                     inf0 = empty_yenc_article
                     self.logger.error(whoami() + filename + "/" + art_name + ": failed!!")
                 bytesdownloaded = 0
                 if add_bytes:
-                    bytesdownloaded = sum(len(i) for i in inf0)
+                    try:
+                        bytesdownloaded = sum(len(i) for i in inf0)
+                    except Exception as e:
+                        bytesdownloaded = 0
                     avgmiblist.append((time.time(), bytesdownloaded, download_server))
                 try:
                     infolist[filename][art_nr - 1] = inf0
@@ -495,11 +501,12 @@ class Downloader(Thread):
                 resultarticle = self.resultqueue.get_nowait()
                 self.resultqueue.task_done()
                 nr_articles += 1
-                artname, _, _, _, _, _, _, status, _ = resultarticle
+                _, _, _, _, _, artname, _, status, _ = resultarticle
                 if status != "failed":
                     nr_ok_articles += 1
                 else:
                     self.pwdb.exc("db_msg_insert", [self.nzbname, "cannot download " + artname, "info"], {})
+                    self.logger.debug(whoami() + "cannot download " + artname)
             except (queue.Empty, EOFError):
                 break
         self.resultqueue.join()
@@ -517,6 +524,7 @@ class Downloader(Thread):
     def run(self):
         # def download(self, nzbname, servers_shut_down):
         nzbname = self.nzbname
+        return_reason = None
 
         res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
         allfileslist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2 = res
@@ -530,9 +538,6 @@ class Downloader(Thread):
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ": cannot load resqlist from file")
             self.resqlist = None
-
-        # resqlist = self.pwdb.exc("db_nzb_get_resqlist", [nzbname], {})
-        # self.resqlist = resqlist
 
         self.logger.info(whoami() + "downloading " + nzbname)
         self.pwdb.exc("db_msg_insert", [nzbname, "initializing download", "info"], {})
@@ -554,8 +559,17 @@ class Downloader(Thread):
         if self.pwdb.exc("db_nzb_getstatus", [nzbname], {}) > 2:
             self.logger.info(nzbname + "- download complete!")
             self.results = nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
-                                      overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist)), "dl_finished", self.main_dir
+                                      overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist)), "download complete", self.main_dir
             sys.exit()
+
+        # make dirs
+        self.logger.debug(whoami() + "creating dirs")
+        self.make_dirs(nzbname)
+        self.sighandler.dirs = self.dirs
+
+        # trigger set_data for gui
+        self.results = nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                  overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist)), "N/A", self.main_dir
         self.pwdb.exc("db_nzb_update_status", [nzbname, 2], {})    # status "downloading"
 
         if filetypecounter["par2vol"]["max"] > 0:
@@ -572,11 +586,6 @@ class Downloader(Thread):
             inject_set0 = ["etc", "sfv", "nfo", "rar"]
         self.logger.info(whoami() + "Overall_Size: " + str(overall_size) + ", incl. par2vols: " + str(overall_size_wparvol))
 
-        # make dirs
-        self.logger.debug(whoami() + "creating dirs")
-        self.make_dirs(nzbname)
-        self.sighandler.dirs = self.dirs
-
         self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir))
 
         self.sighandler.mpp = self.mpp
@@ -590,19 +599,27 @@ class Downloader(Thread):
 
         # sanity check
         inject_set_sanity = []
+        sanity0 = -1
         if self.cfg["OPTIONS"]["SANITY_CHECK"].lower() == "yes" and not self.pwdb.exc("db_nzb_loadpar2vols", [nzbname], {}):
-            print("#1")
-            try:
-                self.pwdb.exc("db_msg_insert", [nzbname, "checking for sanity", "info"], {})
-                sanity0 = self.do_sanity_check(allfileslist, files, infolist, bytescount0, filetypecounter)
-            except Exception as e:
-                print(str(e))
+            self.pwdb.exc("db_msg_insert", [nzbname, "checking for sanity", "info"], {})
+            sanity0 = self.do_sanity_check(allfileslist, files, infolist, bytescount0, filetypecounter)
             if sanity0 < 1:
+                if (filetypecounter["par2vol"]["max"] > 0 and sanity0 < self.crit_art_health_w_par) or\
+                   (filetypecounter["par2vol"]["max"] == 0 and sanity0 < self.crit_art_health_wo_par):
+                    self.pwdb.exc("db_msg_insert", [nzbname, "Sanity less than criticical health level, exiting", "error"], {})
+                    self.results = nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
+                                              overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist)), "download failed", self.main_dir
+                    sys.exit()
+                    
                 self.pwdb.exc("db_msg_insert", [nzbname, "Sanity less than 100%, preloading par2vols!", "warning"], {})
                 self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
                 overall_size = overall_size_wparvol
                 self.logger.info(whoami() + "queuing par2vols")
                 inject_set_sanity = ["par2vol"]
+                self.ct.pause_threads()
+                self.clear_queues_and_pipes()
+                time.sleep(0.5)
+                self.ct.resume_threads()
             else:
                 self.pwdb.exc("db_msg_insert", [nzbname, "Sanity is 100%, all OK!", "info"], {})
 
@@ -800,8 +817,13 @@ class Downloader(Thread):
             article_failed += failed
             if article_count != 0:
                 article_health = 1 - article_failed / article_count
+                if article_health > sanity0:
+                    article_health = sanity0
             else:
-                article_health = 0
+                if sanity0 != -1:
+                    article_health = sanity0
+                else:
+                    article_health = 0
             self.article_health = article_health
             # stop if par2file cannot be downloaded
             par2failed = False
@@ -1410,4 +1432,4 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     dl = None
                     nzbname = None
         except Exception as e:
-            print(str(e))
+            logger.error(whoami() + str(e))
