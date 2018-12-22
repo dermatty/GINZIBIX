@@ -116,19 +116,16 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                     # p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
                     p2 = pwdb.exc("get_renamed_p2", [renamed_dir, nzbname], {})
                 except Exception as e:
-                    print("p2 " + str(e))
+                    logger.debug(whoami() + str(e))
             if pvmode == "verify" and p2:
                 for rar in glob.glob(renamed_dir + "*"):
                     rar0 = rar.split("/")[-1]
-                    # f0 = pwdb.db_file_get_renamed(rar0)
                     f0 = pwdb.exc("db_file_get_renamed", [rar0], {})
-                    # print(f0.renamed_name, f0.ftype)
                     if not f0:
                         continue
                     f0_origname, f0_renamedname, f0_ftype = f0
                     if not f0_ftype == "rar":
                         continue
-                    # if pwdb.db_file_getparstatus(rar0) == 0 and f0_renamed_name != "N/A":
                     if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
                         f_short = f0_renamedname.split("/")[-1]
                         md5 = calc_file_md5hash(renamed_dir + rar0)
@@ -145,23 +142,18 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                         else:
                             logger.info(whoami() + f_short + "md5 hash match ok, copying to verified_rar dir")
                             shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
-                            # pwdb.db_file_update_parstatus(f0_origname, 1)
                             pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
             if pvmode == "copy":
                 for rar in glob.glob(renamed_dir + "*.rar"):
                     rar0 = rar.split("/")[-1]
-                    # f0 = pwdb.db_file_get_renamed(rar0)
                     f0 = pwdb.exc("db_file_get_renamed", [rar0], {})
                     if not f0:
                         continue
                     f0_origname, f0_renamedname, f0_ftype = f0
-                    # if pwdb.db_file_getparstatus(rar0) == 0 and f0_renamedname != "N/A":
                     if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
                         logger.debug(whoami() + "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir")
                         shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
-                        # pwdb.db_file_update_parstatus(f0_origname, 1)
                         pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
-        # allrarsverified, rvlist = pwdb.db_only_verified_rars(nzbname)
         allrarsverified, rvlist = pwdb.exc("db_only_verified_rars", [nzbname], {})
         if allrarsverified:
             break
@@ -251,7 +243,6 @@ def multipartrar_test(directory, rarname0, logger):
             ok_sorted = False
             break
     if not ok_sorted:
-        # print(-1)
         return -1              # -1 cannot check, rar in between is missing
     # ok sorted, unrar t
     cmd = "unrar t " + rarname0

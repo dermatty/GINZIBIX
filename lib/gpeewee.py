@@ -145,6 +145,7 @@ class PWDB():
             post_status = IntegerField(default=0)
             loadpar2vols = BooleanField(default=False)
             is_pw = BooleanField(default=False)
+            is_pw_checked = BooleanField(default=False)
             password = CharField(default="N/A")
             bytes_in_resultqueue = IntegerField(default=0)
             resqlist_dill = DillField(default="N/A")
@@ -545,13 +546,31 @@ class PWDB():
             return None
 
     def db_nzb_set_ispw(self, nzbname, ispw):
-        query = self.NZB.update(is_pw=ispw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
+        try:
+            query = self.NZB.update(is_pw=ispw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
 
     def db_nzb_get_ispw(self, nzbname):
         try:
             query = self.NZB.get(self.NZB.name == nzbname)
             return query.is_pw
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return None
+
+    def db_nzb_set_ispw_checked(self, nzbname, ispw_checked):
+        try:
+            query = self.NZB.update(is_pw_checked=ispw_checked, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+
+    def db_nzb_get_ispw_checked(self, nzbname):
+        try:
+            query = self.NZB.get(self.NZB.name == nzbname)
+            return query.is_pw_checked
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None

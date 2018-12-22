@@ -1044,7 +1044,7 @@ class Application(Gtk.Application):
         about_dialog.set_program_name(__appname__)
         about_dialog.set_version(__version__)
         about_dialog.set_copyright("Copyright \xa9 2018 dermatty")
-        about_dialog.set_comments("A binary newsreader for the gnome desktop")
+        about_dialog.set_comments("A binary newsreader for the Gnome desktop")
         about_dialog.set_website("https://github.com/dermatty/GINZIBIX")
         about_dialog.set_website_label('Ginzibix on GitHub')
         try:
@@ -1085,7 +1085,6 @@ class GUI_Poller(Thread):
         # self.socket.RCVTIMEO = 1000
         dl_running = True
         order_changed = False
-        lastt0 = time.time()
         while True:
             sortednzblist = []
             with self.lock:

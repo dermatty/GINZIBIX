@@ -1,9 +1,7 @@
 # parallel download
 
-0. check autocal mbit
-1. shutdown incl. postprocessor!!!! -> incl. events
-2. implement pause/resume
-
+1. reordered -> why not copied to verified rar dir????? was ist los mit
+par_verifier??
 
 
 

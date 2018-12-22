@@ -96,6 +96,7 @@ class GUI_Connector(Thread):
                 self.data = data
                 self.nzbname = nzbname
                 self.pwdb_msg = self.pwdb.exc("db_msg_get", [nzbname], {})
+                print(self.pwdb_msg)
                 self.server_config = server_config
                 self.status = status
                 self.dlconfig = dlconfig
@@ -112,7 +113,7 @@ class GUI_Connector(Thread):
                     mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
                     self.oldbytes0 = bytes0
                     self.old_t = time.time()
-                    self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 1.0] + [mbitcurr])
+                    self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 2.0] + [mbitcurr])
                     # self.mean_netstat = sum([mbit for mbit, _ in self.netstatlist]) / len(self.netstatlist)
 
     def get_data(self):

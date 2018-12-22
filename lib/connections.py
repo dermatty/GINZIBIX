@@ -1,9 +1,8 @@
-from threading import Thread
-import threading
 import nntplib
 import time
 import inspect
 from .server import Servers
+from threading import Thread
 import socket
 import queue
 
@@ -76,7 +75,6 @@ class ConnectionWorker(Thread):
             self.logger.warning(whoami() + "Retention on " + server_name + " not sufficient for article " + article_name)
             return -1, None
         try:
-            # resp_h, info_h = self.nntpobj.head(article_name)
             resp, info = self.nntpobj.body(article_name)
             if resp.startswith("222"):
                 status = 1
@@ -129,20 +127,16 @@ class ConnectionWorker(Thread):
 
     def retry_connect(self):
         idx = 0
-        name, conn_nr = self.connection
-        idn = name + " #" + str(conn_nr)
-        self.logger.debug(whoami() + "Server " + idn + " connecting ...")
+        self.logger.debug(whoami() + "Server " + self.idn + " connecting ...")
         while idx < 5 and self.running:
-            self.nntpobj = self.servers.open_connection(name, conn_nr)
+            self.nntpobj = self.servers.open_connection(self.name, self.conn_nr)
             if self.nntpobj:
-                self.logger.debug(whoami() + "Server " + idn + " connected!")
+                self.logger.debug(whoami() + "Server " + self.idn + " connected!")
                 self.last_timestamp = time.time()
-                # self.bytesdownloaded = 0
-                # self.bandwidth_bytes = 0
                 self.connectionstate = 1
                 self.wait_running(1)
                 return
-            self.logger.warning(whoami() + "Could not connect to server " + idn + ", will retry in 5 sec.")
+            self.logger.warning(whoami() + "Could not connect to server " + self.idn + ", will retry in 5 sec.")
             self.wait_running(2)
             if not self.running:
                 break
@@ -150,7 +144,7 @@ class ConnectionWorker(Thread):
         if not self.running:
             self.logger.warning(whoami() + "No connection retries anymore due to exiting")
         else:
-            self.logger.error(whoami() + "Connect retries to " + idn + " failed!")
+            self.logger.error(whoami() + "Connect retries to " + self.idn + " failed!")
             self.connectionstate = -1
 
     def remove_from_remaining_servers(self, name, remaining_servers):
@@ -178,8 +172,7 @@ class ConnectionWorker(Thread):
                 if not tt_pause_started:
                     tt_pause_started = time.time()
                 elif time.time() - tt_pause_started > self.connection_idle_time and self.nntpobj:
-                    name, conn_nr = self.connection
-                    if self.servers.close_connection(name, conn_nr):
+                    if self.servers.close_connection(self.name, self.conn_nr):
                         self.logger.info(whoami() + self.idn + " connection idle, closed!")
                         self.nntpobj = None
                         self.connectionstate = -1
@@ -285,7 +278,7 @@ class ConnectionThreads:
             self.logger.debug(whoami() + "starting download threads")
             self.init_servers()
             for sn, scon, _, _ in self.all_connections:
-                t = ConnectionWorker((sn, scon), self.articlequeue, self.resultqueue, self.servers, self.logger)
+                t = ConnectionWorker((sn, scon), self.articlequeue, self.resultqueue, self.servers, self.cfg, self.logger)
                 self.threads.append((t, time.time()))
                 t.start()
         else:
@@ -298,9 +291,11 @@ class ConnectionThreads:
 
     def resume_threads(self):
         if self.threads:
+            self.logger.debug(whoami() + "Resuming threads")
             for t, _ in self.threads:
                 t.paused = False
         else:
+            self.logger.debug(whoami() + "Starting threads")
             self.start_threads()
 
     def stop_threads(self):
