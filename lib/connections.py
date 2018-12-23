@@ -38,6 +38,7 @@ class ConnectionWorker(Thread):
         self.bandwidth_bytes = 0
         self.last_downloaded_ts = None
         self.paused = False
+        self.tt_pause_started = None
         # 0 ... not running
         # 1 ... running ok
         # -1 ... connection problem
@@ -165,13 +166,13 @@ class ConnectionWorker(Thread):
     def run(self):
         self.logger.info(whoami() + self.idn + " thread starting !")
         timeout = 2
-        tt_pause_started = None
+        self.tt_pause_started = None
         while self.running:
             self.download_done = True
             if self.paused:
-                if not tt_pause_started:
-                    tt_pause_started = time.time()
-                elif time.time() - tt_pause_started > self.connection_idle_time and self.nntpobj:
+                if not self.tt_pause_started:
+                    self.tt_pause_started = time.time()
+                elif time.time() - self.tt_pause_started > self.connection_idle_time and self.nntpobj:
                     if self.servers.close_connection(self.name, self.conn_nr):
                         self.logger.info(whoami() + self.idn + " connection idle, closed!")
                         self.nntpobj = None
@@ -179,7 +180,7 @@ class ConnectionWorker(Thread):
                 time.sleep(0.25)
                 continue
             else:
-                tt_pause_started = None
+                self.tt_pause_started = None
             if not self.nntpobj:
                 self.retry_connect()
             if not self.running:
@@ -288,6 +289,16 @@ class ConnectionThreads:
         if self.threads:
             for t, _ in self.threads:
                 t.paused = True
+            # wait until all threads are really in pause loop
+            while True:
+                all_paused = True
+                for t, _ in self.threads:
+                    if not t.tt_pause_started:
+                        all_paused = False
+                        break
+                if all_paused:
+                    break
+                time.sleep(0.1)
 
     def resume_threads(self):
         if self.threads:

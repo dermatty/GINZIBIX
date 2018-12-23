@@ -1,6 +1,3 @@
-import inotify_simple
-import os
-import signal
 import gi
 import threading
 import datetime
@@ -11,9 +8,6 @@ import configparser
 from threading import Thread
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
-import inspect
-
-lpref = __name__.split("lib.")[-1] + " - "
 
 
 def whoami():
@@ -878,8 +872,7 @@ class AppWindow(Gtk.ApplicationWindow):
 
         if fulldata and self.appdata.fulldata != fulldata:
             self.appdata.fulldata = fulldata
-
-        self.update_logstore()
+            self.update_logstore()
 
         if dlconfig:
             crit_art_health, crit_conn_health = dlconfig
@@ -1113,7 +1106,7 @@ class GUI_Poller(Thread):
                     self.socket.send_pyobj((msg0, None))
                     datatype, datarec = self.socket.recv_pyobj()
                 except Exception as e:
-                    self.logger.error("GUI_ConnectorMain: " + str(e))
+                    self.logger.error(whoami() + str(e))
             elif order_changed:
                 with self.lock:
                     msg0 = "SET_NZB_ORDER"
@@ -1122,7 +1115,7 @@ class GUI_Poller(Thread):
                         self.socket.send_pyobj((msg0, orderednzbs))
                         datatype, datarec = self.socket.recv_pyobj()
                     except Exception as e:
-                        self.logger.error("GUI_ConnectorMain: " + str(e))
+                        self.logger.error(whoami() + str(e))
                     self.appdata.order_changed = False
             elif nzb_deleted:
                 with self.lock:
@@ -1132,7 +1125,7 @@ class GUI_Poller(Thread):
                         self.socket.send_pyobj((msg0, orderednzbs))
                         datatype, datarec = self.socket.recv_pyobj()
                     except Exception as e:
-                        self.logger.error("GUI_ConnectorMain: " + str(e))
+                        self.logger.error(whoami() + str(e))
                     self.appdata.nzb_deleted = False
             else:
                 try:
@@ -1150,6 +1143,6 @@ class GUI_Poller(Thread):
                             time.sleep(self.delay)
                             continue
                         except Exception as e:
-                            self.logger.debug(lpref + whoami() + ": " + str(e))
+                            self.logger.debug(whoami() + str(e))
                 except Exception as e:
-                    self.logger.error("GUI_ConnectorMain: " + str(e))
+                    self.logger.error(whoami() + str(e))

@@ -95,6 +95,7 @@ class GUI_Connector(Thread):
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
                 self.data = data
                 self.nzbname = nzbname
+                print(nzbname, time.time(), "SET DATA")
                 self.server_config = server_config
                 self.status = status
                 self.dlconfig = dlconfig

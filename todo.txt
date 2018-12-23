@@ -1,4 +1,5 @@
 # parallel download
 
-1. better msg communication main -> guiconnector -> gtkgui 
-
+1. better msg communication main -> guiconnector -> gtkgui ---> still not
+resolved completely 
+2. pause / resume / closeall during postprocessing
