@@ -249,8 +249,10 @@ class PWDB():
     def get_all_data_for_gui(self):
         nzb_data = {}
         all_sorted_nzbs, _ = self.db_nzb_getall_sortedV3()
+        nzb_data["all#"] = []
         for nzbdata in all_sorted_nzbs:
             n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
+            nzb_data["all#"].append(n_name)
             nzb_data[n_name] = {}
             ispw = self.db_nzb_get_password(n_name)
             pw = self.db_nzb_get_ispw(n_name)

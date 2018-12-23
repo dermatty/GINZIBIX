@@ -1221,6 +1221,23 @@ def connection_thread_health(threads):
         return 1 - nodownthreads / (nothreads)
 
 
+def set_guiconnector_data(guiconnector, results, ct, dl, statusmsg, logger):
+    try:
+        nzbname, downloaddata, return_reason, maindir = results
+        bytescount0, availmem0, avgmiblist, filetypecounter, _, article_health, overall_size, already_downloaded_size, p2,\
+            overall_size_wparvol, allfileslist = downloaddata
+        downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
+        # no ct.servers object if connection idle
+        if not ct.servers:
+            serverconfig = None
+        else:
+            serverconfig = ct.servers.server_config
+        guiconnector.set_data(downloaddata_gc, ct.threads, serverconfig, statusmsg, dl.serverhealth())
+    except Exception as e:
+        logger.debug(whoami() + str(e) + ": cannot interpret gui-data from downloader")
+    return article_health
+
+
 # main loop for ginzibix downloader
 def ginzi_main(cfg, dirs, subdirs, logger):
 
@@ -1316,6 +1333,16 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
             # set connection health
             if dl:
+                stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+                if stat0 == 2:
+                    statusmsg = "downloading"
+                elif stat0 == 3:
+                    statusmsg = "postprocessing"
+                elif stat0 == 4:
+                    statusmsg = "success"
+                elif stat0 == -4:
+                    statusmsg = "failed"
+                # send data to gui
                 connection_health = connection_thread_health(ct.threads)
             else:
                 article_health = 0
@@ -1331,20 +1358,24 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                 dl.stop()
                 dl.join()
                 pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
+                # current download nzb has been deleted!
+                if guiconnector.has_nzb_been_deleted():
+                    logger.info(whoami() + "NZBs have been deleted")
+                    pwdb.exc("db_msg_insert", [nzbname, "NZB(s) deleted", "warning"], {})
+                    if dl.results:
+                        article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, statusmsg, logger)
+                        time.sleep(1)    # there must be a better solution
+                    deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
+                    remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
                 nzbname = None
                 del dl
                 dl = None
                 sh.mpp = mpp
-                # current download nzb has been deleted!
-                if guiconnector.has_nzb_been_deleted():
-                    logger.info(whoami() + "NZBs have been deleted")
-                    deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
-                    remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
-                    pwdb.exc("db_msg_insert", [nzbname, "NZB(s) deleted", "warning"], {})
 
             # if not downloading
             if not dl:
                 nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, -1)
+                guiconnector.clear_data()
                 if nzbname:
                     sh.nzbname = nzbname
                     ct.reset_timestamps_bdl()
@@ -1358,30 +1389,8 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     time.sleep(0.5)
                     continue
             else:
-                stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
-                if stat0 == 2:
-                    statusmsg = "downloading"
-                elif stat0 == 3:
-                    statusmsg = "postprocessing"
-                elif stat0 == 4:
-                    statusmsg = "success"
-                elif stat0 == -4:
-                    statusmsg = "failed"
-                # send data to gui
                 if dl.results:
-                    try:
-                        nzbname, downloaddata, return_reason, maindir = dl.results
-                        bytescount0, availmem0, avgmiblist, filetypecounter, _, article_health, overall_size, already_downloaded_size, p2,\
-                            overall_size_wparvol, allfileslist = downloaddata
-                        downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
-                        # no ct.servers object if connection idle
-                        if not ct.servers:
-                            serverconfig = None
-                        else:
-                            serverconfig = ct.servers.server_config
-                        guiconnector.set_data(downloaddata_gc, ct.threads, serverconfig, statusmsg, dl.serverhealth())
-                    except Exception as e:
-                        logger.debug(whoami() + str(e) + ": cannot interpret gui-data from downloader")
+                    article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, statusmsg, logger)
                 # status downloading
                 if stat0 in [2, 3]:
                     # command pause

@@ -870,10 +870,16 @@ class AppWindow(Gtk.ApplicationWindow):
     def update_mainwindow(self, data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
                           sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata):
 
+        # fulldata: contains messages
         if fulldata and self.appdata.fulldata != fulldata:
             self.appdata.fulldata = fulldata
-            self.update_logstore()
+            try:
+                self.nzbname = fulldata["all#"][0]
+                self.update_logstore()
+            except Exception as e:
+                pass
 
+        # health
         if dlconfig:
             crit_art_health, crit_conn_health = dlconfig
             newhealth = False

@@ -27,7 +27,6 @@ PAUSED = False
 def stop_wait():
     global TERMINATED, PAUSED
     while PAUSED and not TERMINATED:
-        print(time.time())
         time.sleep(0.25)
     if TERMINATED:
         return True

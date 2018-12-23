@@ -51,38 +51,41 @@ class GUI_Connector(Thread):
         except Exception as e:
             self.logger.debug(whoami() + str(e) + ", setting port to default 36603")
             self.port = "36603"
-        self.data = None
-        self.nzbname = None
-        self.pwdb_msg = (None, None)
         self.logger = logger
         self.lock = lock
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
         self.socket.bind("tcp://*:" + self.port)
-        # self.socket.setsockopt(zmq.RCVTIMEO, 2000)
-        self.threads = []
-        self.server_config = None
-        self.dl_running = True
-        self.status = "idle"
-        self.first_has_changed = False
-        self.deleted_nzb_name = None
-        self.old_t = 0
-        self.oldbytes0 = 0
-        self.sorted_nzbs = None
-        self.sorted_nzbshistory = None
-        self.dlconfig = None
-        self.netstatlist = []
-        self.last_update_for_gui = 0
-        self.closeall = False
-        self.article_health = 0
-        self.connection_health = 0
-        self.mean_netstat = 0
-        self.oldret0 = (None, None, None, None, None, None, None, None, None, None, None, None, None)
-        try:
-            self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
-        except Exception as e:
-            self.logger.debug(whoami() + str(e) + ": setting update delay to 0.5 sec")
-            self.update_delay = 0.5
+        self.clear_data()
+
+    def clear_data(self):
+        with self.lock:
+            self.data = None
+            self.nzbname = None
+            self.threads = []
+            self.server_config = None
+            self.dl_running = True
+            self.status = "idle"
+            self.first_has_changed = False
+            self.deleted_nzb_name = None
+            self.old_t = 0
+            self.oldbytes0 = 0
+            self.sorted_nzbs = None
+            self.sorted_nzbshistory = None
+            self.dlconfig = None
+            self.netstatlist = []
+            self.last_update_for_gui = 0
+            self.closeall = False
+            self.article_health = 0
+            self.connection_health = 0
+            self.mean_netstat = 0
+            self.connectionthreads = []
+            self.oldret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
+            try:
+                self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
+            except Exception as e:
+                self.logger.debug(whoami() + str(e) + ": setting update delay to 0.5 sec")
+                self.update_delay = 0.5
 
     def set_health(self, article_health, connection_health):
         with self.lock:
@@ -95,24 +98,30 @@ class GUI_Connector(Thread):
                 bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
                 self.data = data
                 self.nzbname = nzbname
-                print(nzbname, time.time(), "SET DATA")
                 self.server_config = server_config
                 self.status = status
                 self.dlconfig = dlconfig
                 self.threads = []
-                bytes0 = 0
-                for k, (t, last_timestamp) in enumerate(threads):
-                    append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
-                    self.threads.append(append_tuple)
-                    bytes0 += t.bytesdownloaded
-                if bytes0 > 0:
-                    dt = time.time() - self.old_t
-                    if dt == 0:
-                        dt = 0.001
-                    mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
-                    self.oldbytes0 = bytes0
-                    self.old_t = time.time()
-                    self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 2.0] + [mbitcurr])
+                self.connectionthreads = threads
+
+    def get_netstat(self):
+        bytes0 = 0
+        self.threads = []
+        for t, last_timestamp in self.connectionthreads:
+            append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
+            self.threads.append(append_tuple)
+            bytes0 += t.bytesdownloaded
+        if bytes0 > 0:
+            dt = time.time() - self.old_t
+            if dt == 0:
+                dt = 0.001
+            mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
+            self.oldbytes0 = bytes0
+            self.old_t = time.time()
+            self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 2.0] + [mbitcurr])     
+            return self.mean_netstat
+        else:
+            return 0
 
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
@@ -120,15 +129,14 @@ class GUI_Connector(Thread):
             full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
             try:
-                ret0 = (self.data, self.server_config, self.threads, self.dl_running, self.status,
+                self.mean_netstat = self.get_netstat()
+                ret1 = (self.data, self.server_config, self.threads, self.dl_running, self.status,
                         self.mean_netstat, self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
                         self.dlconfig, full_data_for_gui)
-                # match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
-                # only send new data if something has changed (except network usage) or network_usage_change > 5%
-                #if match_ret:
-                #    if match_ret != [6] or (match_ret == [6] and abs(ret1[6] / self.oldret0[6] - 1) > 0.05):
-                #        self.oldret0 = ret1
-                #        ret0 = ret1
+                match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
+                if match_ret:
+                    ret0 = ret1
+                    self.oldret0 = ret0
             except Exception as e:
                 self.logger.warning(whoami() + str(e))
         return ret0

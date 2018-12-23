@@ -1,5 +1,5 @@
 # parallel download
 
-1. better msg communication main -> guiconnector -> gtkgui ---> still not
-resolved completely 
+1. after delete: does not show 'NZBs deleted' msg -> only works with sleep in
+1367 main!!!!
 2. pause / resume / closeall during postprocessing
