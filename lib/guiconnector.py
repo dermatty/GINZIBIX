@@ -78,7 +78,6 @@ class GUI_Connector(Thread):
             self.closeall = False
             self.article_health = 0
             self.connection_health = 0
-            self.mean_netstat = 0
             self.connectionthreads = []
             self.oldret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
             try:
@@ -118,8 +117,9 @@ class GUI_Connector(Thread):
             mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
             self.oldbytes0 = bytes0
             self.old_t = time.time()
-            self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 5.0] + [mbitcurr])
-            return self.mean_netstat
+            self.netstatlist = [(mbit, t) for mbit, t in self.netstatlist if time.time() - t <= 2.0] + [(mbitcurr, self.old_t)]
+            return mean([mbit for mbit, _ in self.netstatlist])
+
         else:
             return 0
 
@@ -128,8 +128,8 @@ class GUI_Connector(Thread):
         with self.lock:
             full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
+            self.mean_netstat = self.get_netstat()
             try:
-                self.mean_netstat = self.get_netstat()
                 ret1 = (self.data, self.server_config, self.threads, self.dl_running, self.status,
                         self.mean_netstat, self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
                         self.dlconfig, full_data_for_gui)

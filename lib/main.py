@@ -433,9 +433,8 @@ class Downloader(Thread):
                 (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
                 if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:        # check for failed!! todo!!
                     failed0 = False
-                    if b"name=ginzi.txt" in infolist[filename][0]:
+                    if b"name=ginzi.txt" in infolist[filename][0][0]:
                         failed0 = True
-                        self.logger.error(filename + ": failed!!")
                     inflist0 = infolist[filename][:]
                     self.mp_work_queue.put((inflist0, self.download_dir, filename, filetype))
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
@@ -529,6 +528,18 @@ class Downloader(Thread):
     # main download routine
     # def download(self, nzbname, allfileslist, filetypecounter, servers_shut_down):
     def run(self):
+
+        # start decoder mpp
+        self.logger.debug(whoami() + "starting decoder process ...")
+        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
+        self.mpp_decoder.start()
+        self.mpp["decoder"] = self.mpp_decoder
+        self.sighandler.mpp = self.mpp
+
+        # start dl threads
+        self.logger.info(whoami() + "starting/resuming download threads")
+        self.ct.resume_threads()
+
         # def download(self, nzbname, servers_shut_down):
         nzbname = self.nzbname
         return_reason = None
@@ -598,10 +609,6 @@ class Downloader(Thread):
         self.sighandler.mpp = self.mpp
         self.sighandler.nzbname = nzbname
 
-        # start dl threads
-        self.logger.info(whoami() + "starting/resuming download threads")
-        self.ct.resume_threads()
-
         bytescount0 = self.getbytescount(allfileslist)
 
         # sanity check
@@ -648,13 +655,6 @@ class Downloader(Thread):
         # download loop until articles downloaded
         oldrarcounter = 0
         self.pwdb.exc("db_msg_insert", [nzbname, "downloading", "info"], {})
-
-        # start decoder mpp
-        self.logger.debug(whoami() + "starting decoder process ...")
-        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
-        self.mpp_decoder.start()
-        self.mpp["decoder"] = self.mpp_decoder
-        self.sighandler.mpp = self.mpp
 
         stopped_max_counter = 5
 
@@ -858,6 +858,7 @@ class Downloader(Thread):
                     f_nr_articles, f_age, f_filetype, _, failed0 = item
                     if (failed0 and f_filetype == "par2"):
                         par2failed = True
+                        break
                 self.logger.warning(whoami() + str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health)
                                     + ", par2failed: " + str(par2failed))
                 # if too many missing articles: exit download
@@ -866,9 +867,10 @@ class Downloader(Thread):
                    or (filetypecounter["par2vol"]["max"] > 0 and article_health <= self.crit_art_health_w_par):
                     self.logger.info(whoami() + "articles missing and cannot repair, exiting download")
                     self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
-                    self.pwdb.exc("db_msg_insert", [nzbname, "critical health threashold exceeded", "error"], {})
                     if par2failed:
                         self.pwdb.exc("db_msg_insert", [nzbname, "par2 file broken/not available on servers", "error"], {})
+                    else:
+                        self.pwdb.exc("db_msg_insert", [nzbname, "critical health threashold exceeded", "error"], {})
                     return_reason = "download failed"
                     self.results = nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
                                               overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist)), return_reason, self.main_dir
@@ -1427,7 +1429,6 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, logger, stopall=False)
                     dl.stop()
                     dl.join()
-                    pwdb.exc("db_msg_insert", [nzbname, "download failed!", "error"], {})
                     pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
                     # set 'flags' for getting next nzb
                     del dl

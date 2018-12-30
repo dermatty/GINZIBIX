@@ -2,4 +2,14 @@
 
 1. after delete: does not show 'NZBs deleted' msg -> only works with sleep in
 1367 main!!!!
+
 2. pause / resume / closeall during postprocessing
+
+---- start here ----
+3. auto-turn off server: if all download fail on server - turn it off for this
+nzb!
+4. for 2nd nzb -> does not show Logs until 1st rar is loaded! happens after
+renamer is started, oder so ... !??
+5. test what happens if no internet at all!!
+6. check article_decoder again: maybe pass separate dirs etc instead of cfg
+...

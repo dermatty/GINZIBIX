@@ -12,11 +12,8 @@ from threading import Thread
 def whoami():
     outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
     outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+    return __name__.split("lib.")[-1] + " - " + outer_func_name + " / #" + outer_func_linenr + ": "
 
-
-lpref = __name__.split("lib.")[-1] + " - "
 
 TERMINATED = False
 MAX_THREADS = 4
@@ -43,7 +40,6 @@ class SigHandler_Decoder:
 
 
 def decode_articles(mp_work_queue0, cfg, logger):
-
     logger.info(whoami() + "starting article decoder process")
 
     sh = SigHandler_Decoder(logger)
@@ -59,6 +55,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
         while not TERMINATED:
             try:
                 res0 = mp_work_queue0.get_nowait()
+                logger.debug(whoami() + "received res0")
                 break
             except (queue.Empty, EOFError):
                 pass
@@ -71,6 +68,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
         decoder_set_idle(False)
 
         infolist, save_dir, filename, filetype = res0
+        logger.debug(whoami() + "starting decoding for " + filename)
         # del bytes0
         bytesfinal = bytearray()
         status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
@@ -100,6 +98,7 @@ def decode_articles(mp_work_queue0, cfg, logger):
                 statusmsg = "Sabyenc3 decoding error!"
                 # continue decoding, maybe it can be repaired ...?
             i += 1
+        logger.debug(whoami() + "decoding for " + filename + ": success!")
         try:
             if not os.path.isdir(save_dir):
                 os.makedirs(save_dir)
