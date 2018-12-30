@@ -118,7 +118,7 @@ class GUI_Connector(Thread):
             mbitcurr = ((bytes0 - self.oldbytes0) / dt) / (1024 * 1024) * 8
             self.oldbytes0 = bytes0
             self.old_t = time.time()
-            self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 2.0] + [mbitcurr])     
+            self.mean_netstat = mean([mbit for mbit, t in self.netstatlist if time.time() - t <= 5.0] + [mbitcurr])
             return self.mean_netstat
         else:
             return 0

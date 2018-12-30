@@ -1443,7 +1443,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     if mpp["post"]:
                         mpp["post"].join()
                     pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
-                    guiconnector.set_data(downloaddata_gc, ct.threads, ct.servers.server_config, "success", dl.serverhealth())
+                    article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
                     mpp["post"] = None
                     sh.mpp["post"] = None
@@ -1461,7 +1461,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     if mpp["post"]:
                         mpp["post"].join()
                     pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
-                    guiconnector.set_data(downloaddata_gc, ct.threads, ct.servers.server_config, "failed", dl.serverhealth())
+                    article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "failed", logger)
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded and/or postprocessing failed!", "error"], {})
                     mpp["post"] = None
                     sh.mpp["post"] = None
