@@ -11,6 +11,7 @@ import shutil
 import sys
 from .aux import PWDBSender
 from .mplogging import setup_logger, whoami
+from setproctitle import setproctitle
 
 
 TERMINATED = False
@@ -96,6 +97,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
 
     if stop_wait():
         sys.exit()
+
+    setproctitle("gzbx." + os.path.basename(__file__))
 
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")

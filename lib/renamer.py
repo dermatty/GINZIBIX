@@ -8,9 +8,8 @@ from random import randint
 import inotify_simple
 import signal
 import time
+from setproctitle import setproctitle
 
-
-lpref = __name__.split("lib.")[-1] + " - "
 
 TERMINATED = False
 
@@ -176,6 +175,8 @@ def get_inotify_events(inotify):
 
 # renamer with inotify
 def renamer(child_pipe, renamer_result_queue, mp_loggerqueue):
+    setproctitle("gzbx." + os.path.basename(__file__))
+
     logger = setup_logger(mp_loggerqueue, __file__)
 
     logger.debug(whoami() + "starting renamer process")

@@ -1,5 +1,8 @@
 # parallel download
 
+0. profile gpeewee -> this takes most ressources!!!!
+
+
 1. after delete: does not show 'NZBs deleted' msg -> only works with sleep in
 1367 main!!!!
 

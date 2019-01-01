@@ -9,6 +9,7 @@ import signal
 from .aux import PWDBSender
 from .mplogging import setup_logger, whoami
 import re
+from setproctitle import setproctitle
 
 
 TERMINATED = False
@@ -119,6 +120,7 @@ def get_inotify_events(inotify):
 
 
 def ParseNZB(cfg, dirs, mp_loggerqueue):
+    setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
     nzbdir = dirs["nzb"]
     incompletedir = dirs["incomplete"]

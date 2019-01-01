@@ -64,7 +64,7 @@ def stop_logging_listener(queue, listener):
 
 
 if __name__ == '__main__':
-    setproctitle("gzbx.article_decoder.py")
+    setproctitle("gzbx." + os.path.basename(__file__))
 
     # starts loglistener
     filename = "mptest.log"

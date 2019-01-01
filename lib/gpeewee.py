@@ -12,6 +12,7 @@ import signal
 import sqlite3
 import _pickle as cpickle
 import datetime
+from setproctitle import setproctitle
 
 
 TERMINATED = False
@@ -229,6 +230,7 @@ class PWDB():
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
+            print(time.time(), funcstr)
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
             try:
                 self.wrapper_socket.send_pyobj(ret)
@@ -1221,6 +1223,7 @@ class PWDB():
 
 
 def wrapper_main(cfg, dirs, mp_loggerqueue):
+    setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
 
     logger.debug(whoami() + "starting ...")

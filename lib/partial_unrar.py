@@ -7,11 +7,10 @@ import signal
 from .passworded_rars import get_sorted_rar_list
 from .aux import PWDBSender
 from .mplogging import setup_logger, whoami
+from setproctitle import setproctitle
 
 
 TERMINATED = False
-
-lpref = __name__ + " - "
 
 
 class SigHandler_Unrar:
@@ -38,6 +37,7 @@ def get_rar_files(directory):
 
 
 def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, event_idle, cfg):
+    setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
     pwdb = PWDBSender()

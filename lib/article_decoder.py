@@ -7,6 +7,7 @@ import signal
 from .aux import PWDBSender
 from threading import Thread
 from .mplogging import setup_logger, whoami
+from setproctitle import setproctitle
 
 
 TERMINATED = False
@@ -34,6 +35,7 @@ class SigHandler_Decoder:
 
 
 def decode_articles(mp_work_queue0, cfg, mp_loggerqueue):
+    setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.info(whoami() + "starting article decoder process")
 

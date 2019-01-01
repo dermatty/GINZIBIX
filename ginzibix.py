@@ -9,7 +9,6 @@ import lib
 import queue
 import gi
 import sys
-import inspect
 import os
 import time
 from setproctitle import setproctitle
@@ -55,7 +54,7 @@ class SigHandler_Ginzibix:
 # -------------------- main --------------------
 
 if __name__ == '__main__':
-    setproctitle("gzbx." + __file__)
+    setproctitle("gzbx." + os.path.basename(__file__))
 
     # dirs
     userhome, maindir, dirs, subdirs = lib.make_dirs()

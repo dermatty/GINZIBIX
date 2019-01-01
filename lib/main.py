@@ -24,6 +24,7 @@ from .aux import PWDBSender
 from .guiconnector import GUI_Connector, remove_nzb_files_and_db
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
+from setproctitle import setproctitle
 
 
 empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
@@ -1234,6 +1235,8 @@ def set_guiconnector_data(guiconnector, results, ct, dl, statusmsg, logger):
 
 # main loop for ginzibix downloader
 def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
+
+    setproctitle("gzbx." + os.path.basename(__file__))
 
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")

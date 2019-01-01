@@ -10,6 +10,7 @@ import inotify_simple
 import signal
 from .aux import PWDBSender
 from .mplogging import setup_logger, whoami
+from setproctitle import setproctitle
 
 
 TERMINATED = False
@@ -26,6 +27,7 @@ class SigHandler_Verifier:
 
 
 def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqueue, nzbname, pvmode, event_idle, cfg):
+    setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
     sh = SigHandler_Verifier(logger)
