@@ -228,6 +228,7 @@ class PWDB():
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
+            print(funcstr, time.time())
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
             try:
                 self.wrapper_socket.send_pyobj(ret)

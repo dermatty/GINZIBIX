@@ -524,7 +524,7 @@ class Downloader(Thread):
 
         # start decoder mpp
         self.logger.debug(whoami() + "starting decoder process ...")
-        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.mp_loggerqueue, ))
+        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, ))
         self.mpp_decoder.start()
         self.mpp["decoder"] = self.mpp_decoder
         self.sighandler.mpp = self.mpp
@@ -662,8 +662,8 @@ class Downloader(Thread):
 
             return_reason = None
 
+            time.sleep(0.25)
             if self.paused:
-                time.sleep(0.25)
                 continue
 
             self.results = nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
@@ -739,29 +739,28 @@ class Downloader(Thread):
                     article_count += article_count0
 
             # check if unrarer is dead due to wrong rar on start
-            # if self.mpp["unrarer"] and self.pwdb.db_nzb_get_unrarstatus(nzbname) == -2:
             if self.mpp["unrarer"] and self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) == -2:
                 self.mpp["unrarer"].join()
                 self.mpp["unrarer"] = None
                 self.sighandler.mpp = self.mpp
                 self.logger.debug(whoami() + "unrarer joined")
 
-            # if self.mpp["verifier"] and self.pwdb.db_nzb_get_verifystatus(nzbname) == 2:
-            if self.mpp["verifier"] and self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) == 2:
-                self.mpp["verifier"].join()
-                self.mpp["verifier"] = None
-                self.sighandler.mpp = self.mpp
-                self.logger.debug(whoami() + "verifier joined")
-
-            # if unrarer is running and verifystatus is negative, stop!
-            if self.mpp["unrarer"] and self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {}) == -2:
-                self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
-                os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
-                self.mpp["unrarer"].join()
-                self.mpp["unrarer"] = None
-                self.sighandler.mpp = self.mpp
-                self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
-                self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
+            if self.mpp["verifier"]:
+                verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
+                if verifystatus == 2:
+                    self.mpp["verifier"].join()
+                    self.mpp["verifier"] = None
+                    self.sighandler.mpp = self.mpp
+                    self.logger.debug(whoami() + "verifier joined")
+                # if unrarer is running and verifystatus is negative, stop!
+                elif verifystatus == -2:
+                    self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
+                    os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
+                    self.mpp["unrarer"].join()
+                    self.mpp["unrarer"] = None
+                    self.sighandler.mpp = self.mpp
+                    self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                    self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 
             if not self.stopped and not self.mpp["unrarer"] and filetypecounter["rar"]["counter"] > oldrarcounter\
                and not self.pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {}):
@@ -1306,7 +1305,8 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
         time.sleep(0.1)
 
         try:
-            pwdb.exc("store_sorted_nzbs", [], {})
+            # warum ist das HIER??????
+            # pwdb.exc("store_sorted_nzbs", [], {})
 
             # closeall command
             if guiconnector.closeall:
