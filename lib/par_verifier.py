@@ -1,6 +1,5 @@
 import os
 import glob
-import queue
 import shutil
 from .par2lib import calc_file_md5hash
 import subprocess
@@ -10,16 +9,7 @@ import pexpect
 import inotify_simple
 import signal
 from .aux import PWDBSender
-import inspect
-
-lpref = __name__.split("lib.")[-1] + " - "
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+from .mplogging import setup_logger, whoami
 
 
 TERMINATED = False
@@ -35,7 +25,8 @@ class SigHandler_Verifier:
         TERMINATED = True
 
 
-def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzbname, pvmode, event_idle, cfg):
+def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqueue, nzbname, pvmode, event_idle, cfg):
+    logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
     sh = SigHandler_Verifier(logger)
     signal.signal(signal.SIGINT, sh.sighandler_verifier)
@@ -138,7 +129,6 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
                             if not doloadpar2vols:
                                 doloadpar2vols = True
                                 child_pipe.send(doloadpar2vols)
-                                # mp_outqueue.put(doloadpar2vols)
                         else:
                             logger.info(whoami() + f_short + "md5 hash match ok, copying to verified_rar dir")
                             shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
@@ -164,24 +154,18 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
         return
 
     logger.debug(whoami() + "all rars are verified")
-    # par2name = pwdb.db_get_renamed_par2(nzbname)
     par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
-    # corruptrars = pwdb.get_all_corrupt_rar_files(nzbname)
     corruptrars = pwdb.exc("get_all_corrupt_rar_files", [nzbname], {})
     if not corruptrars:
         logger.debug(whoami() + "rar files ok, no repair needed, exiting par_verifier")
-        # pwdb.db_nzb_update_verify_status(nzbname, 2)
         pwdb.exc("db_nzb_update_verify_status", [nzbname, 2], {})
     elif par2name and corruptrars:
-        # pwdb.db_msg_insert(nzbname, "repairing rar files", "info")
         pwdb.exc("db_msg_insert", [nzbname, "repairing rar files", "info"], {})
         logger.info(whoami() + "par2vol files present, repairing ...")
         res0 = multipartrar_repair(renamed_dir, par2name, pwdb, nzbname, logger)
         if res0 == 1:
             logger.info(whoami() + "repair success")
-            # pwdb.db_msg_insert(nzbname, "rar file repair success!", "info")
             pwdb.exc("db_msg_insert", [nzbname, "rar file repair success!", "info"], {})
-            # pwdb.db_nzb_update_verify_status(nzbname, 2)
             pwdb.exc("db_nzb_update_verify_status", [nzbname, 2], {})
             # copy all no yet copied rars to verifiedrar_dir
             for c_origname, c_renamedname in corruptrars:
@@ -194,14 +178,11 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, logger, nzb
             pwdb.exc("db_msg_insert", [nzbname, "rar file repair failed", "error"], {})
             pwdb.exc("db_nzb_update_verify_status", [nzbname, -1], {})
             for _, c_origname in corruptrars:
-                # pwdb.db_file_update_parstatus(c_origname, -2)
                 pwdb.exc("db_file_update_parstatus", [c_origname, -2], {})
     else:
-        # pwdb.db_msg_insert(nzbname, "rar file repair failed, no par files available", "error")
         pwdb.exc("db_msg_insert", ["nzbname", "rar file repair failed, no par files available", "error"], {})
         logger.warning(whoami() + "some rars are corrupt but cannot repair (no par2 files)")
         pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
-        # pwdb.db_nzb_update_verify_status(nzbname, 2)
     logger.info(whoami() + "terminated!")
     sys.exit()
 

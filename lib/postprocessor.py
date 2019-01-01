@@ -1,4 +1,3 @@
-import inspect
 import queue
 import time
 import os
@@ -11,13 +10,7 @@ import glob
 import shutil
 import sys
 from .aux import PWDBSender
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+from .mplogging import setup_logger, whoami
 
 
 TERMINATED = False
@@ -99,11 +92,12 @@ def make_complete_dir(dirs, nzbdir, logger):
 
 
 def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp0, mp_events, cfg, verifiedrar_dir,
-                    unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, event_queues_cleared, logger):
+                    unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, event_queues_cleared, mp_loggerqueue):
 
     if stop_wait():
         sys.exit()
 
+    logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
     event_queues_cleared.clear()     # queues not cleared yet
 
@@ -247,7 +241,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             # sighandler.mpp = mpp
             sys.exit()
         event_unrareridle = mp.Event()
-        mpp_unrarer = mp.Process(target=partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, logger, pw, event_unrareridle, cfg, ))
+        mpp_unrarer = mp.Process(target=partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, mp_loggerqueue, pw, event_unrareridle, cfg, ))
         unrarernewstarted = True
         mpp_unrarer.start()
         mpp["unrarer"] = mpp_unrarer
@@ -265,7 +259,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             try:
                 logger.debug(whoami() + "unrarer passiv until now, starting ...")
                 event_unrareridle = mp.Event()
-                mpp_unrarer = mp.Process(target=partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, logger, None, event_unrareridle, cfg, ))
+                mpp_unrarer = mp.Process(target=partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, mp_loggerqueue, None, event_unrareridle, cfg, ))
                 unrarernewstarted = True
                 mpp_unrarer.start()
                 mpp["unrarer"] = mpp_unrarer

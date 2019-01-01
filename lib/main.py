@@ -23,21 +23,12 @@ from .connections import ConnectionThreads
 from .aux import PWDBSender
 from .guiconnector import GUI_Connector, remove_nzb_files_and_db
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
+from .mplogging import setup_logger, whoami
 
-import inspect
-
-lpref = __name__.split("lib.")[-1] + " - "
 
 empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
                       b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A',
                       b"=yend size=14 crc32=8111111c"]
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
@@ -193,10 +184,11 @@ class SigHandler_Main:
 # Handles download of a NZB file
 class Downloader(Thread):
     def __init__(self, cfg, dirs, ct, mp_work_queue, sighandler, mpp, guiconnector, pipes, renamer_result_queue, mp_events,
-                 nzbname, logger):
+                 nzbname, mp_loggerqueue, logger):
         Thread.__init__(self)
         self.daemon = True
         self.lock = threading.Lock()
+        self.mp_loggerqueue = mp_loggerqueue
         self.nzbname = nzbname
         self.event_unrareridle = mp_events["unrarer"]
         self.event_verifieridle = mp_events["verifier"]
@@ -531,7 +523,7 @@ class Downloader(Thread):
 
         # start decoder mpp
         self.logger.debug(whoami() + "starting decoder process ...")
-        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.logger, ))
+        self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.cfg, self.mp_loggerqueue, ))
         self.mpp_decoder.start()
         self.mpp["decoder"] = self.mpp_decoder
         self.sighandler.mpp = self.mpp
@@ -808,7 +800,7 @@ class Downloader(Thread):
                         if verifystatus != -2:
                             self.logger.debug(whoami() + "starting unrarer")
                             self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                                      nzbname, self.logger, None, self.event_unrareridle, self.cfg, ))
+                                                                                      nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
                             self.mpp_unrarer.start()
                             self.mpp["unrarer"] = self.mpp_unrarer
                             self.sighandler.mpp = self.mpp
@@ -831,7 +823,7 @@ class Downloader(Thread):
                     if pvmode:
                         self.logger.debug(whoami() + "starting rar_verifier process (mode=" + pvmode + ")for NZB " + nzbname)
                         self.mpp_verifier = mp.Process(target=par_verifier, args=(self.pipes["verifier"][1], self.rename_dir, self.verifiedrar_dir,
-                                                                                  self.main_dir, self.logger, nzbname, pvmode, self.event_verifieridle,
+                                                                                  self.main_dir, self.mp_loggerqueue, nzbname, pvmode, self.event_verifieridle,
                                                                                   self.cfg, ))
                         self.mpp_verifier.start()
                         self.mpp["verifier"] = self.mpp_verifier
@@ -1241,8 +1233,9 @@ def set_guiconnector_data(guiconnector, results, ct, dl, statusmsg, logger):
 
 
 # main loop for ginzibix downloader
-def ginzi_main(cfg, dirs, subdirs, logger):
+def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
 
+    logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
 
     nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2 = (None, ) * 6
@@ -1279,13 +1272,13 @@ def ginzi_main(cfg, dirs, subdirs, logger):
 
     # start nzb parser mpp
     logger.debug(whoami() + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=ParseNZB, args=(cfg, dirs, logger, ))
+    mpp_nzbparser = mp.Process(target=ParseNZB, args=(cfg, dirs, mp_loggerqueue, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
     # start renamer
     logger.debug(whoami() + "starting renamer process ...")
-    mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, logger, ))
+    mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, mp_loggerqueue, ))
     mpp_renamer.start()
     mpp["renamer"] = mpp_renamer
 
@@ -1382,7 +1375,8 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     sh.nzbname = nzbname
                     ct.reset_timestamps_bdl()
                     logger.info(whoami() + "got next NZB: " + str(nzbname))
-                    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, pipes, renamer_result_queue, mp_events, nzbname, logger)
+                    dl = Downloader(cfg, dirs, ct, mp_work_queue, sh, mpp, guiconnector, pipes, renamer_result_queue, mp_events, nzbname, mp_loggerqueue,
+                                    logger)
                     dl.start()
                 else:
                     sh.nzbname = None
@@ -1418,7 +1412,7 @@ def ginzi_main(cfg, dirs, subdirs, logger):
                     logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
                     mpp_post = mp.Process(target=postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
                                                                         dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
-                                                                        dl.download_dir, dl.dirs, dl.pw_file, mp_events["post"], logger, ))
+                                                                        dl.download_dir, dl.dirs, dl.pw_file, mp_events["post"], mp_loggerqueue, ))
                     mpp_post.start()
                     mpp["post"] = mpp_post
                     sh.mpp["post"] = mpp_post

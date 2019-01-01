@@ -5,14 +5,8 @@ import time
 import queue
 import signal
 from .aux import PWDBSender
-import inspect
 from threading import Thread
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    return __name__.split("lib.")[-1] + " - " + outer_func_name + " / #" + outer_func_linenr + ": "
+from .mplogging import setup_logger, whoami
 
 
 TERMINATED = False
@@ -39,7 +33,8 @@ class SigHandler_Decoder:
         TERMINATED = True
 
 
-def decode_articles(mp_work_queue0, cfg, logger):
+def decode_articles(mp_work_queue0, cfg, mp_loggerqueue):
+    logger = setup_logger(mp_loggerqueue, __file__)
     logger.info(whoami() + "starting article decoder process")
 
     sh = SigHandler_Decoder(logger)

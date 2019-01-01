@@ -3,18 +3,11 @@ import shutil
 import glob
 from .par2lib import Par2File, calc_file_md5hash_16k, check_for_par_filetype, get_file_type
 from .aux import PWDBSender
+from .mplogging import setup_logger, whoami
 from random import randint
 import inotify_simple
 import signal
-import inspect
 import time
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 lpref = __name__.split("lib.")[-1] + " - "
@@ -182,7 +175,9 @@ def get_inotify_events(inotify):
 
 
 # renamer with inotify
-def renamer(child_pipe, renamer_result_queue, logger):
+def renamer(child_pipe, renamer_result_queue, mp_loggerqueue):
+    logger = setup_logger(mp_loggerqueue, __file__)
+
     logger.debug(whoami() + "starting renamer process")
     sh = SigHandler_Renamer(logger)
     signal.signal(signal.SIGINT, sh.sighandler_renamer)

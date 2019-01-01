@@ -3,18 +3,11 @@ import threading
 import datetime
 import zmq
 import time
-import inspect
 import configparser
 from threading import Thread
 gi.require_version('Gtk', '3.0')
+from .mplogging import setup_logger, whoami
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 __appname__ = "Ginzibix"
@@ -1005,10 +998,10 @@ class AppWindow(Gtk.ApplicationWindow):
 
 class Application(Gtk.Application):
 
-    def __init__(self, dirs, cfg_file, logger):
+    def __init__(self, dirs, cfg_file, mp_loggerqueue):
         Gtk.Application.__init__(self)
         self.window = None
-        self.logger = logger
+        self.logger = setup_logger(mp_loggerqueue, __file__)
         self.dirs = dirs
         self.cfg_file = cfg_file
 

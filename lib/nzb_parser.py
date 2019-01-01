@@ -5,20 +5,11 @@ import time
 from .par2lib import get_file_type
 import inotify_simple
 from lxml import etree
-import inspect
 import signal
 from .aux import PWDBSender
+from .mplogging import setup_logger, whoami
 import re
 
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
-
-
-lpref = __name__ + " - "
 
 TERMINATED = False
 
@@ -127,7 +118,8 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(cfg, dirs, logger):
+def ParseNZB(cfg, dirs, mp_loggerqueue):
+    logger = setup_logger(mp_loggerqueue, __file__)
     nzbdir = dirs["nzb"]
     incompletedir = dirs["incomplete"]
     global TERMINATED

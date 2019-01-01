@@ -3,18 +3,10 @@ import glob
 import os
 import pexpect
 import time
-import subprocess
 import signal
 from .passworded_rars import get_sorted_rar_list
 from .aux import PWDBSender
-import inspect
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+from .mplogging import setup_logger, whoami
 
 
 TERMINATED = False
@@ -45,7 +37,8 @@ def get_rar_files(directory):
     return rarlist
 
 
-def partial_unrar(directory, unpack_dir, nzbname, logger, password, event_idle, cfg):
+def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, event_idle, cfg):
+    logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
     pwdb = PWDBSender()
 

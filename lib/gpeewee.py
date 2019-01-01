@@ -1,5 +1,6 @@
 from peewee import Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField, BlobField, DateTimeField
 from playhouse.sqlite_ext import CSqliteExtDatabase
+from .mplogging import setup_logger, whoami
 import os
 import shutil
 import time
@@ -8,17 +9,9 @@ import re
 import zmq
 import threading
 import signal
-import inspect
 import sqlite3
 import _pickle as cpickle
 import datetime
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 TERMINATED = False
@@ -1227,7 +1220,9 @@ class PWDB():
             return nzbname
 
 
-def wrapper_main(cfg, dirs, logger):
+def wrapper_main(cfg, dirs, mp_loggerqueue):
+    logger = setup_logger(mp_loggerqueue, __file__)
+
     logger.debug(whoami() + "starting ...")
 
     pwwt = PWDB(cfg, dirs, logger)
