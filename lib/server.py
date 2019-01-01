@@ -1,16 +1,6 @@
 import ssl
 import nntplib
-import inspect
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
-
-
-lpref = __name__.split("lib.")[-1] + " - "
+from .mplogging import whoami
 
 
 # Does all the server stuff (open, close connctions) and contains all relevant

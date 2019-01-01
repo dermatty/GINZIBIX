@@ -6,9 +6,7 @@ import logging.handlers
 import sys
 import glob
 from .par2lib import get_file_type
-
-
-lpref = __name__ + " - "
+from .mplogging import whoami
 
 
 def get_sorted_rar_list(directory):
@@ -132,7 +130,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     PW = None
 
     # first try with <:::> if exists
-    logger.info(lpref + "trying specified password entries <:::> ...")
+    logger.info(whoami() + "trying specified password entries <:::> ...")
     for pw in pwlist:
         if "<:::>" not in pw:
             continue
@@ -142,19 +140,19 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
         pw0 = pw0.split(".nzb")[0]
         if fn0 != nzbname:
             continue
-        logger.debug(lpref + "Trying with entry: " + fn0 + " / " + pw0 + " for NZB " + nzbname)
+        logger.debug(whoami() + "Trying with entry: " + fn0 + " / " + pw0 + " for NZB " + nzbname)
         ssh = subprocess.Popen(["unrar", "t", "-p" + pw0, rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
         ssherr = ssh.stderr.readlines()
         if not ssherr:
             PW = pw0
-            logger.info(lpref + "Found PW for NZB " + nzbname + ": " + PW)
+            logger.info(whoami() + "Found PW for NZB " + nzbname + ": " + PW)
             break
     if PW:
         os.chdir(cwd0)
         return PW
 
     # try
-    logger.info(lpref + "trying free password file entries ...")
+    logger.info(whoami() + "trying free password file entries ...")
     for pw in pwlist:
         if "<:::>" in pw:
             continue
@@ -162,7 +160,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
         ssherr = ssh.stderr.readlines()
         if not ssherr:
             PW = pw
-            logger.info(lpref + "Found PW for NZB " + nzbname + ": " + PW)
+            logger.info(whoami() + "Found PW for NZB " + nzbname + ": " + PW)
             break
 
     os.chdir(cwd0)

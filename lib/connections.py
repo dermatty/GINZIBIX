@@ -1,20 +1,10 @@
 import nntplib
 import time
-import inspect
 from .server import Servers
 from threading import Thread
 import socket
 import queue
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
-
-
-lpref = __name__.split("lib.")[-1] + " - "
+from .mplogging import whoami
 
 
 # This is the thread worker per connection to NNTP server

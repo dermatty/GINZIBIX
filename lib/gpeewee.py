@@ -22,8 +22,6 @@ if __name__ == "__main__":
 else:
     from .par2lib import calc_file_md5hash, Par2File
 
-lpref = __name__.split("lib.")[-1] + " - "
-
 
 def lists_are_equal(list1, list2):
     return set(list1) == set(list2) and len(list1) == len(list2)
@@ -230,7 +228,6 @@ class PWDB():
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
-            print(time.time(), funcstr)
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
             try:
                 self.wrapper_socket.send_pyobj(ret)

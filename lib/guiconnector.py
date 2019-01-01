@@ -1,22 +1,12 @@
 from threading import Thread
 from .aux import PWDBSender
 from statistics import mean
-import inspect
 import zmq
 import os
 import time
 import re
 import shutil
-
-
-lpref = __name__.split("lib.")[-1] + " - "
-
-
-def whoami():
-    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
-    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
-    lpref = __name__.split("lib.")[-1] + " - "
-    return lpref + outer_func_name + " / #" + outer_func_linenr + ": "
+from .mplogging import whoami
 
 
 def remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger):
