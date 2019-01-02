@@ -5,8 +5,8 @@ import zmq
 import time
 import configparser
 from threading import Thread
-gi.require_version('Gtk', '3.0')
 from .mplogging import setup_logger, whoami
+gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib, Pango
 
 
@@ -150,7 +150,7 @@ class AppWindow(Gtk.ApplicationWindow):
         try:
             self.set_icon_from_file(GBXICON)
         except GLib.GError as e:
-            print("Cannot find icon file!" + GBXICON)
+            self.logger.error(whoami() + "cannot find icon file!" + GBXICON)
 
         self.lock = threading.Lock()
         self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.logger, delay=self.update_delay, host=self.host, port=self.port)
@@ -676,7 +676,7 @@ class AppWindow(Gtk.ApplicationWindow):
                     path = Gtk.TreePath(i)
                     iter = self.liststore.get_iter(path)
                 except Exception as e:
-                    print(str(e))
+                    self.logger.debug(whoami() + str(e))
                     continue
                 if self.appdata.mbitsec > 0 and self.dl_running:
                     overall_size = nzb[3]
@@ -740,7 +740,6 @@ class AppWindow(Gtk.ApplicationWindow):
             n_perc = min(int((self.appdata.gbdown / self.appdata.overall_size) * 100), 100)
         else:
             n_perc = 0
-        # print(">>>" + str(n_perc))
         n_dl = self.appdata.gbdown
         n_size = self.appdata.overall_size
 
@@ -1042,7 +1041,7 @@ class Application(Gtk.Application):
         try:
             about_dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(GBXICON, 64, 64))
         except GLib.GError as e:
-            print("Cannot find icon file!")
+            self.logger.debug(whoami() + "cannot find icon file!")
 
         about_dialog.set_license_type(Gtk.License.GPL_3_0)
 
