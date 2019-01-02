@@ -350,7 +350,11 @@ class PWDB():
 
     # ---- self.NZB --------
     def db_nzb_are_all_nzb_idle(self):
-        try:
+        no_busy_nzbs = self.NZB.select().where(self.NZB.status.between(1, 3)).count()
+        if no_busy_nzbs == 0:
+            return True
+        return False
+        '''try:
             busy_nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
                                                | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
             if busy_nzb.name:
@@ -358,7 +362,7 @@ class PWDB():
             else:
                 return True
         except Exception as e:
-            return True
+            return True'''
 
     def db_nzb_getnextnzb_for_download(self):
         try:
@@ -1155,8 +1159,9 @@ class PWDB():
         if self.db_timestamp < self.old_ts_makeallfilelist:
             return None
         try:
-            nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
-                                          | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
+            nzb = self.NZB.select().where(self.NZB.status.between(1, 3)).order_by(self.NZB.priority)[0]
+            #nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
+            #                              | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
 
         except Exception as e:
             return None
@@ -1252,6 +1257,7 @@ class PWDB():
             return nzbname
 
     set_db_timestamp = staticmethod(set_db_timestamp)
+
 
 def wrapper_main(cfg, dirs, mp_loggerqueue):
     setproctitle("gzbx." + os.path.basename(__file__))

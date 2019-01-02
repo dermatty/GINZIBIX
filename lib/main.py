@@ -755,10 +755,14 @@ class Downloader(Thread):
                 # if unrarer is running and verifystatus is negative, stop!
                 elif verifystatus == -2:
                     self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
-                    os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
-                    self.mpp["unrarer"].join()
+                    try:
+                        os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
+                        self.mpp["unrarer"].join()
+                    except Exception:
+                        pass
                     self.mpp["unrarer"] = None
                     self.sighandler.mpp = self.mpp
+                        
                     self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                     self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 

@@ -194,8 +194,10 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
                         pwdb.exc("store_sorted_nzbs", [], {})
                         pwdb.exc("create_allfile_list_via_name", [nzb0, incompletedir], {})
-            time.sleep(0.2)
+            time.sleep(0.25)
             isfirstrun = False
+        else:
+            time.sleep(0.25)
     os.chdir(cwd0)
     logger.debug(whoami() + "exited!")
 

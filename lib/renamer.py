@@ -80,7 +80,6 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
         else:
             continue
         not_renamed_par2list.append((pname, ptype, phash))
-    # print(not_renamed_par2list)
     if not_renamed_par2list:
         for pname, ptype, phash in not_renamed_par2list:
             pp = (pname, phash)
