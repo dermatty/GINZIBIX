@@ -1305,8 +1305,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
         time.sleep(0.1)
 
         try:
-            # warum ist das HIER??????
-            # pwdb.exc("store_sorted_nzbs", [], {})
 
             # closeall command
             if guiconnector.closeall:
@@ -1347,7 +1345,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 connection_health = 0
             guiconnector.set_health(article_health, connection_health)
 
-            # has first nzb in nzb list in gui changed?
+            # has first nzb changed during download? -> stop & start new NZB
             if guiconnector.has_first_nzb_changed() and dl:
                 # only reordered
                 logger.info(whoami() + "NZBs have been reordered")
@@ -1365,10 +1363,15 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         time.sleep(1)    # there must be a better solution
                     deleted_nzb_name0 = guiconnector.has_nzb_been_deleted(delete=True)
                     remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger)
+                pwdb.exc("store_sorted_nzbs", [], {})
                 nzbname = None
                 del dl
                 dl = None
                 sh.mpp = mpp
+            # has NZB order changed
+            elif guiconnector.has_order_changed():
+                pwdb.exc("store_sorted_nzbs", [], {})
+
 
             # if not downloading
             if not dl:
@@ -1431,6 +1434,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     del dl
                     dl = None
                     nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
                 # if postproc ok
                 elif stat0 == 4:
                     logger.info(whoami() + "postprocessor success for NZB " + nzbname)
@@ -1449,6 +1453,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     del dl
                     dl = None
                     nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
                 # if postproc failed
                 elif stat0 == -4:
                     logger.error(whoami() + "postprocessor failed for NZB " + nzbname)
@@ -1467,5 +1472,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     del dl
                     dl = None
                     nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
         except Exception as e:
             logger.error(whoami() + str(e))

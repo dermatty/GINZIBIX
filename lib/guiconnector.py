@@ -56,12 +56,14 @@ class GUI_Connector(Thread):
             self.server_config = None
             self.dl_running = True
             self.status = "idle"
+            self.order_has_changed = False
             self.first_has_changed = False
             self.deleted_nzb_name = None
             self.old_t = 0
             self.oldbytes0 = 0
             self.sorted_nzbs = None
             self.sorted_nzbshistory = None
+            self.first_idle_pass = True
             self.dlconfig = None
             self.netstatlist = []
             self.last_update_for_gui = 0
@@ -115,14 +117,23 @@ class GUI_Connector(Thread):
 
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
+        if self.pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
+            return ret0
+        #if self.pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
+        #    if not self.first_idle_pass:
+        #        return ret0
+        #    else:
+        #        self.first_idle_pass = False
+        #else:
+        #    self.first_idle_pass = True
         with self.lock:
-            full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
+            self.full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
             self.mean_netstat = self.get_netstat()
             try:
                 ret1 = (self.data, self.server_config, self.threads, self.dl_running, self.status,
                         self.mean_netstat, self.sorted_nzbs, self.sorted_nzbshistory, self.article_health, self.connection_health,
-                        self.dlconfig, full_data_for_gui)
+                        self.dlconfig, self.full_data_for_gui)
                 match_ret = [i for i, (x, y) in enumerate(zip(self.oldret0, ret1)) if x != y]
                 if match_ret:
                     ret0 = ret1
@@ -140,6 +151,11 @@ class GUI_Connector(Thread):
         res = self.deleted_nzb_name
         if delete:
             self.deleted_nzb_name = None
+        return res
+
+    def has_order_changed(self):
+        res = self.order_has_changed
+        self.order_has_changed = False
         return res
 
     def run(self):
@@ -190,11 +206,11 @@ class GUI_Connector(Thread):
                     self.logger.error(whoami() + str(e))
                 continue
             elif msg == "SET_DELETE":
+                self.order_has_changed = True
                 try:
                     self.socket.send_pyobj(("SET_DELETE_OK", None))
-                    # first_has_changed0, deleted_nzb_name0 = self.pwdb.set_nzbs_prios(datarec, delete=True)
-                    with self.lock:
-                        first_has_changed0, deleted_nzb_name0 = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": True})
+                    # with self.lock:
+                    first_has_changed0, deleted_nzb_name0 = self.pwdb.exc("set_nzbs_prios", [datarec], {"delete": True})
                     if deleted_nzb_name0 and not first_has_changed0:
                         with self.lock:
                             remove_nzb_files_and_db(deleted_nzb_name0, self.dirs, self.pwdb, self.logger)
@@ -205,6 +221,7 @@ class GUI_Connector(Thread):
                     self.deleted_nzb_name = deleted_nzb_name0
                 continue
             elif msg == "SET_NZB_ORDER":
+                self.order_has_changed = True
                 try:
                     self.socket.send_pyobj(("SET_NZBORDER_OK", None))
                     with self.lock:

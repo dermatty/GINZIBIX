@@ -3,6 +3,7 @@
 0. profile gpeewee -> this takes most ressources!!!!
 	db_nzb_get_verifystatus !!!!!!!
 	main 1308 -> store_sorted_nzbs ... what does  this do?
+		only call if nzb order has changed .. !?
 
 1. after delete: does not show 'NZBs deleted' msg -> only works with sleep in
 1367 main!!!!
