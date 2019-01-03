@@ -94,7 +94,6 @@ class AppData:
         self.lock = lock
         self.mbitsec = 0
         self.nzbs = []
-        self.nzbname = None
         self.overall_size = 0
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
@@ -597,6 +596,8 @@ class AppWindow(Gtk.ApplicationWindow):
     def update_logstore(self):
         # only show msgs for current nzb
         self.logliststore.clear()
+        if not self.appdata.nzbname:
+            return
         try:
             loglist = self.appdata.fulldata[self.appdata.nzbname]["msg"][:]
         except Exception as e:
@@ -866,10 +867,10 @@ class AppWindow(Gtk.ApplicationWindow):
         if fulldata and self.appdata.fulldata != fulldata:
             self.appdata.fulldata = fulldata
             try:
-                self.nzbname = fulldata["all#"][0]
-                self.update_logstore()
+                self.appdata.nzbname = fulldata["all#"][0]
             except Exception as e:
-                pass
+                self.appdata.nzbname = None
+            self.update_logstore()
 
         # health
         if dlconfig:
@@ -947,7 +948,7 @@ class AppWindow(Gtk.ApplicationWindow):
         if (sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist):
             pass
 
-        if data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
+        if data and None not in data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
             is_locked = False
             try:
@@ -1062,7 +1063,6 @@ class GUI_Poller(Thread):
         self.port = port
         self.lock = lock
         self.data = None
-        self.nzbname = None
         self.delay = float(delay)
         self.appdata = appdata
         self.update_mainwindow = update_mainwindow
@@ -1138,6 +1138,14 @@ class GUI_Poller(Thread):
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
+                            #try:
+                                #nzbname = full_data["all#"][0]
+                                #print(">>>> " + nzbname + " <<<<")
+                                #print(full_data[nzbname]["msg"])
+                                #print(full_data)
+                                #print("-" * 30)
+                            #except Exception:
+                            #    pass
                             time.sleep(self.delay)
                             continue
                         except Exception as e:

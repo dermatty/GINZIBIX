@@ -118,15 +118,15 @@ class GUI_Connector(Thread):
 
     def get_data(self):
         ret0 = (None, None, None, None, None, None, None, None, None, None, None, None)
-        #if self.pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
-        #    return ret0
-        if self.pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
-            if not self.first_idle_pass:
-                return ret0
+        # return also values if a message has been inserted
+        if not self.pwdb.exc("db_msg_get_last_update", [], {}) > self.last_update_for_gui:
+            if self.pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
+                if not self.first_idle_pass:
+                    return ret0
+                else:
+                    self.first_idle_pass = False
             else:
-                self.first_idle_pass = False
-        else:
-            self.first_idle_pass = True
+                self.first_idle_pass = True
         with self.lock:
             self.full_data_for_gui = self.pwdb.exc("get_all_data_for_gui", [], {})
             self.sorted_nzbs, self.sorted_nzbshistory = self.pwdb.exc("get_stored_sorted_nzbs", [], {})

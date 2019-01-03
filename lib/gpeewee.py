@@ -46,7 +46,7 @@ class PWDB():
         self.sorted_nzbshistory_for_gui = None
         self.cfg = cfg
         self.lock = threading.Lock()
-        self.last_update_for_gui = 0
+        self.last_update_for_gui = datetime.datetime.now()
         self.db_file_name = maindir + "ginzibix.db"
         if os.path.isfile(self.db_file_name):
             self.db_file_exists = True
@@ -250,7 +250,7 @@ class PWDB():
 
     def get_all_data_for_gui(self):
         nzb_data = {}
-        all_sorted_nzbs, _ = self.db_nzb_getall_sortedV3()
+        all_sorted_nzbs, _ = self.db_nzb_getall_sortedV2()
         nzb_data["all#"] = []
         for nzbdata in all_sorted_nzbs:
             n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
@@ -325,11 +325,14 @@ class PWDB():
             except Exception as e:
                 self.logger.warning(whoami() + str(e))
                 return None
-        self.last_update_for_gui = time.time()
+        self.last_update_for_gui = datetime.datetime.now()
         if new_msg:
             return True
         else:
             return False
+
+    def db_msg_get_last_update(self):
+        return self.last_update_for_gui
 
     def db_msg_get(self, nzbname0):
         msglist = []
@@ -350,10 +353,12 @@ class PWDB():
 
     # ---- self.NZB --------
     def db_nzb_are_all_nzb_idle(self):
-        no_busy_nzbs = self.NZB.select().where(self.NZB.status.between(1, 3)).count()
-        if no_busy_nzbs == 0:
+        try:
+            if self.NZB.select().where(self.NZB.status.between(1, 3)).count() == 0:
+                return True
+            return False
+        except Exception:
             return True
-        return False
         '''try:
             busy_nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
                                                | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
@@ -690,15 +695,19 @@ class PWDB():
         return size
 
     def db_allnonrarfiles_getstate(self, nzbname):
-        files00 = self.FILE.select()
-        files0 = [f0 for f0 in files00 if f0.nzb.name == nzbname]
-        statusok = True
-        for f0 in files0:
-            if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status <= 0:
-                self.logger.info("!!!! " + f0.orig_name + " / " + str(f0.status))
-                statusok = False
-                # break
-        return statusok
+        try:
+            files00 = self.FILE.select()
+            files0 = [f0 for f0 in files00 if f0.nzb.name == nzbname]
+            statusok = True
+            for f0 in files0:
+                if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status <= 0:
+                    self.logger.info(whoami() + f0.orig_name + " / " + str(f0.status))
+                    statusok = False
+                    # break
+            return statusok
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
 
     def db_get_all_ok_nonrarfiles(self, nzbname):
         # files0 = self.FILE.get(self.FILE.nzb.name == nzbname)
