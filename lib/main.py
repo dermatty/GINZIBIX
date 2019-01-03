@@ -78,9 +78,9 @@ class Downloader(Thread):
         self.contains_par_files = False
         self.results = None
         self.read_cfg()
-        self.stopped = False
+        self.event_stopped = threading.Event()
+        self.event_paused = threading.Event()
         self.stopped_counter = 0
-        self.paused = False
 
         if self.pw_file:
             try:
@@ -93,17 +93,15 @@ class Downloader(Thread):
                 self.pw_file = None
 
     def stop(self):
+        self.event_stopped.set()
         with self.lock:
-            self.stopped = True
             self.stopped_counter = 0
 
     def pause(self):
-        with self.lock:
-            self.paused = True
+        self.event_paused.set()
 
     def resume(self):
-        with self.lock:
-            self.paused = False
+        self.event_paused.clear()
 
     def read_cfg(self):
         # pw_file
@@ -512,16 +510,15 @@ class Downloader(Thread):
         while self.stopped_counter < stopped_max_counter:
 
             # if terminated: ensure that all tasks are processed
-            if self.stopped:
+            if self.event_stopped.wait(0.25):
                 self.stopped_counter += 1
-                self.paused = False
+                self.resume()
                 self.logger.info(whoami() + "termination countdown: " + str(self.stopped_counter) + " of " + str(stopped_max_counter))
-                time.sleep(0.1)
+                time.sleep(0.25)
 
             return_reason = None
 
-            time.sleep(0.25)
-            if self.paused:
+            if self.event_paused.isSet():
                 continue
 
             self.results = nzbname, ((bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,
@@ -573,20 +570,12 @@ class Downloader(Thread):
                 except (queue.Empty, EOFError):
                     break
 
-            # get mp_parverify_inqueue
-            # self.pipes["renamer"][0].send(("pause", None, None))
-
-            if not self.stopped and not loadpar2vols:
+            # if verifier tells us so, we load par2vol files
+            if not self.event_stopped.isSet() and not loadpar2vols:
                 if self.pipes["verifier"][0].poll():
                     loadpar2vols = self.pipes["verifier"][0].recv()
-                # while True:
-                #    try:
-                #        loadpar2vols = self.mp_parverify_inqueue.get_nowait()
-                #    except (queue.Empty, EOFError):
-                #        break
                 if loadpar2vols:
                     self.pwdb.exc("db_msg_insert", [nzbname, "rar(s) corrupt, loading par2vol files", "info"], {})
-                    # self.pwdb.db_nzb_update_loadpar2vols(nzbname, True)
                     self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
                     overall_size = overall_size_wparvol
                     self.logger.info(whoami() + "queuing par2vols")
@@ -620,7 +609,7 @@ class Downloader(Thread):
                     self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                     self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 
-            if not self.stopped and not self.mpp["unrarer"] and filetypecounter["rar"]["counter"] > oldrarcounter\
+            if not self.event_stopped.isSet() and not self.mpp["unrarer"] and filetypecounter["rar"]["counter"] > oldrarcounter\
                and not self.pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {}):
                 # testing if pw protected
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
@@ -667,7 +656,7 @@ class Downloader(Thread):
                     self.logger.debug(whoami() + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
 
             # if par2 available start par2verifier, else just copy rars unchecked!
-            if not self.stopped and not self.mpp["verifier"]:
+            if not self.event_stopped.isSet() and not self.mpp["verifier"]:
                 # todo: check if all rars are verified
                 # all_rars_are_verified, _ = self.pwdb.db_only_verified_rars(nzbname)
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
