@@ -4,6 +4,7 @@ import datetime
 import zmq
 import time
 import configparser
+import sys
 from threading import Thread
 from .mplogging import setup_logger, whoami
 gi.require_version('Gtk', '3.0')
@@ -849,6 +850,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.appdata.closeall = True
         while self.appdata.closeall:
             time.sleep(0.1)
+        self.guipoller.stop()
 
     def update_crit_health_levelbars(self):
         crit_art_health = self.appdata.crit_art_health
@@ -1068,6 +1070,11 @@ class GUI_Poller(Thread):
         self.update_mainwindow = update_mainwindow
         self.socket = self.context.socket(zmq.REQ)
         self.logger = logger
+        self.event_stopped = threading.Event()
+
+    def stop(self):
+        self.logger.debug(whoami() + "setting event_stopped")
+        self.event_stopped.set()
 
     def run(self):
         self.socket.setsockopt(zmq.LINGER, 0)
@@ -1076,7 +1083,7 @@ class GUI_Poller(Thread):
         # self.socket.RCVTIMEO = 1000
         dl_running = True
         order_changed = False
-        while True:
+        while not self.event_stopped.wait(self.delay):
             sortednzblist = []
             with self.lock:
                 dl_running_new = self.appdata.dl_running
@@ -1130,7 +1137,6 @@ class GUI_Poller(Thread):
                     self.socket.send_pyobj(("REQ", None))
                     datatype, datarec = self.socket.recv_pyobj()
                     if datatype == "NOOK":
-                        time.sleep(self.delay)
                         continue
                     elif datatype == "DL_DATA":
                         data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
@@ -1138,9 +1144,18 @@ class GUI_Poller(Thread):
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
-                            time.sleep(self.delay)
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
+
+        # close socket & exit gui_poller
+        self.logger.debug(whoami() + "closing socket")
+        try:
+            self.socket.close()
+            self.context.term()
+        except Exception as e:
+            self.logger.warning(whoami())
+        self.logger.info(whoami() + "exiting")
+        sys.exit()
