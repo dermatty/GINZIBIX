@@ -1054,7 +1054,7 @@ class Application(Gtk.Application):
         self.window.closeall(None)
 
 
-# connects to GUI_Connector in main.py and gets data for displaying
+# connects to guiconnector
 class GUI_Poller(Thread):
 
     def __init__(self, lock, appdata, update_mainwindow, logger, delay=0.5, host="127.0.0.1", port="36603"):
@@ -1150,7 +1150,7 @@ class GUI_Poller(Thread):
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
 
-        # close socket & exit gui_poller
+        # close socket & exit guipoller
         self.logger.debug(whoami() + "closing socket")
         try:
             self.socket.close()

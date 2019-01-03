@@ -1160,7 +1160,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     while not event_stopped.wait(0.25):
 
         # closeall command
-        if guiconnector.closeall:
+        if guiconnector.all_closed():
             logger.info(whoami() + "got closeall")
             event_stopped.set()
             continue

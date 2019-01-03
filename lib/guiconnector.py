@@ -7,7 +7,14 @@ import time
 import re
 import shutil
 import datetime
-from .mplogging import whoami
+import sys
+import inspect
+
+
+def whoami():
+    outer_func_name = str(inspect.getouterframes(inspect.currentframe())[1].function)
+    outer_func_linenr = str(inspect.currentframe().f_back.f_lineno)
+    return "guiconnector_thread / " + outer_func_name + " / #" + outer_func_linenr + ": "
 
 
 def remove_nzb_files_and_db(deleted_nzb_name0, dirs, pwdb, logger):
@@ -160,8 +167,15 @@ class GUI_Connector(Thread):
         self.order_has_changed = False
         return res
 
+    def all_closed(self):
+        res = self.closeall
+        with self.lock:
+            self.closeall = False
+        return res
+
     def run(self):
-        while True:
+        stopped = False
+        while not stopped:
             try:
                 msg, datarec = self.socket.recv_pyobj()
             except Exception as e:
@@ -189,6 +203,7 @@ class GUI_Connector(Thread):
                     self.socket.send_pyobj(("SET_CLOSE_OK", None))
                     with self.lock:
                         self.closeall = True
+                    stopped = True
                 except Exception as e:
                     self.logger.error(whoami() + str(e))
                 continue
@@ -238,3 +253,17 @@ class GUI_Connector(Thread):
                 except Exception as e:
                     self.logger.debug(whoami() + str(e) + ", received msg: " + str(msg))
                 continue
+
+        # close socket & exit guiconnector
+        self.logger.debug(whoami() + "closing socket")
+        try:
+            self.socket.close()
+            self.context.term()
+        except Exception as e:
+            self.logger.warning(whoami())
+        # wait for closeall received by main
+        self.logger.debug(whoami() + "waiting for main to accept closeall")
+        while self.closeall:
+            time.sleep(0.1)
+        self.logger.info(whoami() + "exiting")
+        sys.exit()
