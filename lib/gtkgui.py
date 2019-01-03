@@ -1008,7 +1008,6 @@ class Application(Gtk.Application):
     def do_activate(self):
         self.window = AppWindow(self, self.dirs, self.cfg_file, self.logger)
         self.window.show_all()
-        # self.window.box_levelbar.hide()
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -1050,6 +1049,7 @@ class Application(Gtk.Application):
 
     def on_quit(self, action, param):
         self.quit()
+        self.window.closeall(None)
 
 
 # connects to GUI_Connector in main.py and gets data for displaying
@@ -1138,14 +1138,6 @@ class GUI_Poller(Thread):
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
-                            #try:
-                                #nzbname = full_data["all#"][0]
-                                #print(">>>> " + nzbname + " <<<<")
-                                #print(full_data[nzbname]["msg"])
-                                #print(full_data)
-                                #print("-" * 30)
-                            #except Exception:
-                            #    pass
                             time.sleep(self.delay)
                             continue
                         except Exception as e:
