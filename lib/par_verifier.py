@@ -153,7 +153,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
 
     if TERMINATED:
         logger.info(whoami() + "terminated!")
-        return
+        sys.exit()
 
     logger.debug(whoami() + "all rars are verified")
     par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
@@ -304,4 +304,6 @@ def multipartrar_repair(directory, parvolname, pwdb, nzbname, logger):
         exitstatus = 1
     os.chdir(cwd0)
     return exitstatus
+
+
 
