@@ -1101,6 +1101,7 @@ class GUI_Poller(Thread):
                 self.guiqueue.task_done()
             except (queue.Empty, EOFError, ValueError):
                 queue_elem = None
+                break
             except Exception as e:
                 self.logger.error(whoami() + str(e))
                 queue_elem = None
