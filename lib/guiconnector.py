@@ -42,8 +42,8 @@ class GUI_Connector(Thread):
         self.daemon = True
         self.dirs = dirs
         self.pwdb = PWDBSender()
-        self.cfg = cfg
         try:
+            self.cfg = cfg
             self.port = self.cfg["OPTIONS"]["PORT"]
             assert(int(self.port) > 1024 and int(self.port) <= 65535)
         except Exception as e:

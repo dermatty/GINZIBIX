@@ -1306,20 +1306,21 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     logger.info(whoami() + "starting shutdown sequence")
     ct.pause_threads()
     logger.debug(whoami() + "closeall: connection threads paused")
-    try:
+    '''try:
         clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
         logger.debug(whoami() + "closeall: download cleared")
     except Exception as e:
-        logger.debug(whoami() + str(e))
+        logger.debug(whoami() + str(e))'''
     if dl:
         dl.stop()
         dl.join()
-        # just to make sure that downloader has not started new process in the meantime
-        clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
-        dl = None
-        logger.debug(whoami() + "closeall: downloader joined")
-    if mpp["post"]:
-        mpp["post"].join()
-        logger.debug(whoami() + "closeall: postprocessor joined")
+    logger.debug(whoami() + "closeall: downloader joined")
+    # just to make sure that downloader has not started new process in the meantime
+    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
+    dl = None
+    logger.debug(whoami() + "closeall: downloader joined")
+    #if mpp["post"]:
+    #    mpp["post"].join()
+    #    logger.debug(whoami() + "closeall: postprocessor joined")
     pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
     logger.info(whoami() + "exited!")
