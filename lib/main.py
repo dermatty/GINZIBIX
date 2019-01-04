@@ -605,7 +605,7 @@ class Downloader(Thread):
                         self.mpp["unrarer"].join()
                     except Exception:
                         pass
-                    self.mpp["unrarer"] = None                        
+                    self.mpp["unrarer"] = None
                     self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                     self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 
@@ -657,8 +657,6 @@ class Downloader(Thread):
 
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.event_stopped.isSet() and not self.mpp["verifier"]:
-                # todo: check if all rars are verified
-                # all_rars_are_verified, _ = self.pwdb.db_only_verified_rars(nzbname)
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
                 if not all_rars_are_verified:
                     pvmode = None
@@ -929,23 +927,18 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     # 1. join & clear all queues
     if dl:
         dl.clear_queues_and_pipes(onlyarticlequeue)
-        logger.debug(whoami() + "clearing articlequeue")
+        logger.info(whoami() + "articlequeue cleared!")
     # 2. stop article_decoder
-    if dl:
-        mpid = None
-        try:
-            if dl.mpp["decoder"]:
-                mpid = dl.mpp["decoder"].pid
-            if mpid:
-                logger.warning(whoami() + "terminating decoder")
-                try:
-                    os.kill(dl.mpp["decoder"].pid, signal.SIGTERM)
-                    dl.mpp["decoder"].join()
-                    dl.mpp["decoder"] = None
-                except Exception as e:
-                    logger.debug(whoami() + str(e))
-        except Exception as e:
-            logger.debug(whoami() + ": " + str(e))
+    try:
+        if mpp["decoder"]:
+            mpid = mpp["decoder"].pid
+            logger.debug(whoami() + "terminating decoder")
+            os.kill(mpp["decoder"].pid, signal.SIGTERM)
+            mpp["decoder"].join()
+            mpp["decoder"] = None
+            logger.info(whoami() + "decoder terminated!")
+    except Exception as e:
+        logger.debug(whoami() + str(e))
     # 4. clear mp_work_queue
     logger.debug(whoami() + "clearing mp_work_queue")
     while True:
@@ -953,6 +946,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             mp_work_queue.get_nowait()
         except (queue.Empty, EOFError):
             break
+    logger.info(whoami() + "mp_work_queue cleared!")
     # 5. save resultqueue
     if dl:
         try:
@@ -962,93 +956,67 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         except Exception as e:
             logger.warning(whoami() + str(e))
     # 6. stop unrarer
-    if dl:
-        logger.debug(whoami() + "stopping unrarer")
-        mpid = None
-        try:
-            if dl.mpp["unrarer"]:
-                mpid = dl.mpp["unrarer"].pid
-            if mpid:
-                # if self.mpp["unrarer"].pid:
-                logger.warning("terminating unrarer")
-                try:
-                    os.kill(mpid, signal.SIGTERM)
-                    dl.mpp["unrarer"].join()
-                    dl.mpp["unrarer"] = None
-                except Exception as e:
-                    logger.debug(whoami() + str(e))
-        except Exception as e:
-            logger.debug(whoami() + ": " + str(e))
-        logger.warning("unrarer terminated")
+    try:
+        if mpp["unrarer"]:
+            mpid = mpp["unrarer"].pid
+            logger.debug("terminating unrarer")
+            os.kill(mpid, signal.SIGTERM)
+            mpp["unrarer"].join()
+            mpp["unrarer"] = None
+            logger.info(whoami() + "unrarer terminated!")
+    except Exception as e:
+        logger.debug(whoami() + str(e))
     # 7. stop rar_verifier
-    if dl:
-        logger.debug(whoami() + "stopping par_verifier")
-        mpid = None
+    try:
+        if mpp["verifier"]:
+            mpid = mpp["verifier"].pid
+            logger.debug(whoami() + "terminating par_verifier")
+            os.kill(mpp["verifier"].pid, signal.SIGTERM)
+            mpp["verifier"].join()
+            mpp["verifier"] = None
+            logger.info(whoami() + "verifier terminated!")
+    except Exception as e:
+        logger.debug(whoami() + str(e))
+    # 8. stop renamer only if stopall otherwise just pause
+    if stopall:
         try:
-            if dl.mpp["verifier"]:
-                mpid = dl.mpp["verifier"].pid
-            if mpid:
-                logger.warning(whoami() + "terminating rar_verifier")
-                try:
-                    os.kill(dl.mpp["verifier"].pid, signal.SIGTERM)
-                    dl.mpp["verifier"].join()
-                    dl.mpp["verifier"] = None
-                except Exception as e:
-                    logger.debug(whoami() + str(e))
-        except Exception as e:
-            logger.debug(whoami() + ": " + str(e))
-    # 8. stop mpp_renamer
-    if stopall and dl:
-        try:
-            mpid = None
-            if dl.mpp["renamer"]:
-                mpid = dl.mpp["renamer"].pid
-            if mpid:
-                logger.debug(whoami() + "terminating renamer")
-                try:
-                    os.kill(dl.mpp["renamer"].pid, signal.SIGTERM)
-                    dl.mpp["renamer"].join()
-                except Exception as e:
-                    logger.debug(whoami() + str(e))
+            if mpp["renamer"]:
+                mpid = mpp["renamer"].pid
+                logger.debug(whoami() + "stopall: terminating renamer")
+                os.kill(mpp["renamer"].pid, signal.SIGTERM)
+                mpp["renamer"].join()
+                mpp["renamer"] = None
+                logger.info(whoami() + "renamer terminated!")
         except Exception as e:
             logger.debug(whoami() + str(e))
     # just pause
     elif pipes:
         try:
-            logger.debug(whoami() + "stopping renamer")
+            logger.debug(whoami() + "pausing renamer")
             pipes["renamer"][0].send(("pause", None, None))
         except Exception as e:
             logger.warning(whoami() + str(e))
     # 9. stop post-proc
-    logger.debug(whoami() + "stopping post_processor")
-    mpid = None
     try:
         if mpp["post"]:
             mpid = mpp["post"].pid
-        if mpid:
-            logger.warning(whoami() + "terminating postprocesspr")
-            try:
-                os.kill(mpid, signal.SIGTERM)
-                mpp["post"].join()
-                mpp["post"] = None
-            except Exception as e:
-                logger.debug(whoami() + str(e))
+            logger.debug(whoami() + "terminating postprocesspr")
+            os.kill(mpid, signal.SIGTERM)
+            mpp["post"].join()
+            mpp["post"] = None
+            logger.info(whoami() + "postprocessor terminated!")
     except Exception as e:
-        logger.debug(whoami() + ": " + str(e))
+        logger.debug(whoami() + str(e))
     # 10. stop nzbparser
-    if stopall and dl:
-        logger.debug(whoami() + "stopping nzb_parser")
+    if stopall:
         try:
-            mpid = None
-            if dl.mpp["nzbparser"]:
-                mpid = dl.mpp["nzbparser"].pid
-            if mpid:
+            if mpp["nzbparser"]:
+                mpid = mpp["nzbparser"].pid
                 logger.debug(whoami() + "terminating nzb_parser")
-                try:
-                    os.kill(dl.mpp["nzbparser"].pid, signal.SIGTERM)
-                    dl.mpp["nzbparser"].join()
-                except Exception as e:
-                    logger.debug(whoami() + str(e))
+                os.kill(mpp["nzbparser"].pid, signal.SIGTERM)
+                mpp["nzbparser"].join()
+                mpp["nzbparser"] = None
+                logger.info(whoami() + "postprocessor terminated!")
         except Exception as e:
             logger.debug(whoami() + str(e))
     # 11. threads + servers
@@ -1303,24 +1271,15 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 pwdb.exc("store_sorted_nzbs", [], {})
 
     # shutdown
-    logger.info(whoami() + "starting shutdown sequence")
+    logger.info(whoami() + "closeall: starting shutdown sequence")
     ct.pause_threads()
     logger.debug(whoami() + "closeall: connection threads paused")
-    '''try:
-        clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
-        logger.debug(whoami() + "closeall: download cleared")
-    except Exception as e:
-        logger.debug(whoami() + str(e))'''
     if dl:
         dl.stop()
         dl.join()
     logger.debug(whoami() + "closeall: downloader joined")
-    # just to make sure that downloader has not started new process in the meantime
     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
     dl = None
-    logger.debug(whoami() + "closeall: downloader joined")
-    #if mpp["post"]:
-    #    mpp["post"].join()
-    #    logger.debug(whoami() + "closeall: postprocessor joined")
+    logger.debug(whoami() + "closeall: all cleared")
     pwdb.exc("db_nzb_store_allfile_list", [nzbname, allfileslist, filetypecounter, overall_size, overall_size_wparvol, p2], {})
     logger.info(whoami() + "exited!")
