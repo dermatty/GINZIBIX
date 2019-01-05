@@ -1192,7 +1192,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     del dl
                     dl = None
             else:    # if current nzb didnt change just update, but do not restart
-                first_has_changed, deleted_nzb_names = pwdb.exc("reorder_nzb_list", [guiconnector.datarec], {"delete_and_resetprios": True})
+                first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [guiconnector.datarec], {"delete_and_resetprios": True})
                 remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
                 pwdb.exc("store_sorted_nzbs", [], {})
             # "release" guiconnector (& gtkgui)
