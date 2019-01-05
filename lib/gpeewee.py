@@ -449,14 +449,21 @@ class PWDB():
 
     @set_db_timestamp
     def db_nzb_delete(self, nzbname):
-        files = self.FILE.select().where(self.FILE.nzb.name == nzbname)
-        for f0 in files:
-            query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry.orig_name == f0.orig_name)
-            query_articles.execute()
-        query_files = self.FILE.delete().where(self.FILE.nzb.name == nzbname)
-        query_files.execute()
-        query_nzb = self.NZB.delete().where(self.NZB.name == nzbname)
-        query_nzb.execute()
+        try:
+            files = self.FILE.select().where(self.FILE.nzb.name == nzbname)
+            for f0 in files:
+                query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry.orig_name == f0.orig_name)
+                query_articles.execute()
+            query_files = self.FILE.delete().where(self.FILE.nzb.name == nzbname)
+            query_files.execute()
+            query_nzb = self.NZB.delete().where(self.NZB.name == nzbname)
+            query_nzb.execute()
+            query_msg = self.MSG.delete().where(self.MSG.nzbname == nzbname)
+            query_msg.execute()
+            return True
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
 
     def db_nzb_loadpar2vols(self, name):
         try:
@@ -933,42 +940,57 @@ class PWDB():
 
     # ---- set new prios acc. to nzb list ----
     @set_db_timestamp
-    def set_nzbs_prios(self, new_nzb_list, delete=False):
-        oldnzb_0 = self.NZB.select().order_by(self.NZB.priority)[0]
+    def reorder_nzb_list(self, new_nzb_list, delete_and_resetprios=False):
+        # assumption: new_nzb_list is a (possibly empty) subset of old_nzb_list
+        # otherwise this likely will produce nonsense
+        try:
+            oldfirstnzbname = self.NZB.select().order_by(self.NZB.priority)[0].name
+        except Exception:
+            oldfirstnzbname = None
+        old_nzb_list = [n.name for n in self.NZB.select().order_by(self.NZB.priority)]
 
-        if not new_nzb_list:
-            return True, oldnzb_0.name
+        # if nothing changed if old and new are empty return False
+        if (new_nzb_list == old_nzb_list) or (not new_nzb_list and not old_nzb_list):
+            return False, []
 
-        first_has_changed = True
-        if oldnzb_0.name == new_nzb_list[0]:
+        newfirstnzbname = new_nzb_list[0]
+
+        # has first nzb changed?
+        if oldfirstnzbname != newfirstnzbname:
+            first_has_changed = True
+        else:
             first_has_changed = False
 
-        old_nzb_list = []
-        for n in self.NZB.select().order_by(self.NZB.priority):
-            old_nzb_list.append(n.name)
+        # get list of deleted nzbs & delete nzbs from db which are in old_nzb_list but not in new one
+        deleted_nzbs = []
+        for oldnzbname in old_nzb_list:
+            if oldnzbname not in new_nzb_list:
+                deleted_nzbs.append(oldnzbname)
+                if delete_and_resetprios:
+                    self.db_nzb_delete(oldnzbname)
 
-        del_nzb_name = None
-        if delete:
-            del_nzb_name = None
-            del_nzb_index = -1
-            for i, onzb in enumerate(old_nzb_list):
-                if onzb not in new_nzb_list:
-                    del_nzb_name = onzb
-                    del_nzb_index = i
-                    break
-            if del_nzb_name:
-                del old_nzb_list[del_nzb_index]
+        # if we just want to get information, return info
+        if not delete_and_resetprios:
+            return first_has_changed, deleted_nzbs
 
-        mi_overflow = 1
-        for i, onzb in enumerate(old_nzb_list):
+        # now reset prios according to new_nzb_list
+        prio = 1
+        for newnzb in new_nzb_list:
+            if newnzb not in old_nzb_list:
+                continue
+            else:
+                old_nzb_list.remove(newnzb)     # check: old_nzb_list must be empty finally
             try:
-                matchidx = [j for j, name in enumerate(new_nzb_list) if name == onzb][0]
+                query = self.NZB.update(priority=prio, date_updated=datetime.datetime.now()).where(self.NZB.name == newnzb)
+                query.execute()
+                prio += 1
             except Exception as e:
-                matchidx = len(new_nzb_list) + mi_overflow
-                mi_overflow += 1
-            query = self.NZB.update(priority=matchidx+1, date_updated=datetime.datetime.now()).where(self.NZB.name == onzb)
-            query.execute()
-        return first_has_changed, del_nzb_name
+                self.logger.error(whoami() + str(e) + ": cannot set new NZB prio!")
+
+        if old_nzb_list:
+            self.logger.error(whoami() + "new NZB list is not a subset of old one!")
+
+        return first_has_changed, deleted_nzbs
 
     # ---- send sorted nzbs to guiconnector ---
     def get_stored_sorted_nzbs(self):

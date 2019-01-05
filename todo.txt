@@ -1,9 +1,9 @@
 # parallel download
 
-1. deletes bringen alles durcheinander + Errors: extensive testing necessary
+1. test gui lock
 2. pause / resume / closeall during postprocessing
----- start here ----
 3. auto-turn off server: if all download fail on server - turn it off for this
 nzb!
-5. test what happens if no internet at all!!
+4. test what happens if no internet at all!! mit verbindungsabbrüchen gzbx
+verwirren!
 ...

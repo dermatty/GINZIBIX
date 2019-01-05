@@ -100,11 +100,8 @@ class AppData:
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
         self.dl_running = True
-        self.nzb_deleted = False
-        self.order_changed = False
         self.max_mbitsec = 100
         self.autocal_mmbit = False
-        self.block_update_dldata = False
         # crit_art_health is taken from server
         self.crit_art_health = 0.95
         self.crit_conn_health = 0.5
@@ -494,9 +491,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.update_liststore()
             self.update_liststore_dldata()
             self.toggle_buttons()
-            self.appdata.nzb_deleted = True
-            self.guiqueue.put(("nzb_deleted", None))
-            self.appdata.block_update_dldata = True
+            self.guiqueue.put(("order_changed", None))
 
     def on_buttonup_clicked(self, button):
         do_update_dldata = False
@@ -516,9 +511,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.update_liststore()
             if do_update_dldata:
                 self.update_liststore_dldata()
-            self.appdata.order_changed = True
             self.guiqueue.put(("order_changed", None))
-            self.appdata.block_update_dldata = True
 
     def on_buttondown_clicked(self, button):
         do_update_dldata = False
@@ -538,9 +531,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.update_liststore()
             if do_update_dldata:
                 self.update_liststore_dldata()
-            self.appdata.order_changed = True
             self.guiqueue.put(("order_changed", None))
-            self.appdata.block_update_dldata = True
 
     def on_buttonfullup_clicked(self, button):
         with self.lock:
@@ -557,8 +548,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_first_appdata_nzb()
             self.update_liststore()
             self.update_liststore_dldata()
-            self.appdata.order_changed = True
-            self.appdata.block_update_dldata = True
+            self.guiqueue.put(("order_changed", None))
 
     def on_buttonfulldown_clicked(self, button):
         with self.lock:
@@ -575,9 +565,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_first_appdata_nzb()
             self.update_liststore()
             self.update_liststore_dldata()
-            self.appdata.order_changed = True
             self.guiqueue.put(("order_changed", None))
-            self.appdata.block_update_dldata = True
 
     def on_inverted_toggled(self, widget, path):
         with self.lock:
@@ -804,6 +792,10 @@ class AppWindow(Gtk.ApplicationWindow):
             else:
                 b.set_sensitive(False)
 
+    def set_buttons_insensitive(self):
+        for b in self.gridbuttonlist:
+            b.set_sensitive(False)
+
     def on_selection_changed(self, selection):
         self.show_nzb_stack(self.stacknzb_box)
         pass
@@ -853,6 +845,7 @@ class AppWindow(Gtk.ApplicationWindow):
     def closeall(self, a):
         # Gtk.main_quit()
         if self.appdata.autocal_mmbit:
+            self.logger.debug(whoami() + "updating configfile")
             self.cfg["GTKGUI"]["MAX_MBITSEC"] = str(int(self.appdata.max_mbitsec))
             with open(self.cfg_file, 'w') as configfile:
                 self.cfg.write(configfile)
@@ -955,20 +948,10 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_liststore()
                 # self.update_liststore_dldata()
             self.appdata.sortednzblist = sortednzblist0[:]
-            self.appdata.block_update_dldata = False
-
-        if (sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist):
-            pass
 
         if data and None not in data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
-            is_locked = False
-            try:
-                if nzbname != sortednzblist0[0][0] or self.appdata.block_update_dldata:
-                    is_locked = True
-            except Exception:
-                pass
-            if not is_locked:
+            if nzbname == sortednzblist0[0][0]:
                 mbitseccurr = 0
                 # calc gbdown, mbitsec_avg
                 gbdown0 = 0
@@ -1110,9 +1093,7 @@ class GUI_Poller(Thread):
                 if elem_type == "order_changed":
                     msg0 = "SET_NZB_ORDER"
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
-                elif elem_type == "nzb_deleted":
-                    msg0 = "SET_DELETE"
-                    msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
+                    self.set_buttons_insensitive()
                 elif elem_type == "closeall":
                     msg0 = "SET_CLOSEALL"
                     msg0_val = None
@@ -1140,11 +1121,8 @@ class GUI_Poller(Thread):
                         with self.lock:
                             self.appdata.closeall = False
                     elif elem_type == "order_changed":
-                        with self.lock:
-                            self.appdata.order_changed = False
-                    elif elem_type == "nzb_deleted":
-                        with self.lock:
-                            self.appdata.nzb_deleted = False
+                        self.toggle_buttons()
+                        self.logger.debug(whoami() + "order changed ok!")
                 else:
                     self.logger.error(whoami() + "cannot interpret element in guiqueue")
             else:
@@ -1159,6 +1137,7 @@ class GUI_Poller(Thread):
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
                                           netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
+                            
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))
