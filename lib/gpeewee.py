@@ -87,16 +87,6 @@ class PWDB():
             message = CharField()
             level = CharField()
 
-        class STATUS(BaseModel):
-            name = CharField(unique=True)
-            downloader = CharField(default="N/A")
-            renamer = CharField(default="N/A")
-            unrarer = CharField(default="N/A")
-            nzbparser = CharField(default="N/A")
-            verifier = CharField(default="N/A")
-            decoder = CharField(default="N/A")
-            postprocessor = CharField(default="N/A")
-
         class NZB(TimestampedModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
@@ -172,6 +162,9 @@ class PWDB():
             size = IntegerField(default=0)
             number = IntegerField(default=0)
             timestamp = TimeField()
+            # 0 ... idle
+            # 1 ... downloaded
+            # -2 .. failed
             status = IntegerField(default=0)
 
         def max_sql_variables():
@@ -202,8 +195,7 @@ class PWDB():
         self.NZB = NZB
         self.FILE = FILE
         self.ARTICLE = ARTICLE
-        self.STATUS = STATUS
-        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.STATUS]
+        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG]
 
         if self.db_file_exists:
             try:
@@ -265,45 +257,6 @@ class PWDB():
                 nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
             nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
         return nzb_data
-
-    # ---- self.STATUS ----
-    def db_status_init(self):
-        try:
-            self.STATUS.create(name="monitor", downloader="not started", renamer="not started",
-                               unrarer="not started", nzbparser="not started", verifier="not started",
-                               decoder="not started", postprocessor="not started")
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            return False
-        return True
-
-    def db_status_set(self, procname, status):
-        query = None
-        try:
-            if procname == "downloader":
-                query = self.STATUS.update(downloader=status).where(self.STATUS.name == "monitor")
-            elif procname == "renamer":
-                query = self.STATUS.update(renamer=status).where(self.STATUS.name == "monitor")
-            elif procname == "unrarer":
-                query = self.STATUS.update(unrarer=status).where(self.STATUS.name == "monitor")
-            elif procname == "nzbparser":
-                query = self.STATUS.update(nzbparser=status).where(self.STATUS.name == "monitor")
-            elif procname == "verifier":
-                query = self.STATUS.update(verifier=status).where(self.STATUS.name == "monitor")
-            elif procname == "decoder":
-                query = self.STATUS.update(dexoswe=status).where(self.STATUS.name == "monitor")
-            elif procname == "postprocessor":
-                query = self.STATUS.update(postprocessor=status).where(self.STATUS.name == "monitor")
-            else:
-                return False
-            if query:
-                query.execute()
-                return True
-            else:
-                return False
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            return False
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):
@@ -481,13 +434,6 @@ class PWDB():
     def db_nzb_update_loadpar2vols(self, name0, lp2):
         query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
         query.execute()
-        '''with self.db.atomic():
-            try:
-                nzb0 = self.NZB.get((self.NZB.name == name))
-                nzb0.loadpar2vols = lp2
-                nzb0.save()
-            except Exception as e:
-                self.logger.warning(str(e))'''
 
     def db_nzb_getsize(self, name):
         nzb0 = self.NZB.get(self.NZB.name == name)
@@ -499,9 +445,10 @@ class PWDB():
     def db_nzb_get_downloadedsize(self, name):
         try:
             nzb0 = self.NZB.get(self.NZB.name == name)
-            size = 0
-            for a in nzb0.files:
-                size += self.db_file_get_downloadedsize(a.orig_name)
+            if nzb0.status not in [0, 1]:
+                size = sum([self.db_file_get_downloadedsize(nzbfile) for nzbfile in nzb0.files])
+            else:
+                size = 0
             return size
         except Exception as e:
             return 0
@@ -688,11 +635,9 @@ class PWDB():
             size += a.size
         return size
 
-    def db_file_get_downloadedsize(self, name):
-        file0 = self.FILE.get(self.FILE.orig_name == name)
-        if file0.status != 2:
-            return 0
-        return sum([a.size for a in file0.articles])
+    def db_file_get_downloadedsize(self, file0):
+        fsize = sum([a.size for a in file0.articles if a.status != 0])
+        return fsize
 
     def db_file_getsize_renamed(self, name):
         file0 = self.FILE.get(self.FILE.renamed_name == name)
@@ -905,6 +850,17 @@ class PWDB():
         return articles
 
     @set_db_timestamp
+    def db_article_set_status(self, artnamelist, newstatus):
+        query = self.ARTICLE.update(status=newstatus).where(self.ARTICLE.name.in_(artnamelist))
+        query.execute()
+
+    def db_article_get_status(self, artname):
+        article0 = self.ARTICLE.get(self.ARTICLE.name == artname)
+        if not article0:
+            return 0
+        return article0.status
+
+    @set_db_timestamp
     def db_article_deleteall(self):
         query = self.ARTICLE.delete()
         query.execute()
@@ -962,7 +918,6 @@ class PWDB():
         # has first nzb changed?
         if oldfirstnzbname != newfirstnzbname:
             first_has_changed = True
-            print("gpeewee.py firsthaschanged, old/new: ", oldfirstnzbname, newfirstnzbname)
         else:
             first_has_changed = False
 
@@ -971,7 +926,6 @@ class PWDB():
         for oldnzbname in old_nzb_list:
             if oldnzbname not in new_nzb_list:
                 deleted_nzbs.append(oldnzbname)
-                print("gpeewee.py nzb deleted", old_nzb_list, new_nzb_list)
                 if delete_and_resetprios:
                     self.db_nzb_delete(oldnzbname)
 
@@ -1060,7 +1014,6 @@ class PWDB():
                 articles = [articles0 for articles0 in f0.articles]
                 f0size = sum([a.size for a in articles])
                 ad_size += f0size
-        # print("Size already_downloaded_size: ", ad_size / gbdivisor)
         resqlist = self.db_nzb_get_resqlist(nzbname)
         if not resqlist:
             return ad_size / gbdivisor
@@ -1069,7 +1022,6 @@ class PWDB():
             if inf0 != "failed":
                 art_size = sum(len(i) for i in inf0)
                 ad_size += art_size
-        # print("Size already_downloaded_size + resqlist: ", ad_size / gbdivisor)
         return ad_size / gbdivisor
 
     def create_allfile_list_via_name(self, nzbname, dir0):
@@ -1316,31 +1268,3 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
         logger.warning(whoami() + str(e))
 
     logger.debug(whoami() + "exited!")
-
-
-'''if __name__ == "__main__":
-
-    import logging
-    import logging.handlers
-
-    logger = logging.getLogger("ginzibix")
-    logger.setLevel(logging.DEBUG)
-    fh = logging.FileHandler("/home/stephan/.ginzibix/logs/ginzibix.log", mode="w")
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
-
-    pwdb = PWDB(logger)
-
-    nzbname = 'Ubuntu16.04.nzb'
-    aok = pwdb.db_get_all_ok_nonrarfiles(nzbname)
-    stat = pwdb.db_nzb_getstatus(nzbname)
-
-    print(aok)
-    print("orig_name, renamed_name, ftype, nzb.name, timestamp, status, parverify_state, f.age, f.nr_articles, f.status")
-    fall = pwdb.db_file_getall()
-    for f in fall:
-        print(f)
-
-    pp2 = pwdb.get_renamed_p2("/home/stephan/.ginzibix/incomplete/Ubuntu16.04/_renamed0/", nzbname)
-    print(pp2)'''

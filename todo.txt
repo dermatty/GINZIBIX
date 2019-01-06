@@ -1,8 +1,10 @@
 # parallel download
 
-1. test gui lock
-1a. if first article finally fails, dl is cancelled -> only if 10% of articels
-are downloaded!
+0. backstop falls par_verifier nicht gestartet ist: on 2nd NZB verifier does
+not start!!!!!
+0a. verifier should log to db_msg_insert
+1. nach viel umgruppieren -> par_verifier waiting to complete
+1b. save only part of infolist, where art is downloaded but not whole file
 2. pause / resume / closeall during postprocessing
 3. auto-turn off server: if all download fail on server - turn it off for this
 nzb!

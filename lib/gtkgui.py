@@ -532,6 +532,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.update_liststore()
             if do_update_dldata:
                 self.update_liststore_dldata()
+            self.set_buttons_insensitive()
             self.guiqueue.put(("order_changed", None))
 
     def on_buttonfullup_clicked(self, button):
@@ -1100,7 +1101,6 @@ class GUI_Poller(Thread):
                 if elem_type == "order_changed":
                     msg0 = "SET_NZB_ORDER"
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
-                    print("gtkgui: SET NZB ORDER")
                 elif elem_type == "closeall":
                     msg0 = "SET_CLOSEALL"
                     msg0_val = None
@@ -1129,7 +1129,6 @@ class GUI_Poller(Thread):
                             self.appdata.closeall = False
                     elif elem_type == "order_changed":
                         GLib.idle_add(self.toggle_buttons)
-                        print("gtkgui: order changed ok")
                         self.logger.debug(whoami() + "order changed ok!")
                 else:
                     self.logger.error(whoami() + "cannot interpret element in guiqueue")

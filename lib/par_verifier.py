@@ -72,15 +72,16 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                 pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
                 doloadpar2vols = True
             else:
-                logger.info(whoami() + f_short + "md5 hash match ok, copying to verified_rar dir")
+                logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
+                pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
                 shutil.copy(renamed_dir + filename, verifiedrar_dir)
-                # pwdb.db_file_update_parstatus(f_origname, 1)
                 pwdb.exc("db_file_update_parstatus", [f_origname, 1], {})
     if pvmode == "copy":
         logger.info(whoami() + "copying all rarfiles")
         for filename, f_origname in unverified_rarfiles:
             f_short = filename.split("/")[-1]
             logger.debug(whoami() + "copying " + f_short + " to verified_rar dir")
+            pwdb.exc("db_msg_insert", [nzbname, "copying " + f_short + " to verified_rar dir ", "info"], {})
             shutil.copy(renamed_dir + filename, verifiedrar_dir)
             # pwdb.db_file_update_parstatus(f_origname, 1)
             pwdb.exc("db_file_update_parstatus", [f_origname, 1], {})
@@ -132,7 +133,8 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                                 doloadpar2vols = True
                                 child_pipe.send(doloadpar2vols)
                         else:
-                            logger.info(whoami() + f_short + "md5 hash match ok, copying to verified_rar dir")
+                            logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
+                            pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
                             shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
                             pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
             if pvmode == "copy":
@@ -144,6 +146,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                     f0_origname, f0_renamedname, f0_ftype = f0
                     if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
                         logger.debug(whoami() + "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir")
+                        pwdb.exc("db_msg_insert", [nzbname, "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir", "info"], {})
                         shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
                         pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
         allrarsverified, rvlist = pwdb.exc("db_only_verified_rars", [nzbname], {})
