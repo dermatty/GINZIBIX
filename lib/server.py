@@ -11,7 +11,7 @@ class Servers():
         self.cfg = cfg
         self.logger = logger
         # server_config = [(server_name, server_url, user, password, port, usessl, level, connections, retention)]
-        self.server_config = self.get_server_config(self.cfg)
+        self.server_config = self.get_server_config()
         # all_connections = [(server_name, conn#, retention, nntp_obj)]
         self.all_connections = self.get_all_connections()
         # level_servers0 = {"0": ["EWEKA", "BULK"], "1": ["TWEAK"], "2": ["NEWS", "BALD"]}
@@ -108,29 +108,31 @@ class Servers():
                 except Exception as e:
                     self.logger.warning(whoami() + "Cannot quit server " + sn + ": " + str(e))
 
-    def get_server_config(self, cfg):
-        # get servers from config
+    def get_server_config(self):
+        # get servers from config, max SERVER10
         snr = 0
+        idx = 0
         sconf = []
-        while True:
+        while idx < 10:
+            idx += 1
             try:
                 snr += 1
                 snrstr = "SERVER" + str(snr)
-                useserver = True if cfg[snrstr]["USE_SERVER"].lower() == "yes" else False
-                server_name = cfg[snrstr]["SERVER_NAME"]
-                server_url = cfg[snrstr]["SERVER_URL"]
-                user = cfg[snrstr]["USER"]
-                password = cfg[snrstr]["PASSWORD"]
-                port = int(cfg[snrstr]["PORT"])
-                usessl = True if cfg[snrstr]["SSL"].lower() == "yes" else False
-                level = int(cfg[snrstr]["LEVEL"])
-                connections = int(cfg[snrstr]["CONNECTIONS"])
+                useserver = True if self.cfg[snrstr]["USE_SERVER"].lower() == "yes" else False
+                server_name = self.cfg[snrstr]["SERVER_NAME"]
+                server_url = self.cfg[snrstr]["SERVER_URL"]
+                user = self.cfg[snrstr]["USER"]
+                password = self.cfg[snrstr]["PASSWORD"]
+                port = int(self.cfg[snrstr]["PORT"])
+                usessl = True if self.cfg[snrstr]["SSL"].lower() == "yes" else False
+                level = int(self.cfg[snrstr]["LEVEL"])
+                connections = int(self.cfg[snrstr]["CONNECTIONS"])
             except Exception as e:
                 snr -= 1
-                break
+                continue
             if useserver:
                 try:
-                    retention = int(cfg[snrstr]["RETENTION"])
+                    retention = int(self.cfg[snrstr]["RETENTION"])
                     sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
                 except Exception as e:
                     sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))

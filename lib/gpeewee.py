@@ -944,20 +944,25 @@ class PWDB():
         # assumption: new_nzb_list is a (possibly empty) subset of old_nzb_list
         # otherwise this likely will produce nonsense
         try:
-            oldfirstnzbname = self.NZB.select().order_by(self.NZB.priority)[0].name
+            old_nzb_list = [n.name for n in self.NZB.select().where(self.NZB.status.between(1, 3)).order_by(self.NZB.priority)]
+            oldfirstnzbname = old_nzb_list[0]
         except Exception:
             oldfirstnzbname = None
-        old_nzb_list = [n.name for n in self.NZB.select().order_by(self.NZB.priority)]
 
         # if nothing changed if old and new are empty return False
         if (new_nzb_list == old_nzb_list) or (not new_nzb_list and not old_nzb_list):
             return False, []
 
-        newfirstnzbname = new_nzb_list[0]
+        try:
+            newfirstnzbname = new_nzb_list[0]
+        except Exception:
+            newfirstnzbname = None
+            pass
 
         # has first nzb changed?
         if oldfirstnzbname != newfirstnzbname:
             first_has_changed = True
+            print("gpeewee.py firsthaschanged, old/new: ", oldfirstnzbname, newfirstnzbname)
         else:
             first_has_changed = False
 
@@ -966,6 +971,7 @@ class PWDB():
         for oldnzbname in old_nzb_list:
             if oldnzbname not in new_nzb_list:
                 deleted_nzbs.append(oldnzbname)
+                print("gpeewee.py nzb deleted", old_nzb_list, new_nzb_list)
                 if delete_and_resetprios:
                     self.db_nzb_delete(oldnzbname)
 

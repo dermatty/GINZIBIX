@@ -1,6 +1,8 @@
 # parallel download
 
 1. test gui lock
+1a. if first article finally fails, dl is cancelled -> only if 10% of articels
+are downloaded!
 2. pause / resume / closeall during postprocessing
 3. auto-turn off server: if all download fail on server - turn it off for this
 nzb!

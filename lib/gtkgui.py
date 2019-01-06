@@ -153,8 +153,8 @@ class AppWindow(Gtk.ApplicationWindow):
         self.guiqueue = queue.Queue()
 
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.guiqueue, self.logger, delay=self.update_delay, host=self.host,
-                                    port=self.port)
+        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.toggle_buttons, self.guiqueue, self.logger, delay=self.update_delay,
+                                    host=self.host, port=self.port)
         self.guipoller.start()
 
         # init main window
@@ -490,7 +490,7 @@ class AppWindow(Gtk.ApplicationWindow):
                     self.update_first_appdata_nzb()
             self.update_liststore()
             self.update_liststore_dldata()
-            self.toggle_buttons()
+            self.set_buttons_insensitive()
             self.guiqueue.put(("order_changed", None))
 
     def on_buttonup_clicked(self, button):
@@ -511,6 +511,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.update_liststore()
             if do_update_dldata:
                 self.update_liststore_dldata()
+            self.set_buttons_insensitive()
             self.guiqueue.put(("order_changed", None))
 
     def on_buttondown_clicked(self, button):
@@ -548,6 +549,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_first_appdata_nzb()
             self.update_liststore()
             self.update_liststore_dldata()
+            self.set_buttons_insensitive()
             self.guiqueue.put(("order_changed", None))
 
     def on_buttonfulldown_clicked(self, button):
@@ -565,6 +567,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 self.update_first_appdata_nzb()
             self.update_liststore()
             self.update_liststore_dldata()
+            self.set_buttons_insensitive()
             self.guiqueue.put(("order_changed", None))
 
     def on_inverted_toggled(self, widget, path):
@@ -791,6 +794,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 b.set_sensitive(True)
             else:
                 b.set_sensitive(False)
+        return False    # because of Glib.idle_add
 
     def set_buttons_insensitive(self):
         for b in self.gridbuttonlist:
@@ -951,7 +955,11 @@ class AppWindow(Gtk.ApplicationWindow):
 
         if data and None not in data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
-            if nzbname == sortednzblist0[0][0]:
+            try:
+                firstsortednzb = sortednzblist0[0][0]
+            except Exception:
+                firstsortednzb = None
+            if nzbname is not None and nzbname == firstsortednzb:
                 mbitseccurr = 0
                 # calc gbdown, mbitsec_avg
                 gbdown0 = 0
@@ -1050,7 +1058,7 @@ class Application(Gtk.Application):
 # connects to guiconnector
 class GUI_Poller(Thread):
 
-    def __init__(self, lock, appdata, update_mainwindow, guiqueue, logger, delay=0.5, host="127.0.0.1", port="36603"):
+    def __init__(self, lock, appdata, update_mainwindow, toggle_buttons, guiqueue, logger, delay=0.5, host="127.0.0.1", port="36603"):
         Thread.__init__(self)
         self.daemon = True
         self.context = zmq.Context()
@@ -1065,6 +1073,7 @@ class GUI_Poller(Thread):
         self.logger = logger
         self.event_stopped = threading.Event()
         self.guiqueue = guiqueue
+        self.toggle_buttons = toggle_buttons
 
     def stop(self):
         self.logger.debug(whoami() + "setting event_stopped")
@@ -1077,8 +1086,6 @@ class GUI_Poller(Thread):
         dl_running = True
 
         while not self.event_stopped.wait(self.delay):
-            sortednzblist = []
-
             try:
                 queue_elem = self.guiqueue.get_nowait()
                 self.guiqueue.task_done()
@@ -1093,7 +1100,7 @@ class GUI_Poller(Thread):
                 if elem_type == "order_changed":
                     msg0 = "SET_NZB_ORDER"
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
-                    self.set_buttons_insensitive()
+                    print("gtkgui: SET NZB ORDER")
                 elif elem_type == "closeall":
                     msg0 = "SET_CLOSEALL"
                     msg0_val = None
@@ -1121,7 +1128,8 @@ class GUI_Poller(Thread):
                         with self.lock:
                             self.appdata.closeall = False
                     elif elem_type == "order_changed":
-                        self.toggle_buttons()
+                        GLib.idle_add(self.toggle_buttons)
+                        print("gtkgui: order changed ok")
                         self.logger.debug(whoami() + "order changed ok!")
                 else:
                     self.logger.error(whoami() + "cannot interpret element in guiqueue")

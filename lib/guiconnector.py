@@ -23,6 +23,7 @@ class GUI_Connector(Thread):
         self.daemon = True
         self.dirs = dirs
         self.pwdb = PWDBSender()
+        self.event_continue = event_continue
         try:
             self.cfg = cfg
             self.port = self.cfg["OPTIONS"]["PORT"]
@@ -197,7 +198,9 @@ class GUI_Connector(Thread):
                     self.order_has_changed = True
                     self.datarec = datarec
                     # wait for main.py to process
+                    print("guic: set_NZB_ORDER, waiting for main.py ...")
                     self.event_continue.wait()
+                    print("guic: main.py done!")
                     self.event_continue.clear()
                     # release gtkgui from block
                     self.socket.send_pyobj(("SET_DELETE_REORDER_OK", None))
