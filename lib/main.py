@@ -20,7 +20,7 @@ from .nzb_parser import ParseNZB
 from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected
 from .connections import ConnectionThreads
-from .aux import PWDBSender
+from .aux import PWDBSender, mpp_is_alive
 from .guiconnector import GUI_Connector
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
@@ -546,6 +546,21 @@ class Downloader(Thread):
                 continue
 
             print(time.time(), "#2")
+
+            # check if process has died somehow and restart in case
+            if self.mpp["unrarer"] and not mpp_is_alive(self.mpp, "unrarer"):
+                self.logger.debug(whoami() + "restarting unrarer process ...")
+                self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                          nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
+                self.mpp_unrarer.start()
+                self.mpp["unrarer"] = self.mpp_unrarer
+            if self.mpp["decoder"] and not mpp_is_alive(self.mpp, "decoder"):
+                self.logger.debug(whoami() + "restarting decoder process ...")
+                self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, ))
+                self.mpp_decoder.start()
+                self.mpp["decoder"] = self.mpp_decoder
+            # verifier is checked anyway below
+
             # get renamer_result_queue (renamer.py)
             while not self.event_stopped.isSet():
                 try:
@@ -603,13 +618,13 @@ class Downloader(Thread):
                     article_count += article_count0
 
             # check if unrarer is dead due to wrong rar on start
-            if self.mpp["unrarer"] and self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) == -2:
+            if mpp_is_alive(self.mpp, "unrarer") and self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) == -2:
                 self.mpp["unrarer"].join()
                 self.mpp["unrarer"] = None
                 self.logger.debug(whoami() + "unrarer joined")
 
             print(time.time(), "#4")
-            if self.mpp["verifier"]:
+            if mpp_is_alive(self.mpp, "verifier"):
                 verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
                 if verifystatus == 2:
                     self.mpp["verifier"].join()
@@ -627,7 +642,7 @@ class Downloader(Thread):
                     self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                     self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 
-            if not self.event_stopped.isSet() and not self.mpp["unrarer"] and self.filetypecounter["rar"]["counter"] > oldrarcounter\
+            if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "unrarer") and self.filetypecounter["rar"]["counter"] > oldrarcounter\
                and not self.pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {}):
                 # testing if pw protected
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
@@ -676,7 +691,7 @@ class Downloader(Thread):
 
             print(time.time(), "#5")
             # if par2 available start par2verifier, else just copy rars unchecked!
-            if not self.event_stopped.isSet() and not self.mpp["verifier"]:
+            if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "verifier"):
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
                 if not all_rars_are_verified:
                     pvmode = None
@@ -975,7 +990,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         logger.info(whoami() + "articlequeue cleared!")
     # 2. stop article_decoder
     try:
-        if mpp["decoder"]:
+        if mpp_is_alive(mpp, "decoder"):
             mpid = mpp["decoder"].pid
             logger.debug(whoami() + "terminating decoder")
             os.kill(mpp["decoder"].pid, signal.SIGTERM)
@@ -1002,7 +1017,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     #        logger.warning(whoami() + str(e))
     # 6. stop unrarer
     try:
-        if mpp["unrarer"]:
+        if mpp_is_alive(mpp, "unrarer"):
             mpid = mpp["unrarer"].pid
             logger.debug("terminating unrarer")
             os.kill(mpid, signal.SIGTERM)
@@ -1013,7 +1028,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         logger.debug(whoami() + str(e))
     # 7. stop rar_verifier
     try:
-        if mpp["verifier"]:
+        if mpp_is_alive(mpp, "verifier"):
             mpid = mpp["verifier"].pid
             logger.debug(whoami() + "terminating par_verifier")
             os.kill(mpp["verifier"].pid, signal.SIGTERM)
@@ -1025,7 +1040,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     # 8. stop renamer only if stopall otherwise just pause
     if stopall:
         try:
-            if mpp["renamer"]:
+            if mpp_is_alive(mpp, "renamer"):
                 mpid = mpp["renamer"].pid
                 logger.debug(whoami() + "stopall: terminating renamer")
                 os.kill(mpp["renamer"].pid, signal.SIGTERM)
@@ -1043,7 +1058,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             logger.warning(whoami() + str(e))
     # 9. stop post-proc
     try:
-        if mpp["post"]:
+        if mpp_is_alive(mpp, "post"):
             mpid = mpp["post"].pid
             logger.debug(whoami() + "terminating postprocesspr")
             os.kill(mpid, signal.SIGTERM)
@@ -1055,7 +1070,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     # 10. stop nzbparser
     if stopall:
         try:
-            if mpp["nzbparser"]:
+            if mpp_is_alive(mpp, "nzbparser"):
                 mpid = mpp["nzbparser"].pid
                 logger.debug(whoami() + "terminating nzb_parser")
                 os.kill(mpp["nzbparser"].pid, signal.SIGTERM)
@@ -1281,7 +1296,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         dl.resume()
                     postproc_resume()
             # if download ok -> postprocess
-            if stat0 == 3 and not mpp["post"]:
+            if stat0 == 3 and not mpp_is_alive(mpp, "post"):
                 guiconnector.set_health(0, 0)
                 logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
                 mpp_post = mp.Process(target=postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
@@ -1308,7 +1323,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
                 dl.stop()
                 dl.join()
-                if mpp["post"]:
+                if mpp_is_alive(mpp, "post"):
                     mpp["post"].join()
                     mpp["post"] = None
                 article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
@@ -1325,7 +1340,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, logger, stopall=False)
                 dl.stop()
                 dl.join()
-                if mpp["post"]:
+                if mpp_is_alive(mpp, "post"):
                     mpp["post"].join()
                 article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "failed", logger)
                 pwdb.exc("db_msg_insert", [nzbname, "downloaded and/or postprocessing failed!", "error"], {})

@@ -160,13 +160,12 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     logger.debug(whoami() + "clearing queues & pipes done!")
 
     # join decoder
-    if mpp["decoder"]:
-        if mpp_is_alive(mpp, "decoder"):
-            try:
-                while mp_work_queue.qsize() > 0:
-                    time.sleep(0.5)
-            except Exception as e:
-                logger.debug(whoami() + str(e))
+    if mpp_is_alive(mpp, "decoder"):
+        try:
+            while mp_work_queue.qsize() > 0:
+                time.sleep(0.5)
+        except Exception as e:
+            logger.debug(whoami() + str(e))
 
     # queues & pipes cleared
     event_queues_cleared.set()
@@ -176,7 +175,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         sys.exit()
 
     # join verifier
-    if abs(post_status) < 2 and mpp["verifier"]:
+    if abs(post_status) < 2 and mpp_is_alive(mpp, "verifier"):
         logger.info(whoami() + "Waiting for par_verifier to complete")
         try:
             # kill par_verifier in deadlock

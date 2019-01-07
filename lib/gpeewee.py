@@ -630,14 +630,10 @@ class PWDB():
 
     def db_file_getsize(self, name):
         file0 = self.FILE.get(self.FILE.orig_name == name)
-        size = 0
-        for a in file0.articles:
-            size += a.size
-        return size
+        return sum([a.size for a in file0.articles])
 
     def db_file_get_downloadedsize(self, file0):
-        fsize = sum([a.size for a in file0.articles if a.status != 0])
-        return fsize
+        return sum([a.size for a in file0.articles if a.status != 0])
 
     def db_file_getsize_renamed(self, name):
         file0 = self.FILE.get(self.FILE.renamed_name == name)

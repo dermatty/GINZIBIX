@@ -3,6 +3,29 @@ import time
 from os.path import expanduser
 
 
+def mpp_is_alive(mpp, procname):
+    try:
+        mpp0 = mpp[procname]
+    except Exception:
+        return False
+    try:
+        if mpp0.is_alive() and mpp0.pid and not mpp0.exitcode:
+            return True
+        else:
+            return False
+    except Exception:
+        pass
+    # if mpp is not a child, use proc/stat
+    try:
+        with open("/proc/" + str(mpp0.pid) + "/stat") as p:
+            ptype = p.readline().split(" ")[2]
+        if ptype == "Z":
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def make_dirs():
     userhome = expanduser("~")
     maindir = userhome + "/.ginzibix/"
