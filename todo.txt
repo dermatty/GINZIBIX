@@ -1,8 +1,7 @@
 # parallel download
 
-0. backstop falls par_verifier nicht gestartet ist: on 2nd NZB verifier does
-not start!!!!!
-0a. verifier should log to db_msg_insert
+
+0. test for password again
 1. nach viel umgruppieren -> par_verifier waiting to complete
 1b. save only part of infolist, where art is downloaded but not whole file
 2. pause / resume / closeall during postprocessing

@@ -173,6 +173,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                             if TERMINATED:
                                 break
                             data = []
+                            fsize = 0
                             for i, it in enumerate(items):
                                 if TERMINATED:
                                     break
@@ -184,9 +185,11 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                                     newfile = pwdb.exc("db_file_insert", [key, newnzb, nr0, age, ftype], {})
                                 else:
                                     fn, no, size = it
+                                    fsize += size
                                     data.append((fn, newfile, size, no, time.time()))
+                            pwdb.exc("db_file_update_size", [key, fsize], {})
                             pwdb.exc("db_article_insert_many", [data], {})
-                            # if there are nzbs in the download queue, pause after insert 
+                            # if there are nzbs in the download queue, pause after insert
                             if not pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
                                 time.sleep(0.3)
                         logger.info(whoami() + "Added NZB: " + infostr + " to database / queue")

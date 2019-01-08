@@ -132,8 +132,6 @@ class PWDB():
             is_pw = BooleanField(default=False)
             is_pw_checked = BooleanField(default=False)
             password = CharField(default="N/A")
-            bytes_in_resultqueue = IntegerField(default=0)
-            resqlist_dill = DillField(default="N/A")
             allfilelist_dill = DillField(default="N/A")
             filetypecounter_dill = DillField(default="N/A")
             allfilesizes_dill = DillField(default="N/A")
@@ -155,6 +153,7 @@ class PWDB():
             #   -1 .. download error
             # db_file_update_status(filename, 1)
             status = IntegerField(default=0)
+            size = IntegerField(default=0)
 
         class ARTICLE(BaseModel):
             name = CharField()
@@ -330,24 +329,6 @@ class PWDB():
             return None
         return nzb.name
 
-    def db_nzb_store_resqlist(self, nzbname, resqlist):
-        try:
-            query = self.NZB.update(resqlist_dill=resqlist, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-
-    def db_nzb_get_resqlist(self, nzbname):
-        try:
-            nzb0 = self.NZB.get(self.NZB.name == nzbname)
-            resqlist = nzb0.resqlist_dill
-            if resqlist == "N/A":
-                return None
-            return resqlist
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            return False
-
     @set_db_timestamp
     def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2):
         if not nzbname:
@@ -426,11 +407,6 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return False
 
-    @set_db_timestamp
-    def db_nzb_set_bytes_in_resultqueue(self, nzbname, resqueue_size):
-        query = self.NZB.update(bytes_in_resultqueue=resqueue_size, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
-
     def db_nzb_update_loadpar2vols(self, name0, lp2):
         query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
         query.execute()
@@ -474,20 +450,22 @@ class PWDB():
 
     def db_nzb_getall_sortedV2(self):
         query = self.NZB.select().order_by(+self.NZB.priority)
-        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue + self.db_nzb_get_downloadedsize(n.name))
+        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
                    for n in query if n.status in [1, 2, 3]]
         query = self.NZB.select().order_by(-self.NZB.date_updated)
-        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue
-                            + self.db_nzb_get_downloadedsize(n.priority)) for n in query if n.status in [4, -1, -2, -3, -4]]
+        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name),
+                            self.db_nzb_get_downloadedsize(n.priority))
+                           for n in query if n.status in [4, -1, -2, -3, -4]]
         return nzblist, nzblist_history
 
     def db_nzb_getall_sortedV3(self):
         query = self.NZB.select().order_by(+self.NZB.priority)
-        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue + self.db_nzb_get_downloadedsize(n.name))
+        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
                    for n in query]
         query = self.NZB.select().order_by(-self.NZB.date_updated)
-        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name), n.bytes_in_resultqueue
-                            + self.db_nzb_get_downloadedsize(n.priority)) for n in query if n.status in [4, -1, -2, -3, -4]]
+        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name),
+                            + self.db_nzb_get_downloadedsize(n.priority))
+                           for n in query if n.status in [4, -1, -2, -3, -4]]
         return nzblist, nzblist_history
 
     def db_nzb_getall_sorted(self):
@@ -496,8 +474,7 @@ class PWDB():
         for n in query:
             # only return nzbs with valid status
             if n.status in [1, 2, 3]:
-                resqueue_size = n.bytes_in_resultqueue
-                nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), resqueue_size + self.db_nzb_get_downloadedsize(n.name)))
+                nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name)))
         if nzbs:
             return sorted(nzbs, key=lambda nzb: nzb[1])
         else:
@@ -729,7 +706,6 @@ class PWDB():
                 par2 = par2list[0]
             else:
                 raise ValueError("multiple par2 files appeared or no par2files: " + str(par2list))
-            # par2 = self.FILE.get(self.FILE.ftype == "par2", self.FILE.renamed_name != "N/A", self.FILE.nzb.name == nzbname)
             return par2.renamed_name
         except Exception as e:
             self.logger.warning(whoami() + str(e))
@@ -746,6 +722,11 @@ class PWDB():
     @set_db_timestamp
     def db_file_update_parstatus(self, filename, newparstatus):
         query = self.FILE.update(parverify_state=newparstatus).where(self.FILE.orig_name == filename)
+        query.execute()
+
+    @set_db_timestamp
+    def db_file_update_size(self, filename, fsize):
+        query = self.FILE.update(size=fsize).where(self.FILE.orig_name == filename)
         query.execute()
 
     @set_db_timestamp
@@ -1010,14 +991,6 @@ class PWDB():
                 articles = [articles0 for articles0 in f0.articles]
                 f0size = sum([a.size for a in articles])
                 ad_size += f0size
-        resqlist = self.db_nzb_get_resqlist(nzbname)
-        if not resqlist:
-            return ad_size / gbdivisor
-        for _, _, _, _, _, art_name, _, inf0, _ in resqlist:
-            art_size = 0
-            if inf0 != "failed":
-                art_size = sum(len(i) for i in inf0)
-                ad_size += art_size
         return ad_size / gbdivisor
 
     def create_allfile_list_via_name(self, nzbname, dir0):
@@ -1030,10 +1003,7 @@ class PWDB():
 
     def create_allfile_list(self, nzb, dir0):
         nzbname = nzb.name
-        resqlist = None
         gbdivisor = (1024 * 1024 * 1024)
-        if nzb.status == 2:
-            resqlist = self.db_nzb_get_resqlist(nzbname)
         res = self.db_nzb_get_allfile_list(nzbname)
         if res:
             allfilelist, filetypecounter, overall_size, overall_size_wparvol, _, p2 = res
@@ -1057,7 +1027,6 @@ class PWDB():
             overall_size_wparvol = 0
             already_downloaded_size = 0
             p2 = None
-            resqlist_size = 0
             for f0 in files:
                 articles = [articles0 for articles0 in f0.articles]
                 f0size = sum([a.size for a in articles])
@@ -1112,17 +1081,6 @@ class PWDB():
                                     break
                     if allok:
                         allfilelist[idx].append((a.number, a.name, a.size))
-                        if resqlist:
-                            art_found = False
-                            for fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, add_bytes in resqlist:
-                                if a.name == art_name_r:
-                                    art_found = True
-                                    break
-                            if art_found:
-                                if inf0_r != "failed":
-                                    asize0 = sum(len(i) for i in inf0_r)
-                                    resqlist_size += asize0
-                                    already_downloaded_size += asize0
                 idx += 1
             if allfilelist:
                 self.db_nzb_update_status(nzbname, 1)
