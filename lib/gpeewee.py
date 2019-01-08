@@ -148,7 +148,7 @@ class PWDB():
             timestamp = TimeField()
             # file status:
             #   0 ... idle
-            #   1 ... queued
+            #   1 ... downloading
             #   2 ... download success
             #   -1 .. download error
             # db_file_update_status(filename, 1)
@@ -241,7 +241,7 @@ class PWDB():
 
     def get_all_data_for_gui(self):
         nzb_data = {}
-        all_sorted_nzbs, _ = self.db_nzb_getall_sortedV2()
+        all_sorted_nzbs, _ = self.db_nzb_getall_sorted()
         nzb_data["all#"] = []
         for nzbdata in all_sorted_nzbs:
             n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
@@ -412,11 +412,11 @@ class PWDB():
         query.execute()
 
     def db_nzb_getsize(self, name):
-        nzb0 = self.NZB.get(self.NZB.name == name)
-        size = 0
-        for a in nzb0.files:
-            size += self.db_file_getsize(a.orig_name)
-        return size
+        try:
+            nzb0 = self.NZB.get(self.NZB.name == name)
+            return sum([self.db_file_getsize(a.orig_name) for a in nzb0.files])
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
 
     def db_nzb_get_downloadedsize(self, name):
         try:
@@ -448,37 +448,19 @@ class PWDB():
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
 
-    def db_nzb_getall_sortedV2(self):
-        query = self.NZB.select().order_by(+self.NZB.priority)
-        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
-                   for n in query if n.status in [1, 2, 3]]
-        query = self.NZB.select().order_by(-self.NZB.date_updated)
-        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name),
-                            self.db_nzb_get_downloadedsize(n.priority))
-                           for n in query if n.status in [4, -1, -2, -3, -4]]
-        return nzblist, nzblist_history
-
-    def db_nzb_getall_sortedV3(self):
-        query = self.NZB.select().order_by(+self.NZB.priority)
-        nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
-                   for n in query]
-        query = self.NZB.select().order_by(-self.NZB.date_updated)
-        nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name),
-                            + self.db_nzb_get_downloadedsize(n.priority))
-                           for n in query if n.status in [4, -1, -2, -3, -4]]
-        return nzblist, nzblist_history
-
     def db_nzb_getall_sorted(self):
-        query = self.NZB.select()
-        nzbs = []
-        for n in query:
-            # only return nzbs with valid status
-            if n.status in [1, 2, 3]:
-                nzbs.append((n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name)))
-        if nzbs:
-            return sorted(nzbs, key=lambda nzb: nzb[1])
-        else:
-            return []
+        try:
+            query = self.NZB.select().order_by(+self.NZB.priority)
+            nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
+                       for n in query if n.status in [1, 2, 3]]
+            query = self.NZB.select().order_by(-self.NZB.date_updated)
+            nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name),
+                                self.db_nzb_get_downloadedsize(n.priority))
+                               for n in query if n.status in [4, -1, -2, -3, -4]]
+            return nzblist, nzblist_history
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return [], []
 
     def db_nzb_set_password(self, nzbname, pw):
         query = self.NZB.update(password=pw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
@@ -606,18 +588,24 @@ class PWDB():
             return None
 
     def db_file_getsize(self, name):
-        file0 = self.FILE.get(self.FILE.orig_name == name)
-        return sum([a.size for a in file0.articles])
+        try:
+            file0 = self.FILE.get(self.FILE.orig_name == name)
+            return file0.size
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return 0
 
     def db_file_get_downloadedsize(self, file0):
-        return sum([a.size for a in file0.articles if a.status != 0])
+        if file0.status == 1:
+            return sum([a.size for a in file0.articles if a.status != 0])
+        elif file0.status in [2, -1]:
+            return file0.size
+        else:
+            return 0
 
     def db_file_getsize_renamed(self, name):
         file0 = self.FILE.get(self.FILE.renamed_name == name)
-        size = 0
-        for a in file0.articles:
-            size += a.size
-        return size
+        return file0.size
 
     def db_allnonrarfiles_getstate(self, nzbname):
         try:
@@ -934,7 +922,7 @@ class PWDB():
         return self.sorted_nzbs_for_gui, self.sorted_nzbshistory_for_gui
 
     def store_sorted_nzbs(self):
-        sortednzbs, sortednzbs_history = self.db_nzb_getall_sortedV2()
+        sortednzbs, sortednzbs_history = self.db_nzb_getall_sorted()
         if sortednzbs == []:
             sortednzbs = [-1]
         if sortednzbs_history == []:
@@ -978,20 +966,14 @@ class PWDB():
             self.logger.error(whoami() + str(e) + ": error in renaming nzb")
 
     def calc_already_downloaded_size(self, nzbname):
-        ad_size = 0
         gbdivisor = (1024 * 1024 * 1024)
         try:
             nzb = self.NZB.get(self.NZB.name == nzbname)
-            files = [files0 for files0 in nzb.files]
+            files = [file0 for file0 in nzb.files]
         except Exception as e:
             self.logger.debug(whoami() + str(e))
             return 0
-        for f0 in files:
-            if f0.status in [2, -1]:
-                articles = [articles0 for articles0 in f0.articles]
-                f0size = sum([a.size for a in articles])
-                ad_size += f0size
-        return ad_size / gbdivisor
+        return sum([self.db_file_get_downloadedsize(f) for f in files]) / gbdivisor
 
     def create_allfile_list_via_name(self, nzbname, dir0):
         try:

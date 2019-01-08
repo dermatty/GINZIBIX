@@ -917,7 +917,7 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
     return None
 
 
-def write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger):
+'''def write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger):
     if not nzbname:
         return 0
     logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to file")
@@ -979,7 +979,7 @@ def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
     if resqlist:
         pwdb.exc("db_nzb_store_resqlist", [nzbname, resqlist], {})
     logger.debug(whoami() + "reading resultqueue and writing to db, done!")
-    return bytes_in_resultqueue
+    return bytes_in_resultqueue'''
 
 
 def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False, onlyarticlequeue=True):

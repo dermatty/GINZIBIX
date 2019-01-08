@@ -1,9 +1,8 @@
 # parallel download
 
-
+0a. move connection threads to process - mp worker pools
 0. test for password again
 1. nach viel umgruppieren -> par_verifier waiting to complete
-1b. save only part of infolist, where art is downloaded but not whole file
 2. pause / resume / closeall during postprocessing
 3. auto-turn off server: if all download fail on server - turn it off for this
 nzb!
