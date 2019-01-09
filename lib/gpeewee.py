@@ -816,8 +816,20 @@ class PWDB():
 
     @set_db_timestamp
     def db_article_set_status(self, artnamelist, newstatus):
-        query = self.ARTICLE.update(status=newstatus).where(self.ARTICLE.name.in_(artnamelist))
-        query.execute()
+        chunksize = self.SQLITE_MAX_VARIABLE_NUMBER
+        llen = len(artnamelist)
+        i = 0
+        while i < llen:
+            artnamelist0 = artnamelist[i: min(i + chunksize, llen)]
+            try:
+                query = self.ARTICLE.update(status=newstatus).where(self.ARTICLE.name.in_(artnamelist0))
+                query.execute()
+            except OperationalError as e:
+                chunksize = int(chunksize * 0.9)
+                continue
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
+            i += chunksize
 
     def db_article_get_status(self, artname):
         article0 = self.ARTICLE.get(self.ARTICLE.name == artname)

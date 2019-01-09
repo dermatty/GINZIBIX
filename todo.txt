@@ -1,6 +1,6 @@
 # parallel download
 
-0a. move connection threads to process - mp worker pools
+-1a. move connection threads to process - mp worker pools
 0. test for password again
 1. nach viel umgruppieren -> par_verifier waiting to complete
 2. pause / resume / closeall during postprocessing

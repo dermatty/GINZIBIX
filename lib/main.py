@@ -19,7 +19,7 @@ from .partial_unrar import partial_unrar
 from .nzb_parser import ParseNZB
 from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected
-from .connections import ConnectionThreads
+from .connections import ConnectionThreads, connector
 from .aux import PWDBSender, mpp_is_alive
 from .guiconnector import GUI_Connector
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
@@ -517,7 +517,7 @@ class Downloader(Thread):
 
         while self.stopped_counter < stopped_max_counter:
 
-            print(time.time(), "#1")
+            # print(time.time(), "#1")
 
             # if terminated: ensure that all tasks are processed
             if self.event_stopped.wait(0.25):
@@ -544,7 +544,7 @@ class Downloader(Thread):
                 self.stopped_counter = stopped_max_counter       # stop immediately
                 continue
 
-            print(time.time(), "#2")
+            # print(time.time(), "#2")
 
             # check if process has died somehow and restart in case
             if self.mpp["unrarer"] and not mpp_is_alive(self.mpp, "unrarer"):
@@ -588,7 +588,7 @@ class Downloader(Thread):
                         self.p2 = Par2File(full_filename)
                         self.logger.info(whoami() + "found first par2 file")
                     if inject_set0 == ["par2"] and (filetype == "par2" or self.filetypecounter["par2"]["max"] == 0):
-                        print(time.time(), filename, filetype, self.p2)
+                        # print(time.time(), filename, filetype, self.p2)
                         self.logger.debug(whoami() + "injecting rars etc.")
                         inject_set0 = ["etc", "sfv", "nfo", "rar"]
                         files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, self.allfileslist, files, infolist, bytescount0,
@@ -600,7 +600,7 @@ class Downloader(Thread):
                 except Exception:
                     break
 
-            print(time.time(), "#3")
+            # print(time.time(), "#3")
             # if verifier tells us so, we load par2vol files
             if not self.event_stopped.isSet() and not loadpar2vols:
                 if self.pipes["verifier"][0].poll():
@@ -622,7 +622,7 @@ class Downloader(Thread):
                 self.mpp["unrarer"] = None
                 self.logger.debug(whoami() + "unrarer joined")
 
-            print(time.time(), "#4")
+            # print(time.time(), "#4")
             if mpp_is_alive(self.mpp, "verifier"):
                 verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
                 if verifystatus == 2:
@@ -688,7 +688,7 @@ class Downloader(Thread):
                 else:
                     self.logger.debug(whoami() + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
 
-            print(time.time(), "#5")
+            # print(time.time(), "#5")
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "verifier"):
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
@@ -707,10 +707,10 @@ class Downloader(Thread):
                         self.mpp["verifier"] = self.mpp_verifier
                         self.logger.info(whoami() + "verifier started!")
 
-            print(time.time(), "#6")
+            # print(time.time(), "#6")
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
-            print(time.time(), "#6a")
+            # print(time.time(), "#6a")
             article_failed += failed
             if article_count != 0:
                 article_health = 1 - article_failed / article_count
@@ -760,7 +760,7 @@ class Downloader(Thread):
                     loadpar2vols = True
                     self.pwdb.exc("db_msg_insert", [nzbname, "rar(s) corrupt, loading par2vol files", "info"], {})
 
-            print(time.time(), "#7")
+            # print(time.time(), "#7")
             # check if all files are downloaded
             getnextnzb = True
             for filetype, item in self.filetypecounter.items():
@@ -782,7 +782,7 @@ class Downloader(Thread):
                 self.stop()
                 self.stopped_counter = stopped_max_counter
                 continue
-            print("-" * 60)
+            # print("-" * 60)
 
         # store infolist in file
         if infolist and files:
@@ -917,71 +917,6 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
     return None
 
 
-'''def write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger):
-    if not nzbname:
-        return 0
-    logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to file")
-    resqlist = []
-    bytes_in_resultqueue = 0
-    while True:
-        try:
-            res = resultqueue.get_nowait()
-            # (fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False)
-            _, _, _, _, _, art_name, _, inf0, _ = res
-            art_size = 0
-            if inf0 != "failed":
-                art_size = sum(len(i) for i in inf0)
-            bytes_in_resultqueue += art_size
-            resultqueue.task_done()
-            resqlist.append(res)
-        except (queue.Empty, EOFError):
-            break
-        except Exception as e:
-            logger.info(whoami() + ": " + str(e))
-            resqlist = None
-            break
-    nzbdir = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
-    fn = dirs["incomplete"] + nzbdir + "rq_" + nzbname + ".gzbx"
-    if resqlist:
-        try:
-            with open(fn, "wb") as fp:
-                pickle.dump(resqlist, fp)
-        except Exception as e:
-            logger.warning(whoami() + str(e) + ": cannot write " + fn)
-    else:
-        try:
-            os.remove(fn)
-        except Exception as e:
-            logger.warning(whoami() + str(e) + ": cannot remove resqueue.gzbx")
-    logger.debug(whoami() + "reading resultqueue and writing to file, done!")
-    return bytes_in_resultqueue
-
-
-def write_resultqueue_to_db(resultqueue, maindir, pwdb, nzbname, logger):
-    logger.debug(whoami() + "reading " + nzbname + "resultqueue and writing to db")
-    resqlist = []
-    bytes_in_resultqueue = 0
-    while True:
-        try:
-            res = resultqueue.get_nowait()
-            # (fn_r, age_r, ft_r, nr_art_r, art_nr_r, art_name_r, download_server_r, inf0_r, False)
-            _, _, _, _, _, art_name, _, inf0, _ = res
-            art_size = 0
-            if inf0 != "failed":
-                art_size = sum(len(i) for i in inf0)
-            bytes_in_resultqueue += art_size
-            resultqueue.task_done()
-            resqlist.append(res)
-        except (queue.Empty, EOFError):
-            break
-        except Exception as e:
-            logger.info(whoami() + ": " + str(e))
-    if resqlist:
-        pwdb.exc("db_nzb_store_resqlist", [nzbname, resqlist], {})
-    logger.debug(whoami() + "reading resultqueue and writing to db, done!")
-    return bytes_in_resultqueue'''
-
-
 def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False, onlyarticlequeue=True):
     # 1. join & clear all queues
     if dl:
@@ -1006,15 +941,6 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         except (queue.Empty, EOFError):
             break
     logger.info(whoami() + "mp_work_queue cleared!")
-    # 5. save resultqueue
-    #if dl:
-    #    try:
-    #        logger.debug(whoami() + "writing resultqueue")
-    #        bytes_in_resultqueue = write_resultqueue_to_file(resultqueue, dirs, pwdb, nzbname, logger)
-    #        pwdb.exc("db_nzb_set_bytes_in_resultqueue", [nzbname, 0], {})
-    #    except Exception as e:
-    #        logger.warning(whoami() + str(e))
-    # 6. stop unrarer
     try:
         if mpp_is_alive(mpp, "unrarer"):
             mpid = mpp["unrarer"].pid
@@ -1145,6 +1071,20 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     mp_events["verifier"] = mp.Event()
     mp_events["post"] = mp.Event()
 
+    # events & namespaces for connector
+    mp_events["connector"] = {}
+    mp_events["connector"]["terminated"] = mp.Event()
+    mp_events["connector"]["start"] = mp.Event()
+    mp_events["connector"]["stop"] = mp.Event()
+    mp_events["connector"]["pause"] = mp.Event()
+    mp_events["connector"]["resume"] = mp.Event()
+    mp_events["connector"]["reset_ts"] = mp.Event()
+    mp_events["connector"]["reset_tsbdl"] = mp.Event()
+    mp_con_ns = mp.Manager().Namespace()
+    mp_con_ns.threads = False
+    mp_con_ns.connection_health = 0
+    mp_con_ns.bytesdownloaded = 0
+
     # threading events
     event_stopped = threading.Event()
     guic_event_continue = threading.Event()
@@ -1171,16 +1111,25 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     signal.signal(signal.SIGTERM, sh.sighandler)
 
     # start nzb parser mpp
-    logger.debug(whoami() + "starting nzbparser process ...")
+    logger.info(whoami() + "starting nzbparser process ...")
     mpp_nzbparser = mp.Process(target=ParseNZB, args=(cfg, dirs, mp_loggerqueue, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
     # start renamer
-    logger.debug(whoami() + "starting renamer process ...")
+    logger.info(whoami() + "starting renamer process ...")
     mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, mp_loggerqueue, ))
     mpp_renamer.start()
     mpp["renamer"] = mpp_renamer
+
+    # start connector
+    # todo: articlequeue & resultqueue as mp.queues
+    #       pass serverconfig somehow to connector also during runtime
+    #       adapt guiconnector & gtkgui to accept ns.bytesdownloaded/gb etc.
+    #logger.info(whoami() + "starting connector process ...")
+    #mpp_connector = mp.Process(target=connector, args=(articlequeue, resultqueue, mp_events["connector"],
+    #                                                   mp_con_ns, servers, mp_loggerqueue, ))
+    #mpp_connector.start()
 
     try:
         lock = threading.Lock()
@@ -1235,11 +1184,8 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 logger.info(whoami() + "first NZB has changed")
                 if dl:
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
-                    print("#1")
                     dl.stop()
-                    print("#1a")
                     dl.join()
-                    print("#2")
                 first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [guiconnector.datarec], {"delete_and_resetprios": True})
                 remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
                 nzbname = None
