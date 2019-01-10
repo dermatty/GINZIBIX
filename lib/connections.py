@@ -365,7 +365,7 @@ def connector(cfg, articlequeue, resultqueue, serverqueue, events, ns, servers, 
 
         # irgendwie so ...
         # servers = serverqueue.get_nowait()
-        
+
         if events["start"].isSet():
             events["start"].clear()
             logger.debug(whoami() + "got event_start")
