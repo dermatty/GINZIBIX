@@ -21,10 +21,11 @@ from .passworded_rars import is_rar_password_protected
 # Handles download of a NZB file
 class Downloader(Thread):
     def __init__(self, cfg, dirs, ct, mp_work_queue, mpp, guiconnector, pipes, renamer_result_queue, mp_events,
-                 nzbname, mp_loggerqueue, logger):
+                 nzbname, mp_loggerqueue, aqlock, logger):
         Thread.__init__(self)
         self.daemon = True
         self.lock = threading.Lock()
+        self.aqlock = aqlock
         self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.p2 = (None, ) * 5
         self.mp_loggerqueue = mp_loggerqueue
         self.nzbname = nzbname
@@ -180,6 +181,7 @@ class Downloader(Thread):
         infolist = infolist0
         bytescount0 = bytescount0_0
         article_count = 0
+        articlelist = []
         for f in ftypes:
             for j, file_articles in enumerate(reversed(filelist)):
                 # iterate over all articles in file
@@ -208,15 +210,19 @@ class Downloader(Thread):
                             art_downloaded = False
                         if not art_downloaded:
                             bytescount0 += art_bytescount
-                            self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, level_servers))
+                            articlelist.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                                                level_servers))
                         article_count += 1
+        with self.aqlock:
+            for al0 in articlelist:
+                self.articlequeue.put(al0)
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 
     def all_queues_are_empty(self):
-        articlequeue_empty = self.articlequeue.empty()
-        resultqueue_empty = self.resultqueue.empty()
-        mpworkqueue_empty = self.mp_work_queue.empty()
+        articlequeue_empty = self.articlequeue.qsize() > 0
+        resultqueue_empty = self.resultqueue.qsize() > 0
+        mpworkqueue_empty = self.mp_work_queue.qsize() > 0
         return (articlequeue_empty and resultqueue_empty and mpworkqueue_empty)
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):

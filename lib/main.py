@@ -5,6 +5,7 @@ import os
 import queue
 import signal
 import multiprocessing as mp
+from multiprocessing.managers import BaseManager
 import re
 import threading
 import shutil
@@ -25,6 +26,10 @@ empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
 
 
 _ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
+
+
+class AQManager(BaseManager):
+    pass
 
 
 class SigHandler_Main:
@@ -300,8 +305,13 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     event_stopped = threading.Event()
     guic_event_continue = threading.Event()
 
+    # queues
+    AQManager.register('LifoQueue', queue.LifoQueue)
+    aqmanager = AQManager()
+    aqmanager.start()
+    aqlock = mp.Lock()
+    articlequeue = aqmanager.LifoQueue()
     mp_work_queue = mp.Queue()
-    articlequeue = queue.LifoQueue()
     resultqueue = queue.Queue()
     renamer_result_queue = mp.Queue()
 
@@ -312,7 +322,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
              "verifier": [verifier_parent_pipe, verifier_child_pipe]}
 
-    ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
+    ct = ConnectionThreads(cfg, articlequeue, resultqueue, aqlock, logger)
 
     # init sighandler
     logger.debug(whoami() + "initializing sighandler")
@@ -420,7 +430,8 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
             if nzbname:
                 ct.reset_timestamps_bdl()
                 logger.info(whoami() + "got next NZB: " + str(nzbname))
-                dl = Downloader(cfg, dirs, ct, mp_work_queue, mpp, guiconnector, pipes, renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger)
+                dl = Downloader(cfg, dirs, ct, mp_work_queue, mpp, guiconnector, pipes, renamer_result_queue,
+                                mp_events, nzbname, mp_loggerqueue, aqlock, logger)
                 if not paused:
                     ct.resume_threads()
                 if paused:
