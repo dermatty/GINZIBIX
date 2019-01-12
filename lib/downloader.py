@@ -18,6 +18,11 @@ from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected
 
 
+empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
+                      b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A',
+                      b"=yend size=14 crc32=8111111c"]
+
+
 # Handles download of a NZB file
 class Downloader(Thread):
     def __init__(self, cfg, dirs, ct, mp_work_queue, mpp, guiconnector, pipes, renamer_result_queue, mp_events,

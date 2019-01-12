@@ -1,14 +1,10 @@
 import nntplib
 import time
-import os
-import signal
 from .server import Servers
 from threading import Thread
 import socket
 import queue
-from .mplogging import setup_logger, whoami
-from setproctitle import setproctitle
-import multiprocessing as mp
+from .mplogging import whoami
 
 
 # This is the thread worker per connection to NNTP server
@@ -346,74 +342,4 @@ class ConnectionThreads:
                 t.bandwidth_bytes = 0
                 t.bandwidth_lasttt = 0
 
-
-class SigHandler_Connector:
-    def __init__(self, event, logger):
-        self.logger = logger
-        self.event = event
-
-    def sighandler_connector(self, a, b):
-        self.logger.info(whoami() + "set termination event")
-        self.event.set()
-
-
-def connector(cfg, articlequeue, resultqueue, serverqueue, events, ns, servers, mp_loggerqueue):
-
-    setproctitle("gzbx." + os.path.basename(__file__))
-
-    logger = setup_logger(mp_loggerqueue, __file__)
-    logger.info(whoami() + "starting ...")
-
-    sh = SigHandler_Connector(events["terminated"], logger)
-    signal.signal(signal.SIGINT, sh.sighandler_connector)
-    signal.signal(signal.SIGTERM, sh.sighandler_connector)
-
-    # im echten Leben: erst aufrufen wenn serverqueue empfangen oder so ...
-    ct = ConnectionThreads(cfg, articlequeue, resultqueue, servers, logger)
-
-    gbdivisor = 1024**3
-
-    while not events["terminated"].wait(0.25):
-
-        # irgendwie so ...
-        # servers = serverqueue.get_nowait()
-
-        if events["start"].isSet():
-            events["start"].clear()
-            logger.debug(whoami() + "got event_start")
-            ct.start_threads()
-        elif events["stop"].isSet():
-            events["stop"].clear()
-            logger.debug(whoami() + "got event_stop")
-            ct.start_threads()
-        elif events["pause"].isSet():
-            events["pause"].clear()
-            logger.debug(whoami() + "got event_pause")
-            ct.start_threads()
-        elif events["resume"].isSet():
-            events["resume"].clear()
-            logger.debug(whoami() + "got event_resume")
-            ct.resume_threads()
-        elif events["reset_ts"].isSet():
-            logger.debug(whoami() + "got event_reset_ts")
-            events["reset_ts"].clear()
-            ct.reset_timestamps()
-        elif events["reset_ts_bdl"].isSet():
-            logger.debug(whoami() + "got event_reset_ts_bdl")
-            events["reset_ts_bdl"].clear()
-            ct.reset_timestamps_bdl()
-        else:
-            ns.threads = ct.threads is not None
-            ns.bytesdownloaded = 0 if not ns.threads else sum([t.bytesdownloaded for t, _ in ct.threads])
-            ns.bytesdownloaded_gb = ns.bytesdownloaded / gbdivisor
-            if not ns.threads:
-                ns.connection_health = 0
-            else:
-                try:
-                    ns.connection_health = 1 - len([t for t, _ in ct.threads if t.connectionstate == -1]) / len([t for t, _ in ct.threads])
-                except Exception:
-                    ns.connection_health = 0
-
-    ct.stop_threads()
-    logger.info(whoami() + "exited!")
 

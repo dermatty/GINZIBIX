@@ -5,7 +5,6 @@ import os
 import queue
 import signal
 import multiprocessing as mp
-from multiprocessing.managers import BaseManager
 import re
 import threading
 import shutil
@@ -20,18 +19,6 @@ from .downloader import Downloader
 from setproctitle import setproctitle
 
 
-empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
-                      b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A',
-                      b"=yend size=14 crc32=8111111c"]
-
-
-_ftypes = ["etc", "rar", "sfv", "par2", "par2vol"]
-
-
-class AQManager(BaseManager):
-    pass
-
-
 class SigHandler_Main:
 
     def __init__(self, event_stopped, logger):
@@ -41,60 +28,6 @@ class SigHandler_Main:
     def sighandler(self, a, b):
         self.event_stopped.set()
         self.logger.debug(whoami() + "set event_stopped = True")
-
-
-
-
-def get_next_nzb(pwdb, dirs, ct, guiconnector, logger):
-    # waiting for nzb_parser to insert all nzbs in nzbdir into db ---> this is a problem, because startup takes
-    # long with many nzbs!!
-    tt0 = time.time()
-    while True:
-        if guiconnector.closeall:
-            return False, 0
-        if guiconnector.has_first_nzb_changed():
-            if not not guiconnector.has_nzb_been_deleted():
-                return False, -10     # return_reason = "nzbs_reordered"
-            else:
-                return False, -20     # return_reason = "nzbs_deleted"
-        try:
-            nextnzb = pwdb.exc("db_nzb_getnextnzb_for_download", [], {})
-            if nextnzb:
-                break
-        except Exception as e:
-            pass
-        if ct.threads and time.time() - tt0 > 30:
-            logger.debug(whoami() + "idle time > 30 sec, closing threads & connections")
-            ct.stop_threads()
-        time.sleep(0.5)
-
-    logger.debug(whoami() + "looking for new NZBs ...")
-    try:
-        nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, -1)
-    except Exception as e:
-        logger.warning(whoami() + str(e))
-    if nzbname == -1:
-        return False, 0
-    # poll for 30 sec if no nzb immediately found
-    if not nzbname:
-        logger.debug(whoami() + "polling for 30 sec. for new NZB before closing connections if alive ...")
-        nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, 30 * 1000)
-        if nzbname == -1:
-            return False, 0
-        if not nzbname:
-            if ct.threads:
-                # if no success: close all connections and poll blocking
-                logger.debug(whoami() + "idle time > 30 sec, closing all threads + server connections")
-                ct.stop_threads()
-            logger.debug(whoami() + "polling for new nzbs now in blocking mode!")
-            try:
-                nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, None)
-                if nzbname == -1:
-                    return False, 0
-            except Exception as e:
-                logger.warning(whoami() + str(e))
-    pwdb.exc("store_sorted_nzbs", [], {})
-    return True, nzbname
 
 
 def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
@@ -287,30 +220,12 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     mp_events["verifier"] = mp.Event()
     mp_events["post"] = mp.Event()
 
-    # events & namespaces for connector
-    mp_events["connector"] = {}
-    mp_events["connector"]["terminated"] = mp.Event()
-    mp_events["connector"]["start"] = mp.Event()
-    mp_events["connector"]["stop"] = mp.Event()
-    mp_events["connector"]["pause"] = mp.Event()
-    mp_events["connector"]["resume"] = mp.Event()
-    mp_events["connector"]["reset_ts"] = mp.Event()
-    mp_events["connector"]["reset_tsbdl"] = mp.Event()
-    mp_con_ns = mp.Manager().Namespace()
-    mp_con_ns.threads = False
-    mp_con_ns.connection_health = 0
-    mp_con_ns.bytesdownloaded = 0
-
     # threading events
     event_stopped = threading.Event()
     guic_event_continue = threading.Event()
 
-    # queues
-    AQManager.register('LifoQueue', queue.LifoQueue)
-    aqmanager = AQManager()
-    aqmanager.start()
     aqlock = mp.Lock()
-    articlequeue = aqmanager.LifoQueue()
+    articlequeue = queue.LifoQueue()
     mp_work_queue = mp.Queue()
     resultqueue = queue.Queue()
     renamer_result_queue = mp.Queue()
@@ -342,15 +257,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, mp_loggerqueue, ))
     mpp_renamer.start()
     mpp["renamer"] = mpp_renamer
-
-    # start connector
-    # todo: articlequeue & resultqueue as mp.queues
-    #       pass serverconfig somehow to connector also during runtime
-    #       adapt guiconnector & gtkgui to accept ns.bytesdownloaded/gb etc.
-    #logger.info(whoami() + "starting connector process ...")
-    #mpp_connector = mp.Process(target=connector, args=(articlequeue, resultqueue, mp_events["connector"],
-    #                                                   mp_con_ns, servers, mp_loggerqueue, ))
-    #mpp_connector.start()
 
     try:
         lock = threading.Lock()
