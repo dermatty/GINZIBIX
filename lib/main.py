@@ -1,5 +1,6 @@
 #!/home/stephan/.virtualenvs/nntp/bin/python
 
+import zmq
 import time
 import os
 import queue
@@ -12,11 +13,12 @@ from .renamer import renamer
 from .nzb_parser import ParseNZB
 from .connections import ConnectionThreads
 from .aux import PWDBSender, mpp_is_alive
-from .guiconnector import GUI_Connector
+#from .guiconnector import GUI_Connector
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
 from .downloader import Downloader
 from setproctitle import setproctitle
+from statistics import mean
 
 
 class SigHandler_Main:
@@ -30,7 +32,7 @@ class SigHandler_Main:
         self.logger.debug(whoami() + "set event_stopped = True")
 
 
-def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
+def make_allfilelist_wait(pwdb, dirs, logger, timeout0):
     # immediatley get allfileslist
     try:
         nzbname = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
@@ -50,8 +52,6 @@ def make_allfilelist_wait(pwdb, dirs, guiconnector, logger, timeout0):
     else:
         delay0 = 1
     while True:
-        if guiconnector.closeall:
-            return -1
         try:
             nzbname = pwdb.exc("make_allfilelist", [dirs["incomplete"], dirs["nzb"]], {})
         except Exception as e:
@@ -239,6 +239,25 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
 
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, aqlock, logger)
 
+    # update delay
+    try:
+        update_delay = float(cfg["GTKGUI"]["UPDATE_DELAY"])
+    except Exception as e:
+        logger.warning(whoami() + str(e) + ", setting update_delay to default 0.5")
+        update_delay = 0.5
+
+    # init tcp with gtkgui.py
+    try:
+        port = cfg["OPTIONS"]["PORT"]
+        assert(int(port) > 1024 and int(port) <= 65535)
+    except Exception as e:
+        logger.debug(whoami() + str(e) + ", setting port to default 36603")
+        port = "36603"
+    context = zmq.Context()
+    socket = context.socket(zmq.REP)
+    socket.bind("tcp://*:" + port)
+    socket.setsockopt(zmq.RCVTIMEO, int(update_delay * 1000))
+
     # init sighandler
     logger.debug(whoami() + "initializing sighandler")
     mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None, "post": None}
@@ -258,172 +277,272 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     mpp_renamer.start()
     mpp["renamer"] = mpp_renamer
 
-    try:
-        lock = threading.Lock()
-        guiconnector = GUI_Connector(lock, dirs, guic_event_continue, logger, cfg)
-        guiconnector.start()
-        logger.debug(whoami() + "guiconnector process started!")
-    except Exception as e:
-        logger.warning(whoami() + str(e))
+    #try:
+    #    lock = threading.Lock()
+    #    guiconnector = GUI_Connector(lock, dirs, guic_event_continue, logger, cfg)
+    #    guiconnector.start()
+    #    logger.debug(whoami() + "guiconnector process started!")
+    #except Exception as e:
+    #    logger.warning(whoami() + str(e))
 
     dl = None
     nzbname = None
     paused = False
-    guiconnector.set_health(0, 0)
+    # guiconnector.set_health(0, 0)
     article_health = 0
     connection_health = 0
 
+    old_t = 0
+    oldbytes0 = 0
+    netstatlist = []
+    dl_running = True
     # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
-    while not event_stopped.wait(0.25):
+    try:
+        while not event_stopped.is_set():
+            # set connection health
+            if dl:
+                stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+                if stat0 == 2:
+                    statusmsg = "downloading"
+                elif stat0 == 3:
+                    statusmsg = "postprocessing"
+                elif stat0 == 4:
+                    statusmsg = "success"
+                elif stat0 == -4:
+                    statusmsg = "failed"
+                # send data to gui
+                connection_health = connection_thread_health(ct.threads)
+            else:
+                article_health = 0
+                connection_health = 0
+                statusmsg = ""
 
-        # closeall command
-        if guiconnector.all_closed():
-            logger.info(whoami() + "got closeall")
-            event_stopped.set()
-            continue
+            msg = None
+            datarec = None
+            try:
+                msg, datarec = socket.recv_pyobj()
+            except zmq.ZMQError as e:
+                if e.errno == zmq.EAGAIN:
+                    msg = None
+                    pass
+            except Exception as e:
+                logger.error(whoami() + str(e))
+                try:
+                    socket.send_pyobj(("NOOK", None))
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+            if msg:
+                print("-" * 10, "received", msg)
+            if msg == "REQ":
+                try:
+                    print(">>>> #0 main:", time.time(), msg)
+                    if not ct.servers:
+                        serverconfig = None
+                    else:
+                        serverconfig = ct.servers.server_config
+                    full_data_for_gui = pwdb.exc("get_all_data_for_gui", [], {})
+                    sorted_nzbs, sorted_nzbshistory = pwdb.exc("get_stored_sorted_nzbs", [], {})
+                    ct_threads = []
+                    if dl:
+                        dl_results = dl.results
+                    else:
+                        dl_results = None
+                    getdata = None
+                    downloaddata_gc = None
+                    if dl_results:
+                        nzbname, downloaddata, _, _ = dl_results
+                        print(">>>> #0a main:", time.time(), msg)
+                        bytescount0, availmem0, avgmiblist, filetypecounter, _, article_health, overall_size,\
+                            already_downloaded_size, p2, overall_size_wparvol, allfileslist = downloaddata
+                        print(">>>> #0b main:", time.time(), msg)
+                        downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,\
+                            overall_size, already_downloaded_size
+                        # netstat
+                        bytes0 = 0
+                        for t, last_timestamp in ct.threads:
+                            append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
+                            ct_threads.append(append_tuple)
+                            bytes0 += t.bytesdownloaded
+                        print(">>>> #3 main:", time.time(), msg)
+                        if bytes0 > 0:
+                            dt = time.time() - old_t
+                            if dt == 0:
+                                dt = 0.001
+                            mbitcurr = ((bytes0 - oldbytes0) / dt) / (1024 * 1024) * 8
+                            oldbytes0 = bytes0
+                            old_t = time.time()
+                            netstatlist = [(mbit, t) for mbit, t in netstatlist if time.time() - t <= 2.0] + [(mbitcurr, old_t)]
+                            mean_netstat = mean([mbit for mbit, _ in netstatlist])
+                        else:
+                            mean_netstat = 0
+                        print(">>>> #4 main:", time.time(), msg)
+                        getdata = downloaddata_gc, serverconfig, ct_threads, dl_running, statusmsg, mean_netstat,\
+                            sorted_nzbs, sorted_nzbshistory, article_health, connection_health, dl.serverhealth(),\
+                            full_data_for_gui
+                    else:
+                        downloaddata_gc = None, None, None, None, None, None, None, None
+                        getdata = downloaddata_gc, serverconfig, ct_threads, dl_running, statusmsg, 0,\
+                            sorted_nzbs, sorted_nzbshistory, 0, 0, None, full_data_for_gui
+                        # if one element in getdata != None - send:
+                    if getdata.count(None) != len(getdata) or downloaddata_gc.count(None) != len(downloaddata_gc):
+                        sendtuple = ("DL_DATA", getdata)
+                    else:
+                        sendtuple = ("NOOK", None)
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+                    sendtuple = ("NOOK", None)
+                try:
+                    socket.send_pyobj(sendtuple)
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+                    print(str(e))
+            elif msg == "SET_CLOSEALL":
+                try:
+                    socket.send_pyobj(("SET_CLOSE_OK", None))
+                    event_stopped.set()
+                    continue
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+            elif msg == "SET_PAUSE":     # pause downloads
+                try:
+                    if not paused:
+                        paused = True
+                        logger.info(whoami() + "download paused for NZB " + nzbname)
+                        ct.pause_threads()
+                        if dl:
+                            dl.pause()
+                            # dl.ct.reset_timestamps_bdl()
+                        postproc_pause()
+                    socket.send_pyobj(("SET_PAUSE_OK", None))
+                    dl_running = False
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+            elif msg == "SET_RESUME":    # resume downloads
+                try:
+                    if paused:
+                        logger.info(whoami() + "download resumed for NZB " + nzbname)
+                        paused = False
+                        ct.resume_threads()
+                        if dl:
+                            dl.resume()
+                        postproc_resume()
+                    socket.send_pyobj(("SET_RESUME_OK", None))
+                    dl_running = True
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+                continue
+            elif msg == "SET_NZB_ORDER":
+                try:
+                    logger.info(whoami() + "NZBs have been reordered/deleted")
+                    # just get info if first has changed etc.
+                    first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [datarec], {"delete_and_resetprios": False})
+                    if deleted_nzbs:
+                        pwdb.exc("db_msg_insert", [nzbname, "NZB(s) deleted", "warning"], {})
+                    if first_has_changed:
+                        logger.info(whoami() + "first NZB has changed")
+                        if dl:
+                            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                            dl.stop()
+                            dl.join()
+                        first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [datarec], {"delete_and_resetprios": True})
+                        remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
+                        nzbname = None
+                        if dl:
+                            # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, statusmsg, logger)
+                            del dl
+                            dl = None
+                    else:    # if current nzb didnt change just update, but do not restart
+                        first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [datarec], {"delete_and_resetprios": True})
+                        remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
+                    pwdb.exc("store_sorted_nzbs", [], {})
+                    # release gtkgui from block
+                    socket.send_pyobj(("SET_DELETE_REORDER_OK", None))
+                except Exception as e:
+                    logger.error(whoami() + str(e))
+            elif msg:
+                try:
+                    socket.send_pyobj(("NOOK", None))
+                except Exception as e:
+                    print(str(e))
+                    logger.debug(whoami() + str(e) + ", received msg: " + str(msg))
+                continue
 
-        # set connection health
-        if dl:
-            stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
-            if stat0 == 2:
-                statusmsg = "downloading"
-            elif stat0 == 3:
-                statusmsg = "postprocessing"
-            elif stat0 == 4:
-                statusmsg = "success"
-            elif stat0 == -4:
-                statusmsg = "failed"
-            # send data to gui
-            connection_health = connection_thread_health(ct.threads)
-        else:
-            article_health = 0
-            connection_health = 0
-        guiconnector.set_health(article_health, connection_health)
-
-        # have NZBs been reordered/deleted?
-        if guiconnector.has_order_changed():
-            logger.info(whoami() + "NZBs have been reordered/deleted")
-            # just get info if first has changed etc.
-            first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [guiconnector.datarec], {"delete_and_resetprios": False})
-            if deleted_nzbs:
-                pwdb.exc("db_msg_insert", [nzbname, "NZB(s) deleted", "warning"], {})
-            if first_has_changed:
-                logger.info(whoami() + "first NZB has changed")
-                if dl:
+            # if not downloading
+            if not dl:
+                nzbname = make_allfilelist_wait(pwdb, dirs, logger, -1)
+                # guiconnector.clear_data()
+                if nzbname:
+                    ct.reset_timestamps_bdl()
+                    logger.info(whoami() + "got next NZB: " + str(nzbname))
+                    dl = Downloader(cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes, 
+                                    renamer_result_queue, mp_events, nzbname, mp_loggerqueue, aqlock, logger)
+                    if not paused:
+                        ct.resume_threads()
+                    if paused:
+                        dl.pause()
+                    dl.start()
+                    old_t = 0
+                    oldbytes0 = 0
+                    netstatlist = []
+            else:
+                # if download ok -> postprocess
+                if stat0 == 3 and not mpp_is_alive(mpp, "post"):
+                    article_health = 0
+                    connection_health = 0
+                    logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
+                    mpp_post = mp.Process(target=postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
+                                                                        dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
+                                                                        dl.download_dir, dl.dirs, dl.pw_file, mp_events["post"], mp_loggerqueue, ))
+                    mpp_post.start()
+                    mpp["post"] = mpp_post
+                # if download failed
+                elif stat0 == -2:
+                    logger.info(whoami() + "download failed for NZB " + nzbname)
+                    ct.pause_threads()
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
                     dl.stop()
                     dl.join()
-                first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [guiconnector.datarec], {"delete_and_resetprios": True})
-                remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
-                nzbname = None
-                if dl:
-                    article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, statusmsg, logger)
+                    # set 'flags' for getting next nzb
                     del dl
                     dl = None
-            else:    # if current nzb didnt change just update, but do not restart
-                first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [guiconnector.datarec], {"delete_and_resetprios": True})
-                remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
-            pwdb.exc("store_sorted_nzbs", [], {})
-            # "release" guiconnector (& gtkgui)
-            guic_event_continue.set()
-
-        # if not downloading
-        if not dl:
-            nzbname = make_allfilelist_wait(pwdb, dirs, guiconnector, logger, -1)
-            guiconnector.clear_data()
-            if paused:
-                guiconnector.dl_running = False
-            if nzbname:
-                ct.reset_timestamps_bdl()
-                logger.info(whoami() + "got next NZB: " + str(nzbname))
-                dl = Downloader(cfg, dirs, ct, mp_work_queue, mpp, guiconnector, pipes, renamer_result_queue,
-                                mp_events, nzbname, mp_loggerqueue, aqlock, logger)
-                if not paused:
-                    ct.resume_threads()
-                if paused:
-                    dl.pause()
-                dl.start()
-            else:
-                time.sleep(0.5)
-                continue
-        else:
-            if dl.results:
-                article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, statusmsg, logger)
-            # status downloading
-            if stat0 in [2, 3]:
-                # command pause
-                if not guiconnector.dl_running and not paused:
-                    paused = True
-                    logger.info(whoami() + "download paused for NZB " + nzbname)
+                    nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
+                # if postproc ok
+                elif stat0 == 4:
+                    logger.info(whoami() + "postprocessor success for NZB " + nzbname)
                     ct.pause_threads()
-                    if dl:
-                        dl.pause()
-                        # dl.ct.reset_timestamps_bdl()
-                    postproc_pause()
-                # command resume
-                elif guiconnector.dl_running and paused:
-                    logger.info(whoami() + "download resumed for NZB " + nzbname)
-                    paused = False
-                    ct.resume_threads()
-                    if dl:
-                        dl.resume()
-                    postproc_resume()
-            # if download ok -> postprocess
-            if stat0 == 3 and not mpp_is_alive(mpp, "post"):
-                guiconnector.set_health(0, 0)
-                logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
-                mpp_post = mp.Process(target=postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
-                                                                    dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
-                                                                    dl.download_dir, dl.dirs, dl.pw_file, mp_events["post"], mp_loggerqueue, ))
-                mpp_post.start()
-                mpp["post"] = mpp_post
-            # if download failed
-            elif stat0 == -2:
-                logger.info(whoami() + "download failed for NZB " + nzbname)
-                ct.pause_threads()
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
-                dl.stop()
-                dl.join()
-                # set 'flags' for getting next nzb
-                del dl
-                dl = None
-                nzbname = None
-                pwdb.exc("store_sorted_nzbs", [], {})
-            # if postproc ok
-            elif stat0 == 4:
-                logger.info(whoami() + "postprocessor success for NZB " + nzbname)
-                ct.pause_threads()
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
-                dl.stop()
-                dl.join()
-                if mpp_is_alive(mpp, "post"):
-                    mpp["post"].join()
+                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                    dl.stop()
+                    dl.join()
+                    if mpp_is_alive(mpp, "post"):
+                        mpp["post"].join()
+                        mpp["post"] = None
+                    # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
+                    pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
+                    # set 'flags' for getting next nzb
+                    del dl
+                    dl = None
+                    nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
+                # if postproc failed
+                elif stat0 == -4:
+                    logger.error(whoami() + "postprocessor failed for NZB " + nzbname)
+                    ct.pause_threads()
+                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, logger, stopall=False)
+                    dl.stop()
+                    dl.join()
+                    if mpp_is_alive(mpp, "post"):
+                        mpp["post"].join()
+                    # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "failed", logger)
+                    pwdb.exc("db_msg_insert", [nzbname, "downloaded and/or postprocessing failed!", "error"], {})
                     mpp["post"] = None
-                article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
-                pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
-                # set 'flags' for getting next nzb
-                del dl
-                dl = None
-                nzbname = None
-                pwdb.exc("store_sorted_nzbs", [], {})
-            # if postproc failed
-            elif stat0 == -4:
-                logger.error(whoami() + "postprocessor failed for NZB " + nzbname)
-                ct.pause_threads()
-                clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, logger, stopall=False)
-                dl.stop()
-                dl.join()
-                if mpp_is_alive(mpp, "post"):
-                    mpp["post"].join()
-                article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "failed", logger)
-                pwdb.exc("db_msg_insert", [nzbname, "downloaded and/or postprocessing failed!", "error"], {})
-                mpp["post"] = None
-                # set 'flags' for getting next nzb
-                del dl
-                dl = None
-                nzbname = None
-                pwdb.exc("store_sorted_nzbs", [], {})
-
+                    # set 'flags' for getting next nzb
+                    del dl
+                    dl = None
+                    nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
+    except Exception as e:
+        print(str(e))
     # shutdown
     logger.info(whoami() + "closeall: starting shutdown sequence")
     ct.pause_threads()
@@ -434,5 +553,11 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     logger.debug(whoami() + "closeall: downloader joined")
     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
     dl = None
+    logger.debug(whoami() + "closing: closing gtkgui-socket")
+    try:
+        socket.close()
+        context.term()
+    except Exception as e:
+        logger.warning(whoami())
     logger.debug(whoami() + "closeall: all cleared")
     logger.info(whoami() + "exited!")

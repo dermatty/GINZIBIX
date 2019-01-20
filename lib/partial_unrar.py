@@ -8,6 +8,7 @@ from .passworded_rars import get_sorted_rar_list
 from .aux import PWDBSender
 from .mplogging import setup_logger, whoami
 from setproctitle import setproctitle
+import sys
 
 
 TERMINATED = False
@@ -162,10 +163,16 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
         logger.info(whoami() + "exited!")
     else:
         logger.info(whoami() + str(status) + " " + statmsg)
-        os.chdir(cwd0)
-        if status == 0:
-            pwdb.exc("db_nzb_update_unrar_status", [nzbname, 2], {})
-        elif status == -5:
-            pwdb.exc("db_nzb_update_unrar_status", [nzbname, -2], {})
-        else:
-            pwdb.exc("db_nzb_update_unrar_status", [nzbname, -1], {})
+        try:
+            os.chdir(cwd0)
+            if status == 0:
+                pwdb.exc("db_nzb_update_unrar_status", [nzbname, 2], {})
+            elif status == -5:
+                pwdb.exc("db_nzb_update_unrar_status", [nzbname, -2], {})
+            else:
+                pwdb.exc("db_nzb_update_unrar_status", [nzbname, -1], {})
+        except Exception as e:
+            logger.warning(whoami() + str(e))
+        event_idle.clear()
+        logger.info(whoami() + "exited!")
+    sys.exit()

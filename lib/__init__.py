@@ -10,7 +10,7 @@ from .server import Servers
 from .passworded_rars import is_rar_password_protected, get_password, get_sorted_rar_list
 from .main import ginzi_main
 from .gtkgui import Application
-from .aux import PWDBSender, make_dirs, mpp_is_alive
+from .aux import PWDBSender, make_dirs, mpp_is_alive, mpp_join
 from .guiconnector import GUI_Connector
 from .downloader import Downloader
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume

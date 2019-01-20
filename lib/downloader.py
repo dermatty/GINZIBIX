@@ -16,7 +16,7 @@ import psutil
 import sys
 from .article_decoder import decode_articles
 from .passworded_rars import is_rar_password_protected
-
+import signal
 
 empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
                       b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A',
@@ -25,8 +25,8 @@ empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
 
 # Handles download of a NZB file
 class Downloader(Thread):
-    def __init__(self, cfg, dirs, ct, mp_work_queue, mpp, guiconnector, pipes, renamer_result_queue, mp_events,
-                 nzbname, mp_loggerqueue, aqlock, logger):
+    def __init__(self, cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
+                 renamer_result_queue, mp_events, nzbname, mp_loggerqueue, aqlock, logger):
         Thread.__init__(self)
         self.daemon = True
         self.lock = threading.Lock()
@@ -39,8 +39,8 @@ class Downloader(Thread):
         self.cfg = cfg
         self.pipes = pipes
         self.pwdb = PWDBSender()
-        self.articlequeue = ct.articlequeue
-        self.resultqueue = ct.resultqueue
+        self.articlequeue = articlequeue
+        self.resultqueue = resultqueue
         self.mp_work_queue = mp_work_queue
         self.renamer_result_queue = renamer_result_queue
         self.mp_unrarqueue = mp.Queue()
@@ -50,7 +50,6 @@ class Downloader(Thread):
         self.dirs = dirs
         self.logger = logger
         self.mpp = mpp
-        self.guiconnector = guiconnector
         self.article_health = 1
         self.connection_health = 1
         self.contains_par_files = False
@@ -613,7 +612,7 @@ class Downloader(Thread):
                     self.mpp["verifier"] = None
                     self.logger.debug(whoami() + "verifier joined")
                 # if unrarer is running and verifystatus is negative, stop!
-                elif verifystatus == -2:
+                elif mpp_is_alive(self.mpp, "unrarer") and verifystatus == -2:
                     self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
                     try:
                         os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)

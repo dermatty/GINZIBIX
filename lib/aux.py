@@ -10,6 +10,7 @@ def mpp_is_alive(mpp, procname):
         return False
     try:
         if mpp0.is_alive() and mpp0.pid and not mpp0.exitcode:
+            # print(procname, "isalive #0")
             return True
         else:
             return False
@@ -21,9 +22,20 @@ def mpp_is_alive(mpp, procname):
             ptype = p.readline().split(" ")[2]
         if ptype == "Z":
             return False
+        # print(procname, "isalive #1", ptype)
         return True
     except Exception:
         return False
+
+
+def mpp_join(mpp, procname, timeout=-1):
+    if timeout == -1:
+        timeout0 = 999999999
+    else:
+        timeout0 = timeout
+    t0 = time.time()
+    while mpp_is_alive(mpp, procname) and time.time() - t0 < timeout0:
+        time.sleep(0.1)
 
 
 def make_dirs():

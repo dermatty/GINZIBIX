@@ -172,13 +172,8 @@ class ConnectionWorker(Thread):
                 continue
             else:
                 self.tt_pause_started = None
-            if not self.nntpobj:
-                self.retry_connect()
             if not self.running:
                 break
-            if not self.nntpobj:
-                self.wait_running(3)
-                continue
             # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
             try:
                 self.aqlock.acquire()
@@ -195,8 +190,10 @@ class ConnectionWorker(Thread):
                 continue
             # avoid ctrl-c to interrup downloading itself
             self.download_done = False
+            if not self.nntpobj:
+                self.retry_connect()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
-            if self.name not in remaining_servers1[0]:
+            if self.name not in remaining_servers1[0] or not self.nntpobj:
                 self.aqlock.acquire()
                 self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1))
                 self.aqlock.release()
@@ -204,6 +201,9 @@ class ConnectionWorker(Thread):
                 continue
             if not remaining_servers1:
                 self.resultqueue.put(article + (None,))
+                continue
+            if not self.nntpobj:
+                self.wait_running(3)
                 continue
             status, bytesdownloaded, info = self.download_article(art_name, age)
             # if ctrl-c - exit thread

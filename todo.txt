@@ -1,7 +1,7 @@
 # parallel download
 
--1a. move connection threads to process - mp worker pools
 0. test for password again
+1. unrar *.rar ???
 1. nach viel umgruppieren -> par_verifier waiting to complete
 2. pause / resume / closeall during postprocessing
 3. auto-turn off server: if all download fail on server - turn it off for this
