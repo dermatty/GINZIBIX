@@ -1,5 +1,6 @@
 # parallel download
 
+-  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python
 0. test for password again
 1. unrar *.rar ???
 1. nach viel umgruppieren -> par_verifier waiting to complete

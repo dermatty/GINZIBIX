@@ -530,6 +530,7 @@ class Downloader(Thread):
 
             # check if process has died somehow and restart in case
             if self.mpp["unrarer"] and not mpp_is_alive(self.mpp, "unrarer"):
+                self.mpp["unrarer"] = None
                 self.logger.debug(whoami() + "restarting unrarer process ...")
                 self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
                                                                           nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
@@ -655,7 +656,17 @@ class Downloader(Thread):
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
                         verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
                         if verifystatus != -2:
-                            self.logger.debug(whoami() + "starting unrarer")
+                            # if by some chance unrarer is running: stop it before restarting it
+                            if self.mpp["unrarer"] and mpp_is_alive(self.mpp, "unrarer"):
+                                self.logger.debug(whoami() + "stopping unrarer")
+                                try:
+                                    os.kill(self.mpp["unrarer"].pid, signal.SIGTERM)
+                                    self.mpp["unrarer"].join()
+                                except Exception:
+                                    pass
+                                self.mpp["unrarer"] = None
+                                self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                            self.logger.info(whoami() + "starting unrarer")
                             self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
                                                                                       nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
                             self.mpp_unrarer.start()

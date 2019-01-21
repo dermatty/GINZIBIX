@@ -3,11 +3,12 @@ import glob
 import xml.etree.ElementTree as ET
 import time
 from .par2lib import get_file_type
+from .aux import PWDBSender
+from .mplogging import setup_logger, whoami
 import inotify_simple
 from lxml import etree
 import signal
-from .aux import PWDBSender
-from .mplogging import setup_logger, whoami
+
 import re
 from setproctitle import setproctitle
 
@@ -57,27 +58,37 @@ def decompose_nzb(nzb, logger):
             date = headers["date"]
             age = int((time.time() - float(date))/(24 * 3600))
             subject = headers["subject"]
-            subjectyenc = subject.split("yEnc")
-            # if we cannot split by "yenc" -> take the whole subject name and hope for the best
-            if len(subjectyenc) == 1:
-                hn = subjectyenc[0]
+            # 1. Rule: search for quotation marks
+            try:
+                matches = re.findall(r'\"(.+?)\"', subject)
+            except Exception:
+                matches = None
+            if matches and len(matches) == 1:
+                hn = matches[0]
             else:
-                # 2: look for extensions in list
-                extlist = ["par2", "PAR2", "rar", "txt", "nfo", "nzb", "sfo"]
-                hn = None
-                for ext in extlist:
-                    gg = re.search(r'[^ "]*.[.]' + ext, subjectyenc[0])
-                    try:
-                        hn = gg.group()
-                        break
-                    except Exception as e:
-                        pass
-                if not hn:
+                # 2nd Rule: split yenc[0]
+                subjectyenc = subject.split("yEnc")
+                # if we cannot split by "yenc" -> take the whole subject name and hope for the best
+                if len(subjectyenc) == 1:
                     hn = subjectyenc[0]
-            # remove spaces, / and \ in filennames and replace with "."
+                else:
+                    # 3rd: look for extensions in list
+                    extlist = ["par2", "PAR2", "rar", "txt", "nfo", "nzb", "sfo", "jpg", "mkv", "txt"]
+                    hn = None
+                    for ext in extlist:
+                        gg = re.search(r'[^ "]*.[.]' + ext, subjectyenc[0])
+                        try:
+                            hn = gg.group()
+                            break
+                        except Exception as e:
+                            pass
+                    if not hn:
+                        hn = subjectyenc[0]
+            # remove spaces, / and \ in filennames and replace with "."'''
             hn = hn.replace(" ", ".")
             hn = hn.replace("/", ".")
             hn = hn.replace("\\", ".")
+            print(hn)
         except Exception as e:
             continue
         for s in r:
@@ -206,7 +217,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
 
 
 '''import logging
-nzb = "/home/stephan/.ginzibix/nzb/Das.Boot.2018.S01E01.GERMAN.720p.HDTV.x264-ACED.nzb"
+nzb = "/home/stephan/.ginzibix/nzb/Florida_project.nzb"
 logger = logging.getLogger(__name__)
 filedic, bytescount0 = decompose_nzb(nzb, logger)
 # print(bytescount0, filedic)

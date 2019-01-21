@@ -267,10 +267,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                         logger.info(whoami() + "Unrarer deadlock, killing unrarer!")
                         try:
                             os.kill(mpp["unrarer"].pid, signal.SIGTERM)
-                            if unrarernewstarted:
-                                mpp["unrarer"].join()
-                            else:
-                                mpp_join(mpp, "unrarer")
+                            mpp_join(mpp, "unrarer")
                             mpp["unrarer"] = None
                         except Exception as e:
                             logger.debug(whoami() + str(e))
