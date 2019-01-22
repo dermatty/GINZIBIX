@@ -26,11 +26,10 @@ empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
 # Handles download of a NZB file
 class Downloader(Thread):
     def __init__(self, cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
-                 renamer_result_queue, mp_events, nzbname, mp_loggerqueue, aqlock, logger):
+                 renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger):
         Thread.__init__(self)
         self.daemon = True
         self.lock = threading.Lock()
-        self.aqlock = aqlock
         self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.p2 = (None, ) * 5
         self.mp_loggerqueue = mp_loggerqueue
         self.nzbname = nzbname
@@ -214,19 +213,20 @@ class Downloader(Thread):
                             art_downloaded = False
                         if not art_downloaded:
                             bytescount0 += art_bytescount
-                            articlelist.append((filename, age, filetype, nr_articles, art_nr, art_name,
-                                                level_servers))
+                            #articlelist.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                            #                    level_servers))
+                            self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                                                      level_servers))
                         article_count += 1
-        with self.aqlock:
-            for al0 in articlelist:
-                self.articlequeue.put(al0)
+        #for al0 in articlelist:
+        #    self.articlequeue.append(al0)
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 
     def all_queues_are_empty(self):
-        articlequeue_empty = self.articlequeue.qsize() > 0
-        resultqueue_empty = self.resultqueue.qsize() > 0
-        mpworkqueue_empty = self.mp_work_queue.qsize() > 0
+        articlequeue_empty = len(self.articlequeue) == 0
+        resultqueue_empty = len(self.resultqueue) == 0
+        mpworkqueue_empty = self.mp_work_queue.qsize() == 0
         return (articlequeue_empty and resultqueue_empty and mpworkqueue_empty)
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):
@@ -241,8 +241,7 @@ class Downloader(Thread):
         updatedlist = []
         while True:
             try:
-                resultarticle = self.resultqueue.get_nowait()
-                self.resultqueue.task_done()
+                resultarticle = self.resultqueue.popleft()
                 filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
                 updatedlist.append(art_name)
                 if inf0 == 0:
@@ -274,11 +273,10 @@ class Downloader(Thread):
                     files[filename] = (f_nr_articles, f_age, f_filetype, True, failed0)
                     infolist[filename] = None
                     self.logger.debug(whoami() + "All articles for " + filename + " downloaded, calling mp.decode ...")
+            except IndexError:
+                break
             except KeyError:
                 pass
-            except (queue.Empty, EOFError):
-                break
-            # articles_processed += 1
         if len(avgmiblist) > 50:
             avgmiblist = avgmiblist[:50]
         self.pwdb.exc("db_article_set_status", [updatedlist, 1], {})
@@ -286,33 +284,12 @@ class Downloader(Thread):
 
     def clear_queues_and_pipes(self, onlyarticlequeue=False):
         self.logger.debug(whoami() + "starting clearing queues & pipes")
-
         # clear articlequeue
-        while True:
-            try:
-                self.articlequeue.get_nowait()
-                self.articlequeue.task_done()
-            except (queue.Empty, EOFError, ValueError):
-                break
-            except Exception as e:
-                self.logger.error(whoami() + str(e))
-                return False
-        self.articlequeue.join()
+        self.articlequeue.clear()
         if onlyarticlequeue:
             return True
-
         # clear resultqueue
-        while True:
-            try:
-                self.resultqueue.get_nowait()
-                self.resultqueue.task_done()
-            except (queue.Empty, EOFError, ValueError):
-                break
-            except Exception as e:
-                self.logger.error(whoami() + str(e))
-                return False
-        self.resultqueue.join()
-
+        self.resultqueue.clear()
         # clear pipes
         try:
             for key, item in self.pipes.items():
@@ -332,15 +309,15 @@ class Downloader(Thread):
             t.mode = "sanitycheck"
         sanity_injects = ["rar", "sfv", "nfo", "etc", "par2"]
         files, infolist, bytescount0, article_count = self.inject_articles(sanity_injects, allfileslist, files, infolist, bytescount0, filetypecounter)
-        artsize0 = self.articlequeue.qsize()
+        artsize0 = len(self.articlequeue)
         self.logger.info(whoami() + "Checking sanity on " + str(artsize0) + " articles")
-        self.articlequeue.join()
+        self.articlequeue.clear()
         nr_articles = 0
         nr_ok_articles = 0
         while True:
             try:
-                resultarticle = self.resultqueue.get_nowait()
-                self.resultqueue.task_done()
+                resultarticle = self.resultqueue.popleft()    #get_nowait()
+                # self.resultqueue.task_done()
                 nr_articles += 1
                 _, _, _, _, _, artname, _, status, _ = resultarticle
                 if status != "failed":
@@ -348,9 +325,9 @@ class Downloader(Thread):
                 else:
                     self.pwdb.exc("db_msg_insert", [self.nzbname, "cannot download " + artname, "info"], {})
                     self.logger.debug(whoami() + "cannot download " + artname)
-            except (queue.Empty, EOFError):
+            except (queue.Empty, EOFError, IndexError):
                 break
-        self.resultqueue.join()
+        # self.resultqueue.join()
         if nr_articles == 0:
             a_health = 0
         else:

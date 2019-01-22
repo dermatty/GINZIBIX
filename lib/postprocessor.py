@@ -106,7 +106,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     logger.debug(whoami() + "starting clearing queues & pipes")
 
     # clear articlequeue
-    while True:
+    articlequeue.clear()
+    '''while True:
         try:
             articlequeue.get_nowait()
             articlequeue.task_done()
@@ -118,10 +119,11 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             pwdb.exc("db_nzb_update_post_status", [nzbname, -1], {})
             pwdb.exc("db_msg_insert", [nzbname, "postprocessing/clearing articlequeue failed!", "error"], {})
             sys.exit()
-    articlequeue.join()
+    articlequeue.join()'''
 
     # clear resultqueue
-    while True:
+    resultqueue.clear()
+    '''while True:
         try:
             resultqueue.get_nowait()
             resultqueue.task_done()
@@ -133,7 +135,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             pwdb.exc("db_nzb_update_post_status", [nzbname, -1], {})
             pwdb.exc("db_msg_insert", [nzbname, "postprocessing/clearing resultqueue failed!", "error"], {})
             sys.exit()
-    resultqueue.join()
+    resultqueue.join()'''
 
     # clear pipes
     try:
@@ -192,6 +194,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             pwdb.exc("db_nzb_update_post_status", [nzbname, -2], {})
         mpp["verifier"] = None
         logger.debug(whoami() + "par_verifier completed/terminated!")
+    mpp_join(mpp, "verifier")
     if stop_wait():
         sys.exit()
 

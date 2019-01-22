@@ -88,7 +88,6 @@ def decompose_nzb(nzb, logger):
             hn = hn.replace(" ", ".")
             hn = hn.replace("/", ".")
             hn = hn.replace("\\", ".")
-            print(hn)
         except Exception as e:
             continue
         for s in r:

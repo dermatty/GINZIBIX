@@ -9,11 +9,10 @@ from .mplogging import whoami
 
 # This is the thread worker per connection to NNTP server
 class ConnectionWorker(Thread):
-    def __init__(self, connection, articlequeue, resultqueue, servers, cfg, aqlock, logger):
+    def __init__(self, connection, articlequeue, resultqueue, servers, cfg, logger):
         Thread.__init__(self)
         self.daemon = True
         self.logger = logger
-        self.aqlock = aqlock
         self.connection = connection
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
@@ -176,12 +175,8 @@ class ConnectionWorker(Thread):
                 break
             # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
             try:
-                self.aqlock.acquire()
-                article = self.articlequeue.get_nowait()
-                self.articlequeue.task_done()
-                self.aqlock.release()
-            except (queue.Empty, EOFError):
-                self.aqlock.release()
+                article = self.articlequeue.pop()
+            except (queue.Empty, EOFError, IndexError):
                 time.sleep(0.1)
                 continue
             except Exception as e:
@@ -194,13 +189,11 @@ class ConnectionWorker(Thread):
                 self.retry_connect()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
             if self.name not in remaining_servers1[0] or not self.nntpobj:
-                self.aqlock.acquire()
-                self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1))
-                self.aqlock.release()
+                self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1))
                 time.sleep(0.1)
                 continue
             if not remaining_servers1:
-                self.resultqueue.put(article + (None,))
+                self.resultqueue.append(article + (None,))
                 continue
             if not self.nntpobj:
                 self.wait_running(3)
@@ -215,7 +208,7 @@ class ConnectionWorker(Thread):
                 # self.logger.debug(whoami() + "Downloaded article " + art_name + " on server " + self.idn)
                 timeout = 2
                 self.bytesdownloaded += bytesdownloaded
-                self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
+                self.resultqueue.append((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
                 # self.articlequeue.task_done()
             # if 400 error
             elif status == -2:
@@ -234,9 +227,7 @@ class ConnectionWorker(Thread):
                 next_servers.append([self.name])    # add current server to end of list
                 self.logger.debug(whoami() + "Requeuing " + art_name + " on server " + self.idn)
                 # requeue
-                self.aqlock.acquire()
-                self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-                self.aqlock.release()
+                self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
                 self.wait_running(timeout)
                 timeout *= 2
                 if timeout > 30:
@@ -246,25 +237,21 @@ class ConnectionWorker(Thread):
             elif status in [0, -1]:
                 timeout = 2
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers1)
-                # self.articlequeue.task_done()
                 if not next_servers:
                     self.logger.error(whoami() + "Download finally failed on server " + self.idn + ": for article " + art_name + " " + str(next_servers))
-                    self.resultqueue.put((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
+                    self.resultqueue.append((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
                 else:
                     self.logger.debug(whoami() + "Download failed on server " + self.idn + ": for article " + art_name + ", queueing: "
                                       + str(next_servers))
-                    self.aqlock.acquire()
-                    self.articlequeue.put((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-                    self.aqlock.release()
+                    self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
         self.logger.info(whoami() + self.idn + " exited!")
 
 
 # this class deals on a meta-level with usenet connections
 class ConnectionThreads:
-    def __init__(self, cfg, articlequeue, resultqueue, aqlock, logger):
+    def __init__(self, cfg, articlequeue, resultqueue, logger):
         self.cfg = cfg
         self.logger = logger
-        self.aqlock = aqlock
         self.threads = []
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
@@ -281,7 +268,7 @@ class ConnectionThreads:
             self.init_servers()
             for sn, scon, _, _ in self.all_connections:
                 t = ConnectionWorker((sn, scon), self.articlequeue, self.resultqueue, self.servers,
-                                     self.cfg, self.aqlock, self.logger)
+                                     self.cfg, self.logger)
                 self.threads.append((t, time.time()))
                 t.start()
         else:

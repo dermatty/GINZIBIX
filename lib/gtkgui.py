@@ -1085,8 +1085,8 @@ class GUI_Poller(Thread):
         socketurl = "tcp://" + self.host + ":" + self.port
         self.socket.connect(socketurl)
         dl_running = True
-
         while not self.event_stopped.wait(self.delay):
+            # some button pressed, of which main.py should be informed?
             try:
                 queue_elem = self.guiqueue.get_nowait()
                 self.guiqueue.task_done()

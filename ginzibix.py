@@ -6,7 +6,6 @@ import multiprocessing as mp
 import logging
 import logging.handlers
 import lib
-import queue
 import gi
 import sys
 import os
@@ -91,11 +90,6 @@ if __name__ == '__main__':
     logger = lib.setup_logger(mp_loggerqueue, __file__)
 
     logger.debug(lib.whoami() + "starting with loglevel '" + loglevel_str + "'")
-
-    # init download threads
-    articlequeue = queue.LifoQueue()
-    resultqueue = queue.Queue()
-    mp_work_queue = mp.Queue()
 
     progstr = "ginzibix 0.1-alpha, client"
     logger.debug(lib.whoami() + "Welcome to GINZIBIX " + __version__)
