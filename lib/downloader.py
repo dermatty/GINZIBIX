@@ -213,13 +213,9 @@ class Downloader(Thread):
                             art_downloaded = False
                         if not art_downloaded:
                             bytescount0 += art_bytescount
-                            #articlelist.append((filename, age, filetype, nr_articles, art_nr, art_name,
-                            #                    level_servers))
                             self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name,
                                                       level_servers))
                         article_count += 1
-        #for al0 in articlelist:
-        #    self.articlequeue.append(al0)
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 

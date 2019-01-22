@@ -412,7 +412,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         ct.pause_threads()
                         if dl:
                             dl.pause()
-                            # dl.ct.reset_timestamps_bdl()
                         postproc_pause()
                     socket.send_pyobj(("SET_PAUSE_OK", None))
                     dl_running = False
