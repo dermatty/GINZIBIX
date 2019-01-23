@@ -431,6 +431,7 @@ class AppWindow(Gtk.ApplicationWindow):
         # add
         button_add = Gtk.Button.new_from_icon_name("list-add", Gtk.IconSize.SMALL_TOOLBAR)
         button_add.set_sensitive(True)
+        button_add.connect("clicked", self.on_buttonadd_clicked)
         button_add.set_tooltip_text("Add NZB from File")
         box_media.pack_end(button_add)
         # center, restart z.b
@@ -470,6 +471,34 @@ class AppWindow(Gtk.ApplicationWindow):
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ", setting autocal_mmbit to default False")
             self.appdata.autocal_mmbit = False
+
+    # add nzb button
+    def on_buttonadd_clicked(self, button):
+        dialog = Gtk.FileChooserDialog("Choose NZB file(s)", self, Gtk.FileChooserAction.OPEN,
+                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+        Gtk.FileChooser.set_select_multiple(dialog, True)
+        self.add_nzb_filters(dialog)
+        nzb_selected = None
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            button.set_sensitive(False)
+            nzb_selected = dialog.get_filenames()
+            self.guiqueue.put(("nzb_added", (nzb_selected, button)))
+        elif response == Gtk.ResponseType.CANCEL:
+            pass
+        dialog.destroy()
+
+    def add_nzb_filters(self, dialog):
+        filter_text = Gtk.FileFilter()
+        filter_text.set_name("NZB files")
+        filter_text.add_mime_type("application/x-nzb")
+        dialog.add_filter(filter_text)
+
+        filter_any = Gtk.FileFilter()
+        filter_any.set_name("Any files")
+        filter_any.add_pattern("*")
+        dialog.add_filter(filter_any)
 
     def on_buttondelete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
@@ -765,7 +794,7 @@ class AppWindow(Gtk.ApplicationWindow):
                 etastr = str(datetime.timedelta(seconds=int(eta0)))
             else:
                 etastr = "-"
-        except Exception as e:
+        except Exception:
             etastr = "-"
         self.liststore.set_value(iter, 4, etastr)
         if len(self.appdata.nzbs) > 0:
@@ -1105,6 +1134,9 @@ class GUI_Poller(Thread):
                     msg0 = "SET_CLOSEALL"
                     msg0_val = None
                     self.appdata.closeall = True
+                elif elem_type == "nzb_added":
+                    msg0 = "NZB_ADDED"
+                    msg0_val, add_button = elem_val
                 elif elem_type == "dl_running":
                     msg0_val = None
                     dl_running_new = elem_val
@@ -1124,7 +1156,9 @@ class GUI_Poller(Thread):
                         datatype, datarec = self.socket.recv_pyobj()
                     except Exception as e:
                         self.logger.error(whoami() + str(e))
-                    if elem_type == "closeall":
+                    if elem_type == "nzb_added":
+                        add_button.set_sensitive(True)
+                    elif elem_type == "closeall":
                         with self.lock:
                             self.appdata.closeall = False
                     elif elem_type == "order_changed":

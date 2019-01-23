@@ -397,6 +397,14 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     logger.error(whoami() + str(e))
                     if DEBUGPRINT:
                         print(str(e))
+            elif msg == "NZB_ADDED":
+                for nzb0 in datarec:
+                    try:
+                        shutil.copy(nzb0, dirs["nzb"])
+                        socket.send_pyobj(("NZB_ADDED_OK", None))
+                    except Exception as e:
+                        logger.error(whoami() + str(e))
+                logger.info(whoami() + "copied new nzb files into nzb_dir")
             elif msg == "SET_CLOSEALL":
                 try:
                     socket.send_pyobj(("SET_CLOSE_OK", None))
