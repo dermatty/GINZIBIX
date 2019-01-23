@@ -428,11 +428,18 @@ class AppWindow(Gtk.ApplicationWindow):
         box_media.pack_end(button_delete)
         button_delete.set_tooltip_text("Delete NZB(s)")
         gridbuttonlist.append(button_delete)
+        # stop downloading / move to history
+        button_stopmove = Gtk.Button.new_from_icon_name("media-playback-stop", Gtk.IconSize.SMALL_TOOLBAR)
+        button_stopmove.set_sensitive(False)
+        button_stopmove.connect("clicked", self.on_buttonstopmove_clicked)
+        button_stopmove.set_tooltip_text("Stop downloading / move to history")
+        box_media.pack_end(button_stopmove)
+        gridbuttonlist.append(button_stopmove)
         # add
         button_add = Gtk.Button.new_from_icon_name("list-add", Gtk.IconSize.SMALL_TOOLBAR)
         button_add.set_sensitive(True)
         button_add.connect("clicked", self.on_buttonadd_clicked)
-        button_add.set_tooltip_text("Add NZB from File")
+        button_add.set_tooltip_text("Add NZB from file")
         box_media.pack_end(button_add)
         # center, restart z.b
         # action_bar.set_center_widget (secondary_box)
@@ -471,6 +478,14 @@ class AppWindow(Gtk.ApplicationWindow):
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ", setting autocal_mmbit to default False")
             self.appdata.autocal_mmbit = False
+
+    # stop/move button
+    def on_buttonstopmove_clicked(self, button):
+        dialog = ConfirmDialog(self, "Do you really want to stop/move these NZBs ?")
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.CANCEL:
+            return
 
     # add nzb button
     def on_buttonadd_clicked(self, button):
