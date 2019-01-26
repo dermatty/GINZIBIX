@@ -486,6 +486,15 @@ class AppWindow(Gtk.ApplicationWindow):
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
             return
+        # here the same as delete
+        with self.lock:
+            self.remove_selected_from_list()
+            self.update_liststore()
+            self.update_liststore_dldata()
+            self.set_buttons_insensitive()
+            self.guiqueue.put(("stopped_moved", None))
+        # msg an main: params = newnbzlist, moved_nzbs
+        # dann dort: wie "SET_NZB_ORDER", nur ohne delete sondern status change
 
     # add nzb button
     def on_buttonadd_clicked(self, button):
@@ -515,6 +524,17 @@ class AppWindow(Gtk.ApplicationWindow):
         filter_any.add_pattern("*")
         dialog.add_filter(filter_any)
 
+    def remove_selected_from_list(self):
+        old_first_nzb = self.appdata.nzbs[0]
+        newnzbs = []
+        for i, ro in enumerate(self.liststore):
+            if not ro[6]:
+                newnzbs.append(self.appdata.nzbs[i])
+        self.appdata.nzbs = newnzbs[:]
+        if self.appdata.nzbs:
+            if self.appdata.nzbs[0] != old_first_nzb:
+                self.update_first_appdata_nzb()
+
     def on_buttondelete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
         dialog = ConfirmDialog(self, "Do you really want to delete these NZBs ?")
@@ -523,15 +543,7 @@ class AppWindow(Gtk.ApplicationWindow):
         if response == Gtk.ResponseType.CANCEL:
             return
         with self.lock:
-            old_first_nzb = self.appdata.nzbs[0]
-            newnzbs = []
-            for i, ro in enumerate(self.liststore):
-                if not ro[6]:
-                    newnzbs.append(self.appdata.nzbs[i])
-            self.appdata.nzbs = newnzbs[:]
-            if self.appdata.nzbs:
-                if self.appdata.nzbs[0] != old_first_nzb:
-                    self.update_first_appdata_nzb()
+            self.remove_selected_from_list()
             self.update_liststore()
             self.update_liststore_dldata()
             self.set_buttons_insensitive()
@@ -1145,6 +1157,9 @@ class GUI_Poller(Thread):
                 if elem_type == "order_changed":
                     msg0 = "SET_NZB_ORDER"
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
+                elif elem_type == "stopped_moved":
+                    msg0 = "STOPPED_MOVED"
+                    msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
                 elif elem_type == "closeall":
                     msg0 = "SET_CLOSEALL"
                     msg0_val = None
@@ -1176,7 +1191,7 @@ class GUI_Poller(Thread):
                     elif elem_type == "closeall":
                         with self.lock:
                             self.appdata.closeall = False
-                    elif elem_type == "order_changed":
+                    elif elem_type in ["order_changed", "stopped_moved"]:
                         GLib.idle_add(self.toggle_buttons)
                         self.logger.debug(whoami() + "order changed ok!")
                 else:

@@ -439,6 +439,14 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 except Exception as e:
                     logger.error(whoami() + str(e))
                 continue
+            elif msg == "STOPPED_MOVED":
+                logger.info(whoami() + "NZBs have been stopped/moved to history")
+                try:
+                    # revert status here: datarec!!
+                    pwdb.exc("store_sorted_nzbs", [], {})
+                    socket.send_pyobj(("SET_STOPPED_MOVED_OK", None))
+                except Exception as e:
+                    logger.error(whoami() + str(e))
             elif msg == "SET_NZB_ORDER":
                 try:
                     logger.info(whoami() + "NZBs have been reordered/deleted")
