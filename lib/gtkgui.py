@@ -148,13 +148,13 @@ class AppWindow(Gtk.ApplicationWindow):
         try:
             self.set_icon_from_file(GBXICON)
         except GLib.GError as e:
-            self.logger.error(whoami() + "cannot find icon file!" + GBXICON)
+            self.logger.error(whoami() + str(e) + "cannot find icon file!" + GBXICON)
 
         self.guiqueue = queue.Queue()
 
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.toggle_buttons, self.guiqueue, self.logger, delay=self.update_delay,
-                                    host=self.host, port=self.port)
+        self.guipoller = GUI_Poller(self.lock, self.appdata, self.update_mainwindow, self.toggle_buttons, self.guiqueue, self.logger,
+                                        delay=self.update_delay, host=self.host, port=self.port)
         self.guipoller.start()
 
         # init main window
@@ -1207,8 +1207,7 @@ class GUI_Poller(Thread):
                             article_health, connection_health, dlconfig, full_data = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
-                                          netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)
-                            
+                                          netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)    
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))
@@ -1220,7 +1219,7 @@ class GUI_Poller(Thread):
         try:
             self.socket.close()
             self.context.term()
-        except Exception as e:
+        except Exception:
             self.logger.warning(whoami())
         self.logger.debug(whoami() + "joining gui_queue")
         while True:

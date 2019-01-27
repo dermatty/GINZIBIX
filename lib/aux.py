@@ -1,6 +1,48 @@
 import zmq
 import time
+import queue
+import threading
+import sys
+import gi
+from gi.repository import GLib
 from os.path import expanduser
+from threading import Thread
+from .mplogging import whoami
+
+gi.require_version('Gtk', '3.0')
+
+
+def get_cut_nzbname(nzbname, max_nzb_len):
+    if len(nzbname) <= max_nzb_len:
+        return nzbname
+    else:
+        return nzbname[:max_nzb_len - 8] + "[..]" + nzbname[-4:]
+
+
+def get_cut_msg(msg, max_nzb_len):
+    if len(msg) <= max_nzb_len:
+        return msg
+    else:
+        return msg[:max_nzb_len - 8] + "[..]" + msg[-4:]
+
+
+def get_bg_color(n_status_s):
+    bgcol = "white"
+    if n_status_s == "preprocessing":
+        bgcol = "beige"
+    elif n_status_s == "queued":
+        bgcol = "khaki"
+    elif n_status_s == "downloading":
+        bgcol = "yellow"
+    elif n_status_s == "postprocessing":
+        bgcol = "yellow green"
+    elif n_status_s == "success":
+        bgcol = "lime green"
+    elif n_status_s == "failed" or n_status_s == "unknown":
+        bgcol = "red"
+    else:
+        bgcol = "white"
+    return bgcol
 
 
 def mpp_is_alive(mpp, procname):
@@ -71,12 +113,10 @@ class PWDBSender():
                 self.context = zmq.Context()
                 self.socket = self.context.socket(zmq.REQ)
                 self.socket.setsockopt(zmq.LINGER, 0)
-                # self.socket.setsockopt(zmq.RCVTIMEO, 500)
                 ipc_location = self.maindir + "ginzibix_socket1"
                 socketurl = "ipc://" + ipc_location
-                # socketurl = "tcp://127.0.0.1:37705"
                 self.socket.connect(socketurl)
-            except Exception as e:
+            except Exception:
                 self.socket = None
                 self.context = None
                 return None
@@ -85,7 +125,6 @@ class PWDBSender():
     def reconnect(self, funcstr):
         i = 1
         while True:
-            print(funcstr, "Try #", i)
             if self.context:
                 self.socket.close()
                 self.context = None
@@ -105,28 +144,144 @@ class PWDBSender():
         while True:
             try:
                 self.socket.send_pyobj((funcstr, args0, kwargs0))
-                # if a == 0:
-                    # print(funcstr, "finally sent")
                 break
             except zmq.ZMQError:
-                # print(funcstr, "zmq error, trying to reconnect")
                 res = self.reconnect(funcstr)
-                # print(funcstr, "reconnect success")
-                a = 0
-            except Exception as e:
+            except Exception:
                 self.context = None
-                # print(funcstr, "---", str(e), type(e), sys.exc_info())
                 return False
 
         # receive
         try:
             ret0 = self.socket.recv_pyobj()
-            # if (a == 0):
-            #     print(funcstr, "finally received", ret0)
             if ret0 == "NOOK":
                 return False
             return ret0
-        except Exception as e:
-            # print(funcstr, "******", str(e), type(e))
+        except Exception:
             self.context = None
             return False
+
+
+# connects to guiconnector
+class GUI_Poller(Thread):
+
+    def __init__(self, gui, delay=0.5, host="127.0.0.1", port="36603"):
+        Thread.__init__(self)
+        self.daemon = True
+        self.gui = gui
+        self.context = zmq.Context()
+        self.host = host
+        self.port = port
+        self.lock = self.gui.lock
+        self.data = None
+        self.delay = float(delay)
+        self.appdata = self.gui.appdata
+        self.update_mainwindow = self.gui.update_mainwindow
+        self.socket = self.context.socket(zmq.REQ)
+        self.logger = self.gui.logger
+        self.event_stopped = threading.Event()
+        self.guiqueue = self.gui.guiqueue
+        self.toggle_buttons = self.gui.toggle_buttons
+
+    def stop(self):
+        self.logger.debug(whoami() + "setting event_stopped")
+        self.event_stopped.set()
+
+    def run(self):
+        self.socket.setsockopt(zmq.LINGER, 0)
+        socketurl = "tcp://" + self.host + ":" + self.port
+        self.socket.connect(socketurl)
+        dl_running = True
+        while not self.event_stopped.wait(self.delay):
+            # some button pressed, of which main.py should be informed?
+            try:
+                queue_elem = self.guiqueue.get_nowait()
+                self.guiqueue.task_done()
+            except (queue.Empty, EOFError, ValueError):
+                queue_elem = None
+            except Exception as e:
+                self.logger.error(whoami() + str(e))
+                queue_elem = None
+
+            if queue_elem:
+                elem_type, elem_val = queue_elem
+                if elem_type == "order_changed":
+                    msg0 = "SET_NZB_ORDER"
+                    msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
+                elif elem_type == "stopped_moved":
+                    msg0 = "STOPPED_MOVED"
+                    msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
+                elif elem_type == "closeall":
+                    msg0 = "SET_CLOSEALL"
+                    msg0_val = None
+                    self.appdata.closeall = True
+                elif elem_type == "nzb_added":
+                    msg0 = "NZB_ADDED"
+                    msg0_val, add_button = elem_val
+                elif elem_type == "dl_running":
+                    msg0_val = None
+                    dl_running_new = elem_val
+                    if dl_running != dl_running_new:
+                        dl_running = dl_running_new
+                        if dl_running:
+                            msg0 = "SET_RESUME"
+                        else:
+                            msg0 = "SET_PAUSE"
+                    else:
+                        msg0 = None
+                else:
+                    msg0 = None
+                if msg0:
+                    try:
+                        self.socket.send_pyobj((msg0, msg0_val))
+                        datatype, datarec = self.socket.recv_pyobj()
+                    except Exception as e:
+                        self.logger.error(whoami() + str(e))
+                    if elem_type == "nzb_added":
+                        add_button.set_sensitive(True)
+                    elif elem_type == "closeall":
+                        with self.lock:
+                            self.appdata.closeall = False
+                    elif elem_type in ["order_changed", "stopped_moved"]:
+                        GLib.idle_add(self.toggle_buttons)
+                        self.logger.debug(whoami() + "order changed ok!")
+                else:
+                    self.logger.error(whoami() + "cannot interpret element in guiqueue")
+            else:
+                try:
+                    self.socket.send_pyobj(("REQ", None))
+                    datatype, datarec = self.socket.recv_pyobj()
+                    if datatype == "NOOK":
+                        continue
+                    elif datatype == "DL_DATA":
+                        data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
+                            article_health, connection_health, dlconfig, full_data = datarec
+                        try:
+                            GLib.idle_add(self.update_mainwindow, data, server_config, threads, dl_running, nzb_status_string,
+                                          netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health, dlconfig, full_data)    
+                            continue
+                        except Exception as e:
+                            self.logger.debug(whoami() + str(e))
+                except Exception as e:
+                    self.logger.error(whoami() + str(e))
+
+        # close socket, join queue & exit guipoller
+        self.logger.debug(whoami() + "closing socket")
+        try:
+            self.socket.close()
+            self.context.term()
+        except Exception:
+            self.logger.warning(whoami())
+        self.logger.debug(whoami() + "joining gui_queue")
+        while True:
+            try:
+                queue_elem = self.guiqueue.get_nowait()
+                self.guiqueue.task_done()
+            except (queue.Empty, EOFError, ValueError):
+                break
+            except Exception as e:
+                self.logger.error(whoami() + str(e))
+                break
+        self.guiqueue.join()
+        self.logger.info(whoami() + "exiting")
+        sys.exit()

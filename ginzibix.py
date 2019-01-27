@@ -101,6 +101,7 @@ if __name__ == '__main__':
     pwdb = lib.PWDBSender()
 
     # start main mp
+    mpp_main = None
     mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg, dirs, subdirs, mp_loggerqueue, ))
     mpp_main.start()
 
@@ -109,12 +110,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
     signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
-    #while not TERMINATED:
-    #    time.sleep(0.5)
-    #logger.debug(whoami() + "exited!")
-    #sys.exit()
-
-    app = lib.Application(dirs, cfg_file, mp_loggerqueue)
+    app = lib.ApplicationGui(dirs, cfg_file, mp_loggerqueue)
     exit_status = app.run(sys.argv)
 
     sh.shutdown()
