@@ -18,6 +18,8 @@ ICONFILE = "lib/gzbx1.png"
 GLADEFILE = "lib/ginzibix.glade"
 
 CLOSEALL_TIMEOUT = 1
+MAX_NZB_LEN = 50
+MAX_MSG_LEN = 120
 
 MENU_XML = """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -77,15 +79,13 @@ class ApplicationGui(Gtk.Application):
         self.dl_running = True
         self.nzb_status_string = ""
         self.guiqueue = queue.Queue()
-
         self.lock = threading.Lock()
-        self.guipoller = GUI_Poller(self, delay=self.update_delay, host=self.host, port=self.port)
-        self.guipoller.start()
 
     def run(self, argv):
         self.app.run(argv)
 
     def on_app_activate(self, app):
+        print("app_activate")
         self.builder = Gtk.Builder()
         self.builder.add_from_file(GLADEFILE)
         self.builder.add_from_string(MENU_XML)
@@ -93,6 +93,8 @@ class ApplicationGui(Gtk.Application):
 
         self.obj = self.builder.get_object
         self.window = self.obj("main_window")
+        self.levelbar = self.obj("levelbar")
+        self.mbitlabel2 = self.obj("mbitlabel2")
         self.builder.connect_signals(Handler(self))
         self.window.set_application(self.app)
 
@@ -111,8 +113,6 @@ class ApplicationGui(Gtk.Application):
         self.window.set_default_size(int(self.max_width/(2 * self.n_monitors)), self.max_height)
         self.window.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
 
-        self.window.show_all()
-
         # add non-standard actions
         self.add_simple_action("about", self.on_action_about_activated)
         self.add_simple_action("message", self.on_action_message_activated)
@@ -124,8 +124,17 @@ class ApplicationGui(Gtk.Application):
         self.setup_frame_logs()
         self.setup_frame_nzbhistory()
 
+        self.gridbuttonlist = [self.obj("button_top"), self.obj("button_up"), self.obj("button_down"),
+                               self.obj("button_bottom"), self.obj("button_interrupt"), self.obj("button_delete")]
+        self.window.show_all()
+
+        self.guipoller = GUI_Poller(self, delay=self.update_delay, host=self.host, port=self.port)
+        self.guipoller.start()
+
+        # call main thread from here!!
+
     def on_app_startup(self, app):
-        print("startup activated, ginzi_main will be called from here later on!")
+        pass
 
     def on_app_shutdown(self, app):
         if self.appdata.autocal_mmbit:
@@ -223,6 +232,7 @@ class ApplicationGui(Gtk.Application):
     # liststore/treeview for nzblist in stack DOWNLOADING
     def setup_frame_nzblist(self):
         self.nzblist_liststore = Gtk.ListStore(str, int, float, float, str, str, bool, str, str)
+        self.update_liststore()
         # set treeview + actions
         self.treeview_nzblist = Gtk.TreeView(model=self.nzblist_liststore)
         self.treeview_nzblist.set_reorderable(False)
@@ -230,8 +240,8 @@ class ApplicationGui(Gtk.Application):
         sel.set_mode(Gtk.SelectionMode.NONE)
         # 0th selection toggled
         renderer_toggle = Gtk.CellRendererToggle()
-        # renderer_toggle.connect("toggled", self.on_inverted_toggled)
         column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=6)
+        renderer_toggle.connect("toggled", self.on_inverted_toggled)
         self.treeview_nzblist.append_column(column_toggle)
         # 1st column: NZB name
         renderer_text0 = Gtk.CellRendererText()
@@ -268,21 +278,10 @@ class ApplicationGui(Gtk.Application):
         column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
         column_text7.set_min_width(80)
         self.treeview_nzblist.append_column(column_text7)
-
         self.obj("scrolled_window_nzblist").add(self.treeview_nzblist)
 
     # ----------------------------------------------------------------------------------------------------
     # all the gui update functions
-
-    def update_crit_health_levelbars(self):
-        crit_art_health = self.appdata.crit_art_health
-        self.levelbar_arthealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_art_health)) * 100)) + "%")
-        self.levelbar_arthealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_LOW, crit_art_health + (1 - crit_art_health) * 0.25)
-        self.levelbar_arthealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_HIGH, crit_art_health + (1 - crit_art_health) * 0.75)
-        crit_conn_health = self.appdata.crit_conn_health
-        self.levelbar_connhealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_LOW, crit_conn_health + (1 - crit_conn_health) * 0.25)
-        self.levelbar_connhealth.add_offset_value(Gtk.LEVEL_BAR_OFFSET_HIGH, crit_conn_health + (1 - crit_conn_health) * 0.75)
-        self.levelbar_connhealth.set_tooltip_text("Critical = " + str(int(float("{0:.4f}".format(crit_conn_health)) * 100)) + "%")
 
     def update_mainwindow(self, data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
                           sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata):
@@ -295,27 +294,6 @@ class ApplicationGui(Gtk.Application):
             except Exception as e:
                 self.appdata.nzbname = None
             self.update_logstore()
-
-        # health
-        if dlconfig:
-            crit_art_health, crit_conn_health = dlconfig
-            newhealth = False
-            if crit_art_health != self.appdata.crit_art_health:
-                self.appdata.crit_art_health = crit_art_health
-                newhealth = True
-            if crit_conn_health != self.appdata.crit_conn_health:
-                self.appdata.crit_conn_health = crit_conn_health
-                newhealth = True
-            if newhealth:
-                self.update_crit_health_levelbars()
-
-        if (article_health is not None and self.appdata.article_health != article_health):
-            self.appdata.article_health = article_health
-            self.update_health()
-
-        if (connection_health is not None and self.appdata.connection_health != connection_health):
-            self.appdata.connection_health = connection_health
-            self.update_health()
 
         # nzbhistory
         if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
@@ -486,20 +464,6 @@ class ApplicationGui(Gtk.Application):
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
 
-    def update_health(self):
-        self.levelbar_connhealth.set_value(self.appdata.connection_health)
-        self.levelbar_arthealth.set_value(self.appdata.article_health)
-        if self.appdata.article_health > 0:
-            arth_str = str(int(self.appdata.article_health * 100)) + "%"
-            self.arthealth_label.set_text(arth_str.rjust(5))
-        else:
-            self.arthealth_label.set_text(" " * 5)
-        if self.appdata.connection_health > 0:
-            conn_str = str(int(self.appdata.connection_health * 100)) + "%"
-            self.artconn_label.set_text(conn_str.rjust(5))
-        else:
-            self.artconn_label.set_text(" " * 5)
-
     def update_logstore(self):
         # only show msgs for current nzb
         self.logs_liststore.clear()
@@ -512,7 +476,7 @@ class ApplicationGui(Gtk.Application):
         for msg0, ts0, level0 in loglist:
             log_as_list = []
             # msg, level, tt, bg, fg
-            log_as_list.append(get_cut_msg(msg0))
+            log_as_list.append(get_cut_msg(msg0, MAX_MSG_LEN))
             log_as_list.append(level0)
             if level0 == 0:
                 log_as_list.append("")
@@ -574,7 +538,7 @@ class ApplicationGui(Gtk.Application):
         self.nzblist_liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs):
             nzb_as_list = list(nzb)
-            nzb_as_list[0] = get_cut_nzbname(nzb_as_list[0])
+            nzb_as_list[0] = get_cut_nzbname(nzb_as_list[0], MAX_NZB_LEN)
             n_status = nzb_as_list[7]
             if n_status == 0:
                 n_status_s = "preprocessing"
@@ -608,8 +572,6 @@ class ApplicationGui(Gtk.Application):
         if len(self.nzblist_liststore) == 0:
             self.levelbar.set_value(0)
             self.mbitlabel2.set_text("")
-            self.levelbar_connhealth.set_value(0)
-            self.levelbar_arthealth.set_value(0)
             return
         path = Gtk.TreePath(0)
         iter = self.nzblist_liststore.get_iter(path)
@@ -769,7 +731,7 @@ class Handler:
         print("down clicked")
 
     def on_button_nzbadd_clicked(self, button):
-        dialog = Gtk.FileChooserDialog("Choose NZB file(s)", self, Gtk.FileChooserAction.OPEN,
+        dialog = Gtk.FileChooserDialog("Choose NZB file(s)", self.gui.window, Gtk.FileChooserAction.OPEN,
                                        (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                                         Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
         Gtk.FileChooser.set_select_multiple(dialog, True)
@@ -796,7 +758,7 @@ class Handler:
         dialog.add_filter(filter_any)
 
     def on_button_interrupt_clicked(self, button):
-        dialog = ConfirmDialog(self.gui, "Do you really want to stop/move these NZBs ?")
+        dialog = ConfirmDialog(self.gui.window, "Do you really want to stop/move these NZBs ?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
@@ -815,7 +777,7 @@ class Handler:
 
     def on_button_delete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
-        dialog = ConfirmDialog(self, "Do you really want to delete these NZBs ?")
+        dialog = ConfirmDialog(self.gui.window, "Do you really want to delete these NZBs ?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:

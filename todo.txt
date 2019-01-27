@@ -1,5 +1,10 @@
 # parallel download
 
+0. test nzb-history
+1. ginzi_main in ApplicationGUI!
+2: nur als thread möglich?????
+
+
 -  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python
 - gui: menu server - server setup + RT speed & health indication
 0. test for password again

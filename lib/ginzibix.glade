@@ -168,22 +168,18 @@
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="label_xalign">0</property>
-                        <property name="shadow_type">in</property>
+                        <property name="shadow_type">none</property>
                         <child>
-                          <object class="GtkAlignment">
+                          <object class="GtkScrolledWindow" id="scrolled_window_nzblist">
                             <property name="visible">True</property>
-                            <property name="can_focus">False</property>
+                            <property name="can_focus">True</property>
+                            <property name="hscrollbar_policy">never</property>
+                            <property name="shadow_type">in</property>
+                            <property name="min_content_height">380</property>
+                            <property name="propagate_natural_width">True</property>
+                            <property name="propagate_natural_height">True</property>
                             <child>
-                              <object class="GtkScrolledWindow" id="scrolled_window_nzblist">
-                                <property name="visible">True</property>
-                                <property name="can_focus">True</property>
-                                <property name="min_content_height">380</property>
-                                <property name="propagate_natural_width">True</property>
-                                <property name="propagate_natural_height">True</property>
-                                <child>
-                                  <placeholder/>
-                                </child>
-                              </object>
+                              <placeholder/>
                             </child>
                           </object>
                         </child>
@@ -220,6 +216,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_top">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="tooltip_text" translatable="yes">Move NZB(s) to top</property>
                                     <property name="is_important">True</property>
@@ -234,8 +231,9 @@
                                   </packing>
                                 </child>
                                 <child>
-                                  <object class="GtkToolButton" id="button up">
+                                  <object class="GtkToolButton" id="button_up">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="tooltip_text" translatable="yes">Move NZB(s) 1 up</property>
                                     <property name="is_important">True</property>
@@ -252,6 +250,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_down">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="tooltip_text" translatable="yes">Move NZB(s) 1 down</property>
                                     <property name="is_important">True</property>
@@ -268,6 +267,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_bottom">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="tooltip_text" translatable="yes">Move NZB(s) to bottom	</property>
                                     <property name="is_important">True</property>
@@ -296,6 +296,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_interrupt">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="tooltip_text" translatable="yes">Interrupt download	</property>
                                     <property name="is_important">True</property>
@@ -312,6 +313,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_delete">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="tooltip_text" translatable="yes">Delete NZB(s)</property>
                                     <property name="is_important">True</property>
@@ -382,21 +384,16 @@
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="label_xalign">0</property>
-                        <property name="shadow_type">in</property>
+                        <property name="shadow_type">none</property>
                         <child>
-                          <object class="GtkAlignment">
+                          <object class="GtkScrolledWindow" id="scrolled_window_logs">
                             <property name="visible">True</property>
-                            <property name="can_focus">False</property>
+                            <property name="can_focus">True</property>
+                            <property name="min_content_height">120</property>
+                            <property name="propagate_natural_width">True</property>
+                            <property name="propagate_natural_height">True</property>
                             <child>
-                              <object class="GtkScrolledWindow" id="scrolled_window_logs">
-                                <property name="visible">True</property>
-                                <property name="can_focus">True</property>
-                                <property name="propagate_natural_width">True</property>
-                                <property name="propagate_natural_height">True</property>
-                                <child>
-                                  <placeholder/>
-                                </child>
-                              </object>
+                              <placeholder/>
                             </child>
                           </object>
                         </child>
