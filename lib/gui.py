@@ -95,6 +95,8 @@ class ApplicationGui(Gtk.Application):
         self.window = self.obj("main_window")
         self.levelbar = self.obj("levelbar")
         self.mbitlabel2 = self.obj("mbitlabel2")
+        self.no_queued_label = self.obj("no_queued")
+        self.overall_eta_label = self.obj("overalleta")
         self.builder.connect_signals(Handler(self))
         self.window.set_application(self.app)
 
@@ -137,11 +139,6 @@ class ApplicationGui(Gtk.Application):
         pass
 
     def on_app_shutdown(self, app):
-        if self.appdata.autocal_mmbit:
-            self.logger.debug(whoami() + "updating configfile")
-            self.cfg["GTKGUI"]["MAX_MBITSEC"] = str(int(self.appdata.max_mbitsec))
-            with open(self.cfg_file, 'w') as configfile:
-                self.cfg.write(configfile)
         self.appdata.closeall = True
         self.guiqueue.put(("closeall", None))
         t0 = time.time()
@@ -367,9 +364,9 @@ class ApplicationGui(Gtk.Application):
                     self.dl_running = True
                 self.nzb_status_string = nzb_status_string
                 with self.lock:
-                    if self.appdata.autocal_mmbit and mbitseccurr > self.appdata.max_mbitsec:
+                    if mbitseccurr > self.appdata.max_mbitsec:
                         self.appdata.max_mbitsec = mbitseccurr
-                        self.levelbar.set_tooltip_text("Max = " + str(self.appdata.max_mbitsec))
+                        self.levelbar.set_tooltip_text("Max = " + str(int(self.appdata.max_mbitsec)))
                     self.appdata.nzbname = nzbname
                     if nzb_status_string == "postprocessing" or nzb_status_string == "success":
                         self.appdata.overall_size = overall_size
@@ -382,7 +379,6 @@ class ApplicationGui(Gtk.Application):
                     self.update_liststore_dldata()
                     self.update_liststore(only_eta=True)
                     self.appdata.dldata = data
-                    self.appdata.netstat_mbitcur = netstat_mbitcur
         return False
 
     def update_first_appdata_nzb(self):
@@ -411,19 +407,6 @@ class ApplicationGui(Gtk.Application):
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
             self.port = "36603"
-        # max. mbit/seconds
-        try:
-            self.appdata.max_mbitsec = int(self.cfg["GTKGUI"]["MAX_MBITSEC"])
-            assert(self.appdata.max_mbitsec > 1 and self.appdata.max_mbitsec <= 10000)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting max_mbitsec to default 100")
-            self.appdata.max_mbitsec = 100
-        # autocal_mmbit
-        try:
-            self.appdata.autocal_mmbit = True if self.cfg["GTKGUI"]["AUTOCAL_MMBIT"].lower() == "yes" else False
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting autocal_mmbit to default False")
-            self.appdata.autocal_mmbit = False
 
     def toggle_buttons(self):
         one_is_selected = False
@@ -510,6 +493,7 @@ class ApplicationGui(Gtk.Application):
     def update_liststore(self, only_eta=False):
         # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
         if only_eta:
+            self.appdata.overall_eta = 0
             for i, nzb in enumerate(self.appdata.nzbs):
                 # skip first one as it will be updated anyway
                 if i == 0:
@@ -520,6 +504,7 @@ class ApplicationGui(Gtk.Application):
                 except Exception as e:
                     self.logger.debug(whoami() + str(e))
                     continue
+                eta0 = 0
                 if self.appdata.mbitsec > 0 and self.dl_running:
                     overall_size = nzb[3]
                     gbdown = nzb[2]
@@ -532,6 +517,7 @@ class ApplicationGui(Gtk.Application):
                         etastr = "-"
                 else:
                     etastr = "-"
+                self.appdata.overall_eta += eta0
                 self.nzblist_liststore.set_value(iter, 4, etastr)
             return
 
@@ -571,7 +557,9 @@ class ApplicationGui(Gtk.Application):
     def update_liststore_dldata(self):
         if len(self.nzblist_liststore) == 0:
             self.levelbar.set_value(0)
-            self.mbitlabel2.set_text("")
+            self.mbitlabel2.set_text("- Mbit/s")
+            self.no_queued_label.set_text("Queued: -")
+            self.overall_eta_label.set_text("ETA: -")
             return
         path = Gtk.TreePath(0)
         iter = self.nzblist_liststore.get_iter(path)
@@ -595,30 +583,37 @@ class ApplicationGui(Gtk.Application):
         self.nzblist_liststore.set_value(iter, 5, str(n_perc) + "%")
         self.nzblist_liststore.set_value(iter, 7, self.nzb_status_string)
         self.nzblist_liststore.set_value(iter, 8, n_bgcolor)
+        etastr = "-"
+        overall_etastr = str(datetime.timedelta(seconds=int(self.appdata.overall_eta)))
         try:
             if self.appdata.mbitsec > 0 and self.dl_running:
                 eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))
                 if eta0 < 0:
                     eta0 = 0
+                self.appdata.overall_eta += eta0
+                overall_etastr = str(datetime.timedelta(seconds=int(self.appdata.overall_eta)))
                 etastr = str(datetime.timedelta(seconds=int(eta0)))
-            else:
-                etastr = "-"
         except Exception:
-            etastr = "-"
+            pass
         self.nzblist_liststore.set_value(iter, 4, etastr)
         if len(self.appdata.nzbs) > 0:
             newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
+            self.no_queued_label.set_text("Queued: " + str(len(self.appdata.nzbs)))
             self.appdata.nzbs[0] = newnzb
             if self.appdata.mbitsec > 0 and self.appdata.dl_running:
                 self.levelbar.set_value(self.appdata.mbitsec / self.appdata.max_mbitsec)
                 mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
                 self.mbitlabel2.set_text(mbitsecstr.rjust(11))
+                self.overall_eta_label.set_text("ETA: " + overall_etastr)
             else:
                 self.levelbar.set_value(0)
-                self.mbitlabel2.set_text("")
+                self.mbitlabel2.set_text("- MBit/s")
+                self.overall_eta_label.set_text("ETA: -")
         else:
             self.levelbar.set_value(0)
             self.mbitlabel2.set_text("")
+            self.no_queued_label.set_text("Queued: -")
+            self.overall_eta_label.set_text("ETA: -")
 
 
 # ******************************************************************************************************
@@ -820,20 +815,17 @@ class AppData:
         self.gbdown = 0
         self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
         self.dl_running = True
-        self.max_mbitsec = 100
-        self.autocal_mmbit = False
+        self.max_mbitsec = 0
         # crit_art_health is taken from server
         self.crit_art_health = 0.95
         self.crit_conn_health = 0.5
         self.sortednzblist = None
         self.sortednzbhistorylist = None
         self.dldata = None
-        self.netstat_mbitcur = None
         self.logdata = None
         self.article_health = 0
         self.connection_health = 0
         self.fulldata = None
         self.closeall = False
         self.nzbs_history = []
-
-
+        self.overall_eta = 0

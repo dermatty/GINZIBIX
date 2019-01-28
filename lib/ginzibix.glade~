@@ -389,7 +389,9 @@
                           <object class="GtkScrolledWindow" id="scrolled_window_logs">
                             <property name="visible">True</property>
                             <property name="can_focus">True</property>
-                            <property name="min_content_height">120</property>
+                            <property name="hscrollbar_policy">never</property>
+                            <property name="min_content_height">140</property>
+                            <property name="max_content_height">180</property>
                             <property name="propagate_natural_width">True</property>
                             <property name="propagate_natural_height">True</property>
                             <child>

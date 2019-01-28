@@ -3,7 +3,7 @@
 0. test nzb-history
 1. ginzi_main in ApplicationGUI!
 2: nur als thread möglich?????
-
+3: merge ginzibix.py + gui.py + main.py !!!!!
 
 -  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python
 - gui: menu server - server setup + RT speed & health indication
