@@ -5,7 +5,7 @@ import threading
 import time
 import datetime
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib
-from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller
+from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name
 from .mplogging import whoami, setup_logger
 
 gi.require_version("Gtk", "3.0")
@@ -128,6 +128,9 @@ class ApplicationGui(Gtk.Application):
 
         self.gridbuttonlist = [self.obj("button_top"), self.obj("button_up"), self.obj("button_down"),
                                self.obj("button_bottom"), self.obj("button_interrupt"), self.obj("button_delete")]
+        self.historybuttonlist = [self.obj("button_hist_process_start"), self.obj("button_hist_process_last"),
+                                  self.obj("button_hist_delete")]
+
         self.window.show_all()
 
         self.guipoller = GUI_Poller(self, delay=self.update_delay, host=self.host, port=self.port)
@@ -213,17 +216,36 @@ class ApplicationGui(Gtk.Application):
         self.treeview_history.set_reorderable(False)
         sel = self.treeview_history.get_selection()
         sel.set_mode(Gtk.SelectionMode.NONE)
-        # 0st column: NZB name
-        detailsrenderer_text0 = Gtk.CellRendererText()
-        detailscolumn_text0 = Gtk.TreeViewColumn("NZB name", detailsrenderer_text0, text=0)
-        detailscolumn_text0.set_expand(True)
-        detailscolumn_text0.set_min_width(320)
-        self.treeview_history.append_column(detailscolumn_text0)
-        # 1th column status
-        detailsrenderer_text1 = Gtk.CellRendererText()
-        detailscolumn_text1 = Gtk.TreeViewColumn("Status", detailsrenderer_text1, text=1)
-        detailscolumn_text1.set_min_width(80)
-        self.treeview_history.append_column(detailscolumn_text1)
+        # 0th selection toggled
+        renderer_toggle = Gtk.CellRendererToggle()
+        column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=0)
+        renderer_toggle.connect("toggled", self.on_inverted_toggled_nzbhistory)
+        self.treeview_history.append_column(column_toggle)
+        # 1st column: NZB name
+        historyrenderer_text0 = Gtk.CellRendererText()
+        historycolumn_text0 = Gtk.TreeViewColumn("NZB name", historyrenderer_text0, text=1)
+        historycolumn_text0.set_expand(True)
+        historycolumn_text0.set_min_width(320)
+        self.treeview_history.append_column(historycolumn_text0)
+        # 2nd column status
+        historyrenderer_text1 = Gtk.CellRendererText()
+        historycolumn_text1 = Gtk.TreeViewColumn("Status", historyrenderer_text1, text=2, background=5)
+        historycolumn_text1.set_min_width(80)
+        self.treeview_history.append_column(historycolumn_text1)
+        # 4th overall GiB
+        historyrenderer_text2 = Gtk.CellRendererText()
+        historycolumn_text2 = Gtk.TreeViewColumn("Size", historyrenderer_text2, text=3)
+        historycolumn_text2.set_cell_data_func(historyrenderer_text2, lambda col, cell, model, iter, unused:
+                                               cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
+        historycolumn_text2.set_min_width(80)
+        self.treeview_history.append_column(historycolumn_text2)
+        # 5th downloaded in %
+        historyrenderer_text3 = Gtk.CellRendererText()
+        historycolumn_text3 = Gtk.TreeViewColumn("downloaded %", historyrenderer_text3, text=4)
+        historycolumn_text3.set_cell_data_func(historyrenderer_text3, lambda col, cell, model, iter, unused:
+                                               cell.set_property("text", "{0:.2f}".format(model.get(iter, 4)[0] * 100) + "%"))
+        self.treeview_history.append_column(historycolumn_text3)
+
         self.obj("detailsscrolled_window").add(self.treeview_history)
 
     # liststore/treeview for nzblist in stack DOWNLOADING
@@ -292,6 +314,8 @@ class ApplicationGui(Gtk.Application):
                 self.appdata.nzbname = None
             self.update_logstore()
 
+        gibdivisor = (1024 * 1024 * 1024)
+
         # nzbhistory
         if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
             if sortednzbhistorylist0 == [-1]:
@@ -301,7 +325,13 @@ class ApplicationGui(Gtk.Application):
             nzbs_copy = self.appdata.nzbs_history.copy()
             self.appdata.nzbs_history = []
             for idx1, (n_name, n_prio, n_updatedate, n_status, n_siz, n_downloaded) in enumerate(sortednzbhistorylist):
-                self.appdata.nzbs_history.append((n_name, n_status))
+                n_dl = n_downloaded / gibdivisor
+                n_size = n_siz / gibdivisor
+                selected = False
+                for n_selected0, n_name0, n_status0, n_size0, n_downloaded0 in nzbs_copy:
+                    if n_name0 == n_name:
+                        selected = n_selected0
+                self.appdata.nzbs_history.append((selected, n_name, n_status, n_size, n_dl, n_dl/n_size))
             if nzbs_copy != self.appdata.nzbs_history:
                 self.update_nzbhistory_liststore()
             self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
@@ -313,7 +343,6 @@ class ApplicationGui(Gtk.Application):
                 sortednzblist = []
             else:
                 sortednzblist = sorted(sortednzblist0, key=lambda prio: prio[1])
-            gibdivisor = (1024 * 1024 * 1024)
             nzbs_copy = self.appdata.nzbs.copy()
             self.appdata.nzbs = []
             for idx1, (n_name, n_prio, n_ts, n_status, n_siz, n_downloaded) in enumerate(sortednzblist):
@@ -411,6 +440,21 @@ class ApplicationGui(Gtk.Application):
     def toggle_buttons(self):
         one_is_selected = False
         if not one_is_selected:
+            for ls in range(len(self.nzbhistory_liststore)):
+                path0 = Gtk.TreePath(ls)
+                if self.nzbhistory_liststore[path0][0]:
+                    one_is_selected = True
+                    break
+        for b in self.historybuttonlist:
+            if one_is_selected:
+                b.set_sensitive(True)
+            else:
+                b.set_sensitive(False)
+        return False    # because of Glib.idle_add
+
+    def toggle_buttons_history(self):
+        one_is_selected = False
+        if not one_is_selected:
             for ls in range(len(self.nzblist_liststore)):
                 path0 = Gtk.TreePath(ls)
                 if self.nzblist_liststore[path0][6]:
@@ -437,6 +481,15 @@ class ApplicationGui(Gtk.Application):
         if self.appdata.nzbs:
             if self.appdata.nzbs[0] != old_first_nzb:
                 self.update_first_appdata_nzb()
+
+    def on_inverted_toggled_nzbhistory(self, widget, path):
+        with self.lock:
+            self.nzbhistory_liststore[path][0] = not self.nzbhistory_liststore[path][0]
+            i = int(path)
+            newnzb = list(self.appdata.nzbs_history[i])
+            newnzb[0] = self.nzbhistory_liststore[path][0]
+            self.appdata.nzbs_history[i] = tuple(newnzb)
+            self.toggle_buttons_history()
 
     def on_inverted_toggled(self, widget, path):
         with self.lock:
@@ -485,9 +538,13 @@ class ApplicationGui(Gtk.Application):
             self.logs_liststore.append(log_as_list)
 
     def update_nzbhistory_liststore(self):
+        # appdata.nzbs_history = selected, n_name, n_status, n_siz, n_downloaded
         self.nzbhistory_liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs_history):
             nzb_as_list = list(nzb)
+            nzb_as_list[0] = get_cut_nzbname(nzb_as_list[0], MAX_NZB_LEN)
+            nzb_as_list[2] = get_status_name(nzb[2])
+            nzb_as_list.append("yellow")   # just for test
             self.nzbhistory_liststore.append(nzb_as_list)
 
     def update_liststore(self, only_eta=False):

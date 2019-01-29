@@ -11,7 +11,7 @@ from .passworded_rars import is_rar_password_protected, get_password, get_sorted
 from .main import ginzi_main
 from .gtkgui import Application
 from .gui import ApplicationGui
-from .aux import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, get_cut_nzbname, get_cut_msg, get_bg_color
+from .aux import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, get_cut_nzbname, get_cut_msg, get_bg_color, get_status_name
 from .guiconnector import GUI_Connector
 from .downloader import Downloader
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume

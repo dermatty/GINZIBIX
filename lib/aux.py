@@ -45,6 +45,28 @@ def get_bg_color(n_status_s):
     return bgcol
 
 
+def get_status_name(status):
+    if status == 0:
+        return "preprocessing"
+    if status == 1:
+        return "queued"
+    if status == -1:
+        return "preprocessing failed"
+    if status == 2:
+        return "downloading"
+    if status == -2:
+        return "downloading failed"
+    if status == 3:
+        return "download ok"
+    if status == -3:        # this does not exist!?
+        return "download not ok"
+    if status == 4:
+        return "postprocessing"
+    if status == -4:
+        return "postprocessing failed"
+    return "N/A"
+
+
 def mpp_is_alive(mpp, procname):
     try:
         mpp0 = mpp[procname]
