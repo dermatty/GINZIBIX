@@ -476,7 +476,7 @@
                                 <property name="visible">True</property>
                                 <property name="can_focus">False</property>
                                 <child>
-                                  <object class="GtkToolButton">
+                                  <object class="GtkToolButton" id="button_hist_process_start">
                                     <property name="visible">True</property>
                                     <property name="can_focus">False</property>
                                     <property name="is_important">True</property>
