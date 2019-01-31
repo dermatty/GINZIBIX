@@ -411,10 +411,18 @@ class PWDB():
         query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
         query.execute()
 
-    def db_nzb_getsize(self, name):
+    def db_nzb_getsize(self, name, checkpar2volsloaded=False):
+        # if checkpar2volsloaded: if par2vols are loaded -> returns size incl. par2vols else without
         try:
             nzb0 = self.NZB.get(self.NZB.name == name)
-            return sum([self.db_file_getsize(a.orig_name) for a in nzb0.files])
+            overallsize = sum([self.db_file_getsize(a.orig_name) for a in nzb0.files])
+            if checkpar2volsloaded and nzb0.loadpar2vols:
+                return overallsize
+            elif checkpar2volsloaded and not nzb0.loadpar2vols:
+                par2size = sum([self.db_file_getsize(a.orig_name) for a in nzb0.files if a.ftype == "par2vol"])
+                return overallsize - par2size
+            else:
+                return overallsize
         except Exception as e:
             self.logger.debug(whoami() + str(e))
 
@@ -454,8 +462,8 @@ class PWDB():
             nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
                        for n in query if n.status in [1, 2, 3]]
             query = self.NZB.select().order_by(-self.NZB.date_updated)
-            nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name),
-                                self.db_nzb_get_downloadedsize(n.priority))
+            nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name, checkpar2volsloaded=True),
+                                self.db_nzb_get_downloadedsize(n.name))
                                for n in query if n.status in [4, -1, -2, -3, -4]]
             return nzblist, nzblist_history
         except Exception as e:
