@@ -230,8 +230,8 @@ class GUI_Poller(Thread):
                 if elem_type == "order_changed":
                     msg0 = "SET_NZB_ORDER"
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
-                elif elem_type == "stopped_moved":
-                    msg0 = "STOPPED_MOVED"
+                elif elem_type == "interrupted":
+                    msg0 = "SET_NZB_INTERRUPT"
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
                 elif elem_type == "closeall":
                     msg0 = "SET_CLOSEALL"
@@ -264,9 +264,9 @@ class GUI_Poller(Thread):
                     elif elem_type == "closeall":
                         with self.lock:
                             self.appdata.closeall = False
-                    elif elem_type in ["order_changed", "stopped_moved"]:
+                    elif elem_type in ["order_changed", "interrupted"]:
                         GLib.idle_add(self.toggle_buttons)
-                        self.logger.debug(whoami() + "order changed ok!")
+                        self.logger.debug(whoami() + "order changed/interrupted ok!")
                 else:
                     self.logger.error(whoami() + "cannot interpret element in guiqueue")
             else:

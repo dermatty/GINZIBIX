@@ -811,7 +811,7 @@ class Handler:
         dialog.add_filter(filter_any)
 
     def on_button_interrupt_clicked(self, button):
-        dialog = ConfirmDialog(self.gui.window, "Do you really want to stop/move these NZBs ?")
+        dialog = ConfirmDialog(self.gui.window, "Do you really want to move these NZBs to history?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
@@ -822,11 +822,9 @@ class Handler:
             self.gui.update_liststore()
             self.gui.update_liststore_dldata()
             self.gui.set_buttons_insensitive()
-            self.gui.guiqueue.put(("stopped_moved", None))
+            self.gui.guiqueue.put(("interrupted", None))
         # msg an main: params = newnbzlist, moved_nzbs
         # dann dort: wie "SET_NZB_ORDER", nur ohne delete sondern status change
-
-        print("interrupt clicked")
 
     def on_button_delete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
@@ -841,10 +839,18 @@ class Handler:
             self.gui.update_liststore_dldata()
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
-        print("delete clicked")
+
+    def on_button_hist_process_last_clicked(self, button):
+        print("reprocess last clicked")
+        
+    def on_button_hist_delete_clicked(self, button):
+        print("hist delete clicked")
+
+    def on_button_hist_process_start_clicked(self, button):
+        print("reprocess from start clicked")
 
     def on_win_destroy(self, *args):
-        print("quit!")
+        pass
 
 
 # ******************************************************************************************************

@@ -439,17 +439,32 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 except Exception as e:
                     logger.error(whoami() + str(e))
                 continue
-            elif msg == "STOPPED_MOVED":
+            elif msg == "SET_NZB_INTERRUPT":
                 logger.info(whoami() + "NZBs have been stopped/moved to history")
                 try:
-                    # revert status here: datarec!!
+                    first_has_changed, moved_nzbs = pwdb.exc("move_nzb_list", [datarec], {"move_and_resetprios": False})
+                    if moved_nzbs:
+                        pwdb.exc("db_msg_insert", [nzbname, "NZB(s) moved to history", "warning"], {})
+                    if first_has_changed:
+                        logger.info(whoami() + "first NZB has changed")
+                        if dl:
+                            clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                            dl.stop()
+                            dl.join()
+                        first_has_changed, moved_nzbs = pwdb.exc("move_nzb_list", [datarec], {"move_and_resetprios": True})
+                        nzbname = None
+                        if dl:
+                            del dl
+                            dl = None
+                    else:    # if current nzb didnt change just update, but do not restart
+                        first_has_changed, moved_nzbs = pwdb.exc("move_nzb_list", [datarec], {"move_and_resetprios": True})
                     pwdb.exc("store_sorted_nzbs", [], {})
-                    socket.send_pyobj(("SET_STOPPED_MOVED_OK", None))
+                    socket.send_pyobj(("SET_INTERRUPT_OK", None))
                 except Exception as e:
                     logger.error(whoami() + str(e))
             elif msg == "SET_NZB_ORDER":
+                logger.info(whoami() + "NZBs have been reordered/deleted")
                 try:
-                    logger.info(whoami() + "NZBs have been reordered/deleted")
                     # just get info if first has changed etc.
                     first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [datarec], {"delete_and_resetprios": False})
                     if deleted_nzbs:
@@ -464,7 +479,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
                         nzbname = None
                         if dl:
-                            # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, statusmsg, logger)
                             del dl
                             dl = None
                     else:    # if current nzb didnt change just update, but do not restart

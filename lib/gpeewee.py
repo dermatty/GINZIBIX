@@ -863,7 +863,7 @@ class PWDB():
                 query = self.ARTICLE.insert_many(data0, fields=[self.ARTICLE.name, self.ARTICLE.fileentry, self.ARTICLE.size, self.ARTICLE.number,
                                                                 self.ARTICLE.timestamp])
                 query.execute()
-            except OperationalError as e:
+            except OperationalError:
                 chunksize = int(chunksize * 0.9)
                 continue
             except Exception as e:
@@ -878,6 +878,66 @@ class PWDB():
 
     def db_drop(self):
         self.db.drop_tables(self.tablelist)
+
+    # ---- move nzbs to history / invert status acc. to nzb list ----
+    @set_db_timestamp
+    def move_nzb_list(self, new_nzb_list, move_and_resetprios=False):
+        try:
+            old_nzb_list = [n.name for n in self.NZB.select().where(self.NZB.status.between(1, 3)).order_by(self.NZB.priority)]
+            oldfirstnzbname = old_nzb_list[0]
+        except Exception:
+            oldfirstnzbname = None
+
+        # if nothing changed if old and new are empty return False
+        if (new_nzb_list == old_nzb_list) or (not new_nzb_list and not old_nzb_list):
+            return False, []
+
+        try:
+            newfirstnzbname = new_nzb_list[0]
+        except Exception:
+            newfirstnzbname = None
+            pass
+
+        # has first nzb changed?
+        if oldfirstnzbname != newfirstnzbname:
+            first_has_changed = True
+        else:
+            first_has_changed = False
+
+        # get list of moved nzbs & invert their status
+        moved_nzbs = []
+        for oldnzbname in old_nzb_list:
+            if oldnzbname not in new_nzb_list:
+                moved_nzbs.append(oldnzbname)
+                if move_and_resetprios:
+                    oldstatus = self.db_nzb_getstatus(oldnzbname)
+                    if oldstatus:
+                        newstatus = abs(oldstatus) * -1
+                        self.db_nzb_update_status(oldnzbname, newstatus)
+
+        # if we just want to get information, return info
+        if not move_and_resetprios:
+            return first_has_changed, moved_nzbs
+
+        # now reset prios according to new_nzb_list
+        prio = 1
+        for newnzb in new_nzb_list:
+            if newnzb not in old_nzb_list:
+                continue
+            else:
+                old_nzb_list.remove(newnzb)     # check: old_nzb_list must be empty finally
+            try:
+                query = self.NZB.update(priority=prio, date_updated=datetime.datetime.now()).where(self.NZB.name == newnzb)
+                query.execute()
+                prio += 1
+            except Exception as e:
+                self.logger.error(whoami() + str(e) + ": cannot set new NZB prio!")
+
+        if old_nzb_list:
+            self.logger.error(whoami() + "new NZB list is not a subset of old one!")
+
+        return first_has_changed, moved_nzbs
+
 
     # ---- set new prios acc. to nzb list ----
     @set_db_timestamp

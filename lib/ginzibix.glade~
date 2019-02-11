@@ -478,6 +478,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_hist_process_start">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="is_important">True</property>
                                     <property name="label" translatable="yes">reprocess from start</property>
@@ -492,6 +493,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_hist_process_last">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="is_important">True</property>
                                     <property name="label" translatable="yes">reprocess last</property>
@@ -506,6 +508,7 @@
                                 <child>
                                   <object class="GtkToolButton" id="button_hist_delete">
                                     <property name="visible">True</property>
+                                    <property name="sensitive">False</property>
                                     <property name="can_focus">False</property>
                                     <property name="is_important">True</property>
                                     <property name="label" translatable="yes">delete</property>
