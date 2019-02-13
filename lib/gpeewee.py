@@ -938,7 +938,6 @@ class PWDB():
 
         return first_has_changed, moved_nzbs
 
-
     # ---- set new prios acc. to nzb list ----
     @set_db_timestamp
     def reorder_nzb_list(self, new_nzb_list, delete_and_resetprios=False):

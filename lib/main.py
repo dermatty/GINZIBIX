@@ -197,12 +197,12 @@ def remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger):
             logger.debug(whoami() + ": deleted NZB " + deleted_nzb + " from NZB dir")
         except Exception as e:
             logger.debug(whoami() + str(e))
-            # remove incomplete/$nzb_name
-            try:
-                shutil.rmtree(dirs["incomplete"] + nzbdirname)
-                logger.debug(whoami() + ": deleted incomplete dir for " + deleted_nzb)
-            except Exception as e:
-                logger.debug(whoami() + str(e))
+        # remove incomplete/$nzb_name
+        try:
+            shutil.rmtree(dirs["incomplete"] + nzbdirname)
+            logger.debug(whoami() + ": deleted incomplete dir for " + deleted_nzb)
+        except Exception as e:
+            logger.debug(whoami() + str(e))
 
 
 # main loop for ginzibix downloader
@@ -439,6 +439,16 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 except Exception as e:
                     logger.error(whoami() + str(e))
                 continue
+            elif msg == "DELETED_FROM_HISTORY":
+                try:
+                    for removed_nzb in datarec:
+                        pwdb.exc("db_nzb_delete", [datarec], {})
+                    pwdb.exc("store_sorted_nzbs", [], {})
+                    remove_nzbdirs(datarec, dirs, pwdb, logger)
+                    socket.send_pyobj(("DELETED_FROM_HISTORY_OK", None))
+                    logger.info(whoami() + "NZBs have been deleted from history")
+                except Exception as e:
+                    logger.error(whoami() + str(e))
             elif msg == "SET_NZB_INTERRUPT":
                 logger.info(whoami() + "NZBs have been stopped/moved to history")
                 try:

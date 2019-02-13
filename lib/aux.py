@@ -204,6 +204,7 @@ class GUI_Poller(Thread):
         self.event_stopped = threading.Event()
         self.guiqueue = self.gui.guiqueue
         self.toggle_buttons = self.gui.toggle_buttons
+        self.toggle_buttons_history = self.gui.toggle_buttons_history
 
     def stop(self):
         self.logger.debug(whoami() + "setting event_stopped")
@@ -240,6 +241,9 @@ class GUI_Poller(Thread):
                 elif elem_type == "nzb_added":
                     msg0 = "NZB_ADDED"
                     msg0_val, add_button = elem_val
+                elif elem_type == "deleted_from_history":
+                    msg0 = "DELETED_FROM_HISTORY"
+                    msg0_val = elem_val
                 elif elem_type == "dl_running":
                     msg0_val = None
                     dl_running_new = elem_val
@@ -267,6 +271,9 @@ class GUI_Poller(Thread):
                     elif elem_type in ["order_changed", "interrupted"]:
                         GLib.idle_add(self.toggle_buttons)
                         self.logger.debug(whoami() + "order changed/interrupted ok!")
+                    elif elem_type in ["deleted_from_history"]:
+                        GLib.idle_add(self.toggle_buttons_history)
+                        self.logger.debug(whoami() + "deleted_from_history ok!")
                 else:
                     self.logger.error(whoami() + "cannot interpret element in guiqueue")
             else:

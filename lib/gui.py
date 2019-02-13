@@ -473,6 +473,10 @@ class ApplicationGui(Gtk.Application):
         for b in self.gridbuttonlist:
             b.set_sensitive(False)
 
+    def set_historybuttons_insensitive(self):
+        for b in self.historybuttonlist:
+            b.set_sensitive(False)
+
     def remove_selected_from_list(self):
         old_first_nzb = self.appdata.nzbs[0]
         newnzbs = []
@@ -483,6 +487,10 @@ class ApplicationGui(Gtk.Application):
         if self.appdata.nzbs:
             if self.appdata.nzbs[0] != old_first_nzb:
                 self.update_first_appdata_nzb()
+
+    def get_selected_from_history(self):
+        selected_list = [ro[1] for ro in self.nzbhistory_liststore if ro[0]]
+        return selected_list
 
     def on_inverted_toggled_nzbhistory(self, widget, path):
         with self.lock:
@@ -696,7 +704,6 @@ class Handler:
             button.set_image(image)
         self.gui.update_liststore_dldata()
         self.gui.update_liststore()
-        print("pause resume clicked!")
 
     def on_button_settings_clicked(self, button):
         print("settings clicked")
@@ -718,7 +725,6 @@ class Handler:
             self.gui.update_liststore_dldata()
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
-        print("full up clicked")
 
     def on_button_bottom_clicked(self, button):
         with self.gui.lock:
@@ -737,7 +743,6 @@ class Handler:
             self.gui.update_liststore_dldata()
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
-        print("full down clicked")
 
     def on_button_up_clicked(self, button):
         do_update_dldata = False
@@ -759,7 +764,6 @@ class Handler:
                 self.gui.update_liststore_dldata()
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
-        print("up clicked")
 
     def on_button_down_clicked(self, button):
         do_update_dldata = False
@@ -781,7 +785,6 @@ class Handler:
                 self.gui.update_liststore_dldata()
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
-        print("down clicked")
 
     def on_button_nzbadd_clicked(self, button):
         dialog = Gtk.FileChooserDialog("Choose NZB file(s)", self.gui.window, Gtk.FileChooserAction.OPEN,
@@ -840,14 +843,23 @@ class Handler:
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
 
+    # button: reprocess from start
     def on_button_hist_process_last_clicked(self, button):
-        print("reprocess last clicked")
-        
+        print("reprocess-last-clicked")
+
     def on_button_hist_delete_clicked(self, button):
-        print("hist delete clicked")
+        dialog = ConfirmDialog(self.gui.window, "Do you really want to delete these NZBs form history?")
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+        with self.gui.lock:
+            selected_nzbs = self.gui.get_selected_from_history()
+            self.gui.set_historybuttons_insensitive()
+            self.gui.guiqueue.put(("deleted_from_history", selected_nzbs))
 
     def on_button_hist_process_start_clicked(self, button):
-        print("reprocess from start clicked")
+        print("reprocess-from-start clicked")
 
     def on_win_destroy(self, *args):
         pass
