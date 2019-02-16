@@ -388,17 +388,11 @@ class PWDB():
             files = self.FILE.select().where(self.FILE.nzb == nzb0)
             for f0 in files:
                 query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry == f0)
-                nra = query_articles.execute()
-                self.logger.debug(whoami() + str(nra) + " articles deleted")
+                query_articles.execute()
                 f0.delete_instance()
-            # query_files = self.FILE.delete().where(self.FILE.nzb.name == nzbname)
-            # query_files.execute()
-            # query_nzb = self.NZB.delete().where(self.NZB.name == nzbname)
-            # query_nzb.execute()
             nzb0.delete_instance()
             query_msg = self.MSG.delete().where(self.MSG.nzbname == nzbname)
-            nrm = query_msg.execute()
-            self.logger.debug(whoami() + str(nrm) + " messages deleted")
+            query_msg.execute()
             return True
         except Exception as e:
             self.logger.warning(whoami() + str(e))
@@ -1281,7 +1275,7 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
     pwwt.do_loop()
 
     try:
-        pwwt.db.backup(pwwt.db_file)
+        # pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:

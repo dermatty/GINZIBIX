@@ -1,5 +1,5 @@
 import os
-# import sys
+import sys
 import glob
 import xml.etree.ElementTree as ET
 import time
@@ -223,10 +223,9 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
 
 
 '''import logging
-nzb = "/home/stephan/.ginzibix/nzb/GEinjX4RVo61qAOGqZL0c496a.nzb"
+nzb = "/home/stephan/.ginzibix/nzb/4UBn5DJVdHQWZI{{CzsVRQWFxISqLU}}.nzb"
 logger = logging.getLogger(__name__)
 filedic, bytescount0 = decompose_nzb(nzb, logger)
-sys.exit()
 for key, elem in filedic.items():
     nr = elem[0][1]
     age = elem[0][0]
@@ -235,5 +234,5 @@ for key, elem in filedic.items():
         if i == 0:
             continue
         s += e[2]
-    print(key, nr, len(elem), age, s)
-# print(filedic)'''
+    print(key, nr, len(elem), age, s)'''
+

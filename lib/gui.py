@@ -330,7 +330,7 @@ class ApplicationGui(Gtk.Application):
                 n_size_gb = n_size / GIBDIVISOR
                 n_perc_downloaded = n_downloaded_gb / n_size_gb
                 selected = False
-                for n_selected0, n_name0, n_status0, n_size0, n_downloaded0 in nzbs_copy:
+                for n_selected0, n_name0, n_status0, n_size0, n_downloaded0, _, _ in nzbs_copy:
                     if n_name0 == n_name:
                         selected = n_selected0
                 self.appdata.nzbs_history.append((selected, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, "white"))
@@ -650,7 +650,10 @@ class ApplicationGui(Gtk.Application):
         self.nzblist_liststore.set_value(iter, 7, self.nzb_status_string)
         self.nzblist_liststore.set_value(iter, 8, n_bgcolor)
         etastr = "-"
-        overall_etastr = str(datetime.timedelta(seconds=int(self.appdata.overall_eta)))
+        try:
+            overall_etastr = str(datetime.timedelta(seconds=int(self.appdata.overall_eta)))
+        except Exception:
+            overall_etastr = "-"
         try:
             if self.appdata.mbitsec > 0 and self.dl_running:
                 eta0 = (((self.appdata.overall_size - self.appdata.gbdown) * 1024) / (self.appdata.mbitsec / 8))

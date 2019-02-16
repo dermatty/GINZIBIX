@@ -8,7 +8,8 @@
 
 5. if failed -> is not moved to history in gui
 6. Trying to get password from file / Cannot get pw from nzb string takes too long
-
+7. if paused -> hangs on shutdown
+8. cancel dl if dl + postproc takes "too long"
 
 -  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python
 - gui: menu server - server setup + RT speed & health indication
