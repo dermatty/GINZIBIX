@@ -384,16 +384,21 @@ class PWDB():
     @set_db_timestamp
     def db_nzb_delete(self, nzbname):
         try:
-            files = self.FILE.select().where(self.FILE.nzb.name == nzbname)
+            nzb0 = self.NZB.get(self.NZB.name == nzbname)
+            files = self.FILE.select().where(self.FILE.nzb == nzb0)
             for f0 in files:
-                query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry.orig_name == f0.orig_name)
-                query_articles.execute()
-            query_files = self.FILE.delete().where(self.FILE.nzb.name == nzbname)
-            query_files.execute()
-            query_nzb = self.NZB.delete().where(self.NZB.name == nzbname)
-            query_nzb.execute()
+                query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry == f0)
+                nra = query_articles.execute()
+                self.logger.debug(whoami() + str(nra) + " articles deleted")
+                f0.delete_instance()
+            # query_files = self.FILE.delete().where(self.FILE.nzb.name == nzbname)
+            # query_files.execute()
+            # query_nzb = self.NZB.delete().where(self.NZB.name == nzbname)
+            # query_nzb.execute()
+            nzb0.delete_instance()
             query_msg = self.MSG.delete().where(self.MSG.nzbname == nzbname)
-            query_msg.execute()
+            nrm = query_msg.execute()
+            self.logger.debug(whoami() + str(nrm) + " messages deleted")
             return True
         except Exception as e:
             self.logger.warning(whoami() + str(e))

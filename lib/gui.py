@@ -245,7 +245,7 @@ class ApplicationGui(Gtk.Application):
         historyrenderer_text3 = Gtk.CellRendererText()
         historycolumn_text3 = Gtk.TreeViewColumn("downloaded %", historyrenderer_text3, text=5)
         historycolumn_text3.set_cell_data_func(historyrenderer_text3, lambda col, cell, model, iter, unused:
-                                               cell.set_property("text", "{0:.0f}".format(model.get(iter, 5)[0] * 100) + "%"))
+                                               cell.set_property("text", "{0:.0f}".format(min(model.get(iter, 5)[0] * 100, 100)) + "%"))
         self.treeview_history.append_column(historycolumn_text3)
 
         self.obj("detailsscrolled_window").add(self.treeview_history)
@@ -579,7 +579,7 @@ class ApplicationGui(Gtk.Application):
                         eta0 = 0
                     try:
                         etastr = str(datetime.timedelta(seconds=int(eta0)))
-                    except Exception as e:
+                    except Exception:
                         etastr = "-"
                 else:
                     etastr = "-"
