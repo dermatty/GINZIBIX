@@ -859,7 +859,10 @@ class Handler:
             self.gui.guiqueue.put(("deleted_from_history", selected_nzbs))
 
     def on_button_hist_process_start_clicked(self, button):
-        print("reprocess-from-start clicked")
+        with self.gui.lock:
+            selected_nzbs = self.gui.get_selected_from_history()
+            self.gui.set_historybuttons_insensitive()
+            self.gui.guiqueue.put(("reprocess_from_start", selected_nzbs))
 
     def on_win_destroy(self, *args):
         pass

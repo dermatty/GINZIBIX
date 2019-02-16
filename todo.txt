@@ -6,6 +6,10 @@
 3: nur als thread möglich?????
 4: merge ginzibix.py + gui.py + main.py !!!!!
 
+5. if failed -> is not moved to history in gui
+6. Trying to get password from file / Cannot get pw from nzb string takes too long
+
+
 -  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python
 - gui: menu server - server setup + RT speed & health indication
 0. test for password again

@@ -1,4 +1,5 @@
 import os
+# import sys
 import glob
 import xml.etree.ElementTree as ET
 import time
@@ -88,7 +89,7 @@ def decompose_nzb(nzb, logger):
             hn = hn.replace(" ", ".")
             hn = hn.replace("/", ".")
             hn = hn.replace("\\", ".")
-        except Exception as e:
+        except Exception:
             continue
         for s in r:
             filelist = []
@@ -105,11 +106,17 @@ def decompose_nzb(nzb, logger):
                     bytescount0 += bytescount
                 filelist_numbers.append(int(nr0))
                 filelist.append((filename, int(nr0), bytescount))
-            i -= 1
+            i += 1
             if segfound:
-                filelist.insert(0, (age, int(nr0)))
+                filelist.insert(0, (age, i))
                 filedic[hn] = filelist
-    return filedic, bytescount0
+    filedic_new = {}
+    # sort to avoid random downloading
+    if filedic:
+        filelist_sorted = sorted(filedic, key=str.lower)
+        for fd in filelist_sorted:
+            filedic_new[fd] = filedic[fd]
+    return filedic_new, bytescount0
 
 
 def get_inotify_events(inotify):
@@ -119,7 +126,7 @@ def get_inotify_events(inotify):
         str0 = event.name
         flgs0 = []
         for flg in inotify_simple.flags.from_mask(event.mask):
-            if "flags.CREATE" in str(flg) and "flags.ISDIR" not in str(flg):
+            if ("flags.CREATE" in str(flg) or "flags.MODIFY" in str(flg)) and "flags.ISDIR" not in str(flg):
                 flgs0.append(str(flg))
                 is_created_file = True
         if not is_created_file:
@@ -216,13 +223,17 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
 
 
 '''import logging
-nzb = "/home/stephan/.ginzibix/nzb/Florida_project.nzb"
+nzb = "/home/stephan/.ginzibix/nzb/GEinjX4RVo61qAOGqZL0c496a.nzb"
 logger = logging.getLogger(__name__)
 filedic, bytescount0 = decompose_nzb(nzb, logger)
-# print(bytescount0, filedic)
-print("-" * 60)
-nzb = "/home/stephan/.ginzibix/nzb_bak/Die.Schtis.in.Paris.Eine.Familie.auf.Abwegen.German.2018.AC3.BDRip.x264-iNKLUSiON.nzb"
-filedic, bytescount0 = decompose_nzb(nzb, logger)
-print("-" * 60)
-nzb = "/home/stephan/.ginzibix/nzb_bak/Das.Boot.2018.S01E01.GERMAN.1080p.HDTV.h264.INTERNAL-ACED-xpost.nzb"
-filedic, bytescount0 = decompose_nzb(nzb, logger)'''
+sys.exit()
+for key, elem in filedic.items():
+    nr = elem[0][1]
+    age = elem[0][0]
+    s = 0
+    for i, e in enumerate(elem):
+        if i == 0:
+            continue
+        s += e[2]
+    print(key, nr, len(elem), age, s)
+# print(filedic)'''

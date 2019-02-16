@@ -371,7 +371,7 @@ class PWDB():
     def db_nzb_insert(self, name0):
         try:
             prio = max([n.priority for n in self.NZB.select().order_by(self.NZB.priority)]) + 1
-        except ValueError as e:
+        except ValueError:
             prio = 1
         try:
             new_nzb = self.NZB.create(name=name0, priority=prio, timestamp=time.time())
@@ -1276,7 +1276,7 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
     pwwt.do_loop()
 
     try:
-        # pwwt.db.backup(pwwt.db_file)
+        pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:

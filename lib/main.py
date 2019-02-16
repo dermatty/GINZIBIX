@@ -3,6 +3,7 @@
 import zmq
 import time
 import os
+import datetime
 import queue
 import signal
 import multiprocessing as mp
@@ -188,21 +189,35 @@ def set_guiconnector_data(guiconnector, results, ct, dl, statusmsg, logger):
     return article_health
 
 
-def remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger):
+# updates file modification time of nzbfile in order to have them re-read by nzbparser
+def update_fmodtime_nzbfiles(nzbfilelist, dirs, logger):
+    for nzbfile in nzbfilelist:
+        nzbfile_full = dirs["nzb"] + nzbfile
+        try:
+            f = open(nzbfile_full, "a")   # trigger inotify "MODIFY"
+            f.write("<!--modified-->\n")
+            f.close()
+        except Exception as e:
+            logger.warning(whoami() + str(e))
+    return
+
+
+def remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger, removenzbfile=True):
     for deleted_nzb in deleted_nzbs:
         nzbdirname = re.sub(r"[.]nzb$", "", deleted_nzb, flags=re.IGNORECASE) + "/"
-        # delete nzb from .ginzibix/nzb
-        try:
-            os.remove(dirs["nzb"] + deleted_nzb)
-            logger.debug(whoami() + ": deleted NZB " + deleted_nzb + " from NZB dir")
-        except Exception as e:
-            logger.debug(whoami() + str(e))
+        if removenzbfile:
+            # delete nzb from .ginzibix/nzb
+            try:
+                os.remove(dirs["nzb"] + deleted_nzb)
+                logger.debug(whoami() + ": deleted NZB " + deleted_nzb + " from NZB dir")
+            except Exception as e:
+                logger.warning(whoami() + str(e))
         # remove incomplete/$nzb_name
         try:
             shutil.rmtree(dirs["incomplete"] + nzbdirname)
             logger.debug(whoami() + ": deleted incomplete dir for " + deleted_nzb)
         except Exception as e:
-            logger.debug(whoami() + str(e))
+            logger.warning(whoami() + str(e))
 
 
 # main loop for ginzibix downloader
@@ -439,14 +454,20 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 except Exception as e:
                     logger.error(whoami() + str(e))
                 continue
-            elif msg == "DELETED_FROM_HISTORY":
+            elif msg in ["DELETED_FROM_HISTORY", "REPROCESS_FROM_START"]:
                 try:
                     for removed_nzb in datarec:
-                        pwdb.exc("db_nzb_delete", [datarec], {})
+                        pwdb.exc("db_nzb_delete", [removed_nzb], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
-                    remove_nzbdirs(datarec, dirs, pwdb, logger)
-                    socket.send_pyobj(("DELETED_FROM_HISTORY_OK", None))
-                    logger.info(whoami() + "NZBs have been deleted from history")
+                    if msg == "DELETED_FROM_HISTORY":
+                        remove_nzbdirs(datarec, dirs, pwdb, logger)
+                        socket.send_pyobj(("DELETED_FROM_HISTORY_OK", None))
+                        logger.info(whoami() + "NZBs have been deleted from history")
+                    else:
+                        remove_nzbdirs(datarec, dirs, pwdb, logger, removenzbfile=False)
+                        update_fmodtime_nzbfiles(datarec, dirs, logger)    # trigger nzbparser.py
+                        socket.send_pyobj(("REPROCESS_FROM_START_OK", None))
+                        logger.info(whoami() + "NZBs will be reprocessed from start")
                 except Exception as e:
                     logger.error(whoami() + str(e))
             elif msg == "SET_NZB_INTERRUPT":
@@ -601,6 +622,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
         socket.close()
         context.term()
     except Exception as e:
-        logger.warning(whoami())
+        logger.warning(whoami() + str(e))
     logger.debug(whoami() + "closeall: all cleared")
     logger.info(whoami() + "exited!")
