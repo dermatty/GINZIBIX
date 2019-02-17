@@ -846,9 +846,12 @@ class Handler:
             self.gui.set_buttons_insensitive()
             self.gui.guiqueue.put(("order_changed", None))
 
-    # button: reprocess from start
+    # button: reprocess from last
     def on_button_hist_process_last_clicked(self, button):
-        print("reprocess-last-clicked")
+        with self.gui.lock:
+            selected_nzbs = self.gui.get_selected_from_history()
+            self.gui.set_historybuttons_insensitive()
+            self.gui.guiqueue.put(("reprocess_from_last", selected_nzbs))
 
     def on_button_hist_delete_clicked(self, button):
         dialog = ConfirmDialog(self.gui.window, "Do you really want to delete these NZBs form history?")
@@ -861,6 +864,7 @@ class Handler:
             self.gui.set_historybuttons_insensitive()
             self.gui.guiqueue.put(("deleted_from_history", selected_nzbs))
 
+    # button: reprocess from start
     def on_button_hist_process_start_clicked(self, button):
         with self.gui.lock:
             selected_nzbs = self.gui.get_selected_from_history()

@@ -247,6 +247,10 @@ class GUI_Poller(Thread):
                 elif elem_type == "reprocess_from_start":
                     msg0 = "REPROCESS_FROM_START"
                     msg0_val = elem_val
+                elif elem_type == "reprocess_from_last":
+                    msg0 = "REPROCESS_FROM_LAST"
+                    msg0_val = elem_val
+
                 elif elem_type == "dl_running":
                     msg0_val = None
                     dl_running_new = elem_val
@@ -274,7 +278,7 @@ class GUI_Poller(Thread):
                     elif elem_type in ["order_changed", "interrupted"]:
                         GLib.idle_add(self.toggle_buttons)
                         self.logger.debug(whoami() + "order changed/interrupted ok!")
-                    elif elem_type in ["deleted_from_history", "reprocess_from_start"]:
+                    elif elem_type in ["deleted_from_history", "reprocess_from_start", "reprocess_from_last"]:
                         GLib.idle_add(self.toggle_buttons_history)
                         self.logger.debug(whoami() + "deleted_from_history/reprocess ok!")
                 else:

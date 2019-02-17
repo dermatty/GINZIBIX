@@ -937,6 +937,31 @@ class PWDB():
 
         return first_has_changed, moved_nzbs
 
+    # ---- set prio of nzb to second in list, nzb must not be in state [1 .. 3] yet! ----
+    def nzb_prio_insert_second(self, nzbname, newstatus):
+        try:
+            old_nzb_list = [n.name for n in self.NZB.select().where(self.NZB.status.between(1, 3)).order_by(self.NZB.priority)]
+        except Exception:
+            old_nzb_list = []
+        # if now nzbs yet in [1 .. 3] -> prio 1!
+        if not old_nzb_list:
+            query = self.NZB.update(priority=1, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        # else insert prio as second
+        else:
+            prio = 1
+            for nzb in old_nzb_list:
+                query = self.NZB.update(priority=1, date_updated=datetime.datetime.now()).where(self.NZB.name == nzb)
+                query.execute()
+                if prio == 1:
+                    prio += 2
+                else:
+                    prio += 1
+            query = self.NZB.update(priority=2, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
+            query.execute()
+        self.db_nzb_update_status(nzbname, newstatus)
+        return
+
     # ---- set new prios acc. to nzb list ----
     @set_db_timestamp
     def reorder_nzb_list(self, new_nzb_list, delete_and_resetprios=False):

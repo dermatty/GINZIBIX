@@ -454,6 +454,38 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                 except Exception as e:
                     logger.error(whoami() + str(e))
                 continue
+            elif msg == "REPROCESS_FROM_LAST":
+                try:
+                    for reprocessed_nzb in datarec:
+                        reproc_stat0 = pwdb.exc("db_nzb_getstatus", [reprocessed_nzb], {})
+                        if reproc_stat0:
+                            nzbdirname = re.sub(r"[.]nzb$", "", reprocessed_nzb, flags=re.IGNORECASE) + "/"
+                            incompletedir = dirs["incomplete"] + nzbdirname
+                            # status -1, -2, 4: restart from 0
+                            if reproc_stat0 in [-1, -2, 4]:
+                                pwdb.exc("db_nzb_delete", [reprocessed_nzb], {})
+                                remove_nzbdirs([reprocessed_nzb], dirs, pwdb, logger, removenzbfile=False)
+                                update_fmodtime_nzbfiles([reprocessed_nzb], dirs, logger)    # trigger nzbparser.py
+                                logger.debug(whoami() + reprocessed_nzb + ": status " + str(reproc_stat0) + ", restart from 0")
+                            # status -4/-3 (postproc. failed/interrupted): re-postprocess
+                            elif reproc_stat0 in [-4, -3]:
+                                #  if incompletedir: -> postprocess again
+                                if os.path.isdir(incompletedir):
+                                    pwdb.exc("nzb_prio_insert_second", [reprocessed_nzb, 3], {})
+                                    logger.debug(whoami() + reprocessed_nzb + ": status -4/-3 w/ dir, restart from 3")
+                                # else restart overall
+                                else:
+                                    pwdb.exc("db_nzb_delete", [reprocessed_nzb], {})
+                                    remove_nzbdirs([reprocessed_nzb], dirs, pwdb, logger, removenzbfile=False)
+                                    update_fmodtime_nzbfiles([reprocessed_nzb], dirs, logger)
+                                    logger.debug(whoami() + reprocessed_nzb + ": status -4/-3 w/o dir, restart from 0")
+                            # else: undefined
+                            else:
+                                logger.debug(whoami() + reprocessed_nzb + ": status " + str(reproc_stat0) + ", no action!")
+                    pwdb.exc("store_sorted_nzbs", [], {})
+                    socket.send_pyobj(("REPROCESS_FROM_START_OK", None))
+                except Exception as e:
+                    logger.error(whoami() + str(e))
             elif msg in ["DELETED_FROM_HISTORY", "REPROCESS_FROM_START"]:
                 try:
                     for removed_nzb in datarec:
@@ -537,10 +569,12 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     logger.info(whoami() + "got next NZB: " + str(nzbname))
                     dl = Downloader(cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
                                     renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger)
-                    if not paused:
-                        ct.resume_threads()
-                    if paused:
-                        dl.pause()
+                    stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
+                    if stat0 in [0, 1, 2]:
+                        if not paused:
+                            ct.resume_threads()
+                        if paused:
+                            dl.pause()
                     dl.start()
                     old_t = 0
                     oldbytes0 = 0
