@@ -130,8 +130,9 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     if stop_wait():
         sys.exit()
 
-    # join verifier + start verifier if not verified!!!!!
-    if mpp_is_alive(mpp, "verifier"):
+    verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
+    # join verifier if running (status == 1)
+    if mpp_is_alive(mpp, "verifier") and verifystatus == 1:
         logger.info(whoami() + "Waiting for par_verifier to complete")
         try:
             # kill par_verifier in deadlock
@@ -155,9 +156,17 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                     break
         except Exception as e:
             logger.warning(whoami() + str(e))
+        mpp_join(mpp, "verifier")
         mpp["verifier"] = None
         logger.debug(whoami() + "par_verifier completed/terminated!")
-    mpp_join(mpp, "verifier")
+    # if for some reason verifier not started yet (or interrupted)
+    elif verifystatus == 0:
+        # kill verifier, start verifier and wait here
+        pass
+    # if verifier/repair has failed (status)
+    elif verifystatus in [-1, -2]:
+        pass     # nothing to do, checked below
+
     if stop_wait():
         sys.exit()
 
