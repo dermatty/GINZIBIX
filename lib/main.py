@@ -569,19 +569,36 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     logger.info(whoami() + "got next NZB: " + str(nzbname))
                     dl = Downloader(cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
                                     renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger)
-                    stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
-                    if stat0 in [0, 1, 2]:
+                    # if status postprocessing, don't start threads!
+                    if pwdb.exc("db_nzb_getstatus", [nzbname], {}) in [0, 1, 2]:
                         if not paused:
                             ct.resume_threads()
                         if paused:
                             dl.pause()
-                    dl.start()
+                        dl.start()
                     old_t = 0
                     oldbytes0 = 0
                     netstatlist = []
             else:
+                # if postproc ok
+                if stat0 == 4:
+                    logger.info(whoami() + "postprocessor success for NZB " + nzbname)
+                    ct.pause_threads()
+                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                    dl.stop()
+                    dl.join()
+                    if mpp_is_alive(mpp, "post"):
+                        mpp["post"].join()
+                        mpp["post"] = None
+                    # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
+                    pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
+                    # set 'flags' for getting next nzb
+                    del dl
+                    dl = None
+                    nzbname = None
+                    pwdb.exc("store_sorted_nzbs", [], {})
                 # if download ok -> postprocess
-                if stat0 == 3 and not mpp_is_alive(mpp, "post"):
+                elif stat0 == 3 and not mpp_is_alive(mpp, "post"):
                     article_health = 0
                     connection_health = 0
                     logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
@@ -597,23 +614,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
                     dl.stop()
                     dl.join()
-                    # set 'flags' for getting next nzb
-                    del dl
-                    dl = None
-                    nzbname = None
-                    pwdb.exc("store_sorted_nzbs", [], {})
-                # if postproc ok
-                elif stat0 == 4:
-                    logger.info(whoami() + "postprocessor success for NZB " + nzbname)
-                    ct.pause_threads()
-                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
-                    dl.stop()
-                    dl.join()
-                    if mpp_is_alive(mpp, "post"):
-                        mpp["post"].join()
-                        mpp["post"] = None
-                    # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
-                    pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
                     # set 'flags' for getting next nzb
                     del dl
                     dl = None

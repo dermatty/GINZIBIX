@@ -68,6 +68,10 @@ class Downloader(Thread):
                 self.logger.warning(whoami() + str(e) + ": cannot open pw file, setting to None")
                 self.pw_file = None
 
+        # make dirs
+        self.logger.debug(whoami() + "creating dirs")
+        self.make_dirs(nzbname)
+
     def stop(self):
         self.event_stopped.set()
         with self.lock:
@@ -374,13 +378,14 @@ class Downloader(Thread):
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
         bytescount0 = 0
         article_health = 1
-        # make dirs
-        self.logger.debug(whoami() + "creating dirs")
-        self.make_dirs(nzbname)
+
         self.ct.reset_timestamps()
 
-        if self.pwdb.exc("db_nzb_getstatus", [nzbname], {}) > 2:
-            self.logger.info(nzbname + "- download complete!")
+        startstatus = self.pwdb.exc("db_nzb_getstatus", [nzbname], {})
+        self.logger.debug(whoami() + "nzb has status " + str(startstatus))
+
+        if startstatus > 2:
+            self.logger.info(whoami() + nzbname + "- download complete!")
             self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                       self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                       self.allfileslist)), "download complete", self.main_dir
