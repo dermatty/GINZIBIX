@@ -4,12 +4,29 @@ import queue
 import threading
 import sys
 import gi
+import re
+import os
+import shutil
 from gi.repository import GLib
 from os.path import expanduser
 from threading import Thread
 from .mplogging import whoami
 
 gi.require_version('Gtk', '3.0')
+
+
+def clear_postproc_dirs(nzbname, dirs):
+    # clear verified_rardir, unpackdir
+    nzbdirname = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
+    cleardirs = [dirs["incomplete"] + nzbdirname + "_verifiedrars0", dirs["incomplete"] + nzbdirname + "_unpack0"]
+    for d in cleardirs:
+        for filename in os.listdir(d):
+            filepath = os.path.join(d, filename)
+            try:
+                shutil.rmtree(filepath)
+            except OSError:
+                os.remove(filepath)
+    return
 
 
 def get_cut_nzbname(nzbname, max_nzb_len):

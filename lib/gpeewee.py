@@ -189,7 +189,7 @@ class PWDB():
             try:
                 self.db_file.backup(self.db)
                 self.logger.debug(whoami() + "copied file db to :memory: db")
-            except Exception as e:
+            except Exception:
                 self.logger.warning(whoami())
         else:
             self.db.connect()
@@ -300,23 +300,32 @@ class PWDB():
             return False
         except Exception:
             return True
-        '''try:
-            busy_nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
-                                               | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
-            if busy_nzb.name:
-                return False
-            else:
-                return True
-        except Exception as e:
-            return True'''
 
     def db_nzb_getnextnzb_for_download(self):
         try:
             nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
                                           | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
-        except Exception as e:
+        except Exception:
             return None
         return nzb.name
+
+    @set_db_timestamp
+    def db_nzb_undo_postprocess(self, nzbname):
+        try:
+            # set unrar_status to 0 (idle)
+            # set verify_status to 0 (idle)
+            # set nzb status to 3 (downloaded/postprocessing)
+            query = self.NZB.update(unrar_status=0, verify_status=0, status=3, date_updated=datetime.datetime.now())\
+                            .where(self.NZB.name == nzbname)
+            query.execute()
+            # for all rarfiles, set parverify_state to 0
+            nzb0 = self.NZB.get(self.NZB.name == nzbname)
+            query = self.FILE.update(parverify_state=0).where((self.FILE.nzb == nzb0) & (self.FILE.ftype == "rar"))
+            query.execute()
+            return True
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return False
 
     @set_db_timestamp
     def db_nzb_store_allfile_list(self, nzbname, allfilelist, filetypecounter, overall_size, overall_size_wparvol, p2):
@@ -422,7 +431,7 @@ class PWDB():
             else:
                 size = 0
             return size
-        except Exception as e:
+        except Exception:
             return 0
 
     def db_nzb_exists(self, name):
@@ -430,7 +439,7 @@ class PWDB():
             nzb = self.NZB.get(self.NZB.name == name)
             assert(nzb.name)
             return True
-        except Exception as e:
+        except Exception:
             return False
 
     @set_db_timestamp
