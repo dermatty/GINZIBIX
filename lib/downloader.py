@@ -57,6 +57,7 @@ class Downloader(Thread):
         self.event_stopped = threading.Event()
         self.event_paused = threading.Event()
         self.stopped_counter = 0
+        self.thread_is_running = False
 
         if self.pw_file:
             try:
@@ -74,8 +75,11 @@ class Downloader(Thread):
 
     def stop(self):
         self.event_stopped.set()
-        with self.lock:
-            self.stopped_counter = 0
+        if not self.thread_is_running:
+            self.start()
+        else:
+            with self.lock:
+                self.stopped_counter = 0
 
     def pause(self):
         self.event_paused.set()
@@ -340,6 +344,11 @@ class Downloader(Thread):
     # main download routine
     # def download(self, nzbname, allfileslist, filetypecounter, servers_shut_down):
     def run(self):
+
+        if self.event_stopped.isSet():
+            sys.exit()
+
+        self.thread_is_running = True
 
         # def download(self, nzbname, servers_shut_down):
         nzbname = self.nzbname

@@ -4,6 +4,7 @@ import os
 import multiprocessing as mp
 from .passworded_rars import get_password
 from .partial_unrar import partial_unrar
+from .par_verifier import par_verifier
 import signal
 import re
 import glob
@@ -23,8 +24,8 @@ def stop_wait(nzbname, dirs, pwdb):
     while PAUSED and not TERMINATED:
         time.sleep(0.25)
     if TERMINATED:
-        pwdb.exc("db_undo_postprocess", [nzbname], {})
-        clear_postproc_dirs(dirs)
+        pwdb.exc("db_nzb_undo_postprocess", [nzbname], {})
+        clear_postproc_dirs(nzbname, dirs)
         sys.exit()
     return False
 
@@ -74,7 +75,7 @@ def make_complete_dir(dirs, nzbdir, logger):
 
 
 def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp0, mp_events, cfg, verifiedrar_dir,
-                    unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, event_queues_cleared, mp_loggerqueue):
+                    unpack_dir, nzbdir, rename_dir, main_dir, download_dir, dirs, pw_file, mp_loggerqueue):
 
     setproctitle("gzbx." + os.path.basename(__file__))
     pwdb = PWDBSender()
@@ -84,7 +85,6 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
 
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
-    event_queues_cleared.clear()     # queues not cleared yet
 
     nzbdirname = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
     incompletedir = dirs["incomplete"] + nzbdirname
@@ -125,19 +125,57 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
 
     # join decoder
     if mpp_is_alive(mpp, "decoder"):
+        t0 = time.time()
+        timeout_reached = False
         try:
             while mp_work_queue.qsize() > 0:
+                if time.time() - t0 > 60 * 3:
+                    timeout_reached = True
+                    break
                 time.sleep(0.5)
         except Exception as e:
             logger.debug(whoami() + str(e))
+            timeout_reached = True
+        if timeout_reached:
+            logger.warning(whoami() + "Timeout reached/error in joining decoder, terminating decoder ...")
+            try:
+                os.kill(mpp["decoder"].pid, signal.SIGTERM)
+                mpp["decoder"].join()
+                mpp["decoder"] = None
+                logger.info(whoami() + "decoder terminated!")
+            except Exception as e:
+                logger.warning(whoami() + str(e) + ": cannot terminate decoder")
+            try:
+                while not mp_work_queue.empty():
+                    mp_work_queue.get_no_wait()
+            except Exception:
+                pass
 
-    # queues & pipes cleared
-    event_queues_cleared.set()
+    stop_wait(nzbname, dirs, pwdb)
+
+    # --- PAR_VERIFIER ---
+    verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
+    all_rars_are_verified, _ = pwdb.exc("db_only_verified_rars", [nzbname], {})
+    renamed_rar_files = pwdb.exc("get_all_renamed_rar_files", [nzbname], {})
+    # verifier not running, status = 0 --> start & wait
+    if not mpp_is_alive(mpp, "verifier") and verifystatus == 0 and not all_rars_are_verified and renamed_rar_files:
+        logger.info(whoami() + "there are files to check by par_verifier, starting par_verifier ...")
+        p2 = pwdb.exc("get_renamed_p2", [rename_dir, nzbname], {})
+        if p2:
+            pvmode = "verify"
+        else:
+            pvmode = "copy"
+        mpp_verifier = mp.Process(target=par_verifier, args=(pipes["verifier"][1], rename_dir, verifiedrar_dir,
+                                                             main_dir, mp_loggerqueue, nzbname, pvmode, event_verifieridle,
+                                                             cfg, ))
+        mpp_verifier.start()
+        mpp["verifier"] = mpp_verifier
+        time.sleep(1)
 
     stop_wait(nzbname, dirs, pwdb)
 
     verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
-    # join verifier if running (status == 1)
+    # verifier is running, status == 1 -> wait/join
     if mpp_is_alive(mpp, "verifier") and verifystatus == 1:
         logger.info(whoami() + "Waiting for par_verifier to complete")
         try:
@@ -165,20 +203,26 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         mpp_join(mpp, "verifier")
         mpp["verifier"] = None
         logger.debug(whoami() + "par_verifier completed/terminated!")
-    # verifier not running, but status == 1
-    elif not mpp_is_alive(mpp, "verifier") and verifystatus == 1:
-        pass
-        # 
-    # if for some reason verifier not started yet (or interrupted)
-    elif verifystatus == 0:
-        # kill verifier, start verifier and wait here
-        pass
-    # if verifier/repair has failed (status)
-    elif verifystatus in [-1, -2]:
-        pass     # nothing to do, checked below
+    # if verifier is running but wrong status, or correct status but not running, exit
+    elif mpp_is_alive(mpp, "verifier") or verifystatus == 1:
+        pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+        pwdb.exc("db_msg_insert", [nzbname, "par_verifier status inconsistency", "error"], {})
+        logger.debug(whoami() + "something is wrong with par_verifier, exiting postprocessor")
+        logger.info(whoami() + "postprocess of NZB " + nzbname + " failed!")
+        if mpp_is_alive(mpp, "verifier"):
+            try:
+                logger.debug(whoami() + "terminating par_verifier")
+                os.kill(mpp["verifier"].pid, signal.SIGTERM)
+                mpp["verifier"].join()
+                mpp["verifier"] = None
+                logger.info(whoami() + "verifier terminated!")
+            except Exception as e:
+                logger.warning(whoami() + str(e) + ": error in killing verifier!")
+        sys.exit()
 
     stop_wait(nzbname, dirs, pwdb)
 
+    # ---  UNRARER ---
     # if unrarer not running (if e.g. all files)
     ispw = pwdb.exc("db_nzb_get_ispw", [nzbname], {})
     unrarernewstarted = False
@@ -271,7 +315,6 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             except Exception as e:
                 logger.debug(whoami() + str(e))
         mpp["unrarer"] = None
-        # sighandler.mpp = self.mpp
         logger.debug(whoami() + "unrarer completed/terminated!")
 
     stop_wait(nzbname, dirs, pwdb)

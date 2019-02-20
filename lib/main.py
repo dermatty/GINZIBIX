@@ -234,7 +234,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     mp_events = {}
     mp_events["unrarer"] = mp.Event()
     mp_events["verifier"] = mp.Event()
-    mp_events["post"] = mp.Event()
 
     # threading events
     event_stopped = threading.Event()
@@ -580,11 +579,13 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     oldbytes0 = 0
                     netstatlist = []
             else:
+                stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
                 # if postproc ok
                 if stat0 == 4:
                     logger.info(whoami() + "postprocessor success for NZB " + nzbname)
                     ct.pause_threads()
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                    
                     dl.stop()
                     dl.join()
                     if mpp_is_alive(mpp, "post"):
@@ -604,7 +605,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                     logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
                     mpp_post = mp.Process(target=postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
                                                                         dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
-                                                                        dl.download_dir, dl.dirs, dl.pw_file, mp_events["post"], mp_loggerqueue, ))
+                                                                        dl.download_dir, dl.dirs, dl.pw_file, mp_loggerqueue, ))
                     mpp_post.start()
                     mpp["post"] = mpp_post
                 # if download failed

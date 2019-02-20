@@ -1,10 +1,9 @@
 # parallel download
 
-0. restart (last, start) + hist. delete impl.!!!!
-1. test nzb-history
-2. ginzi_main in ApplicationGUI!
-3: nur als thread möglich?????
-4: merge ginzibix.py + gui.py + main.py !!!!!
+1. if postproc interrpted: wron filesize on restart last
+2. test, test, test: interrupt <--> reprocess!!
+
+---------------------------------------------------------------------
 
 5. if failed -> is not moved to history in gui
 6. Trying to get password from file / Cannot get pw from nzb string takes too long
