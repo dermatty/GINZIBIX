@@ -13,7 +13,7 @@ import shutil
 from .renamer import renamer
 from .nzb_parser import ParseNZB
 from .connections import ConnectionThreads
-from .aux import PWDBSender, mpp_is_alive
+from .aux import PWDBSender, mpp_is_alive, clear_postproc_dirs
 #from .guiconnector import GUI_Connector
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
@@ -468,6 +468,9 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                                 logger.debug(whoami() + reprocessed_nzb + ": status " + str(reproc_stat0) + ", restart from 0")
                             # status -4/-3 (postproc. failed/interrupted): re-postprocess
                             elif reproc_stat0 in [-4, -3]:
+                                if stat0 == -4:
+                                    pwdb.exc("db_nzb_undo_postprocess", [nzbname], {})
+                                    clear_postproc_dirs(nzbname, dirs)
                                 #  if incompletedir: -> postprocess again
                                 if os.path.isdir(incompletedir):
                                     pwdb.exc("nzb_prio_insert_second", [reprocessed_nzb, 3], {})

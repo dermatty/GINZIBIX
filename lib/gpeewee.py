@@ -456,7 +456,8 @@ class PWDB():
     def db_nzb_getall_sorted(self):
         try:
             query = self.NZB.select().order_by(+self.NZB.priority)
-            nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name), self.db_nzb_get_downloadedsize(n.name))
+            nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name, checkpar2volsloaded=True),
+                        self.db_nzb_get_downloadedsize(n.name))
                        for n in query if n.status in [1, 2, 3]]
             query = self.NZB.select().order_by(-self.NZB.date_updated)
             nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n.name, checkpar2volsloaded=True),

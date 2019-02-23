@@ -345,6 +345,8 @@ class Downloader(Thread):
     # def download(self, nzbname, allfileslist, filetypecounter, servers_shut_down):
     def run(self):
 
+        # this is necessary: if not-yet-started downloader is stopped & joined externally,
+        #                    run() has to be called once, but be left also immediately!!!
         if self.event_stopped.isSet():
             sys.exit()
 

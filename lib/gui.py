@@ -313,7 +313,7 @@ class ApplicationGui(Gtk.Application):
             self.appdata.fulldata = fulldata
             try:
                 self.appdata.nzbname = fulldata["all#"][0]
-            except Exception as e:
+            except Exception:
                 self.appdata.nzbname = None
             self.update_logstore()
 
@@ -360,7 +360,7 @@ class ApplicationGui(Gtk.Application):
                         eta0 = 0
                     try:
                         etastr = str(datetime.timedelta(seconds=int(eta0)))
-                    except Exception as e:
+                    except Exception:
                         etastr = "-"
                 else:
                     etastr = "-"
@@ -817,7 +817,7 @@ class Handler:
         dialog.add_filter(filter_any)
 
     def on_button_interrupt_clicked(self, button):
-        dialog = ConfirmDialog(self.gui.window, "Do you really want to move these NZBs to history?")
+        dialog = ConfirmDialog(self.gui.window, "Interrupt Download", "Do you really want to move these NZBs to history?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
@@ -834,7 +834,7 @@ class Handler:
 
     def on_button_delete_clicked(self, button):
         # todo: appdata.nzbs -> update_liststore
-        dialog = ConfirmDialog(self.gui.window, "Do you really want to delete these NZBs ?")
+        dialog = ConfirmDialog(self.gui.window, "Delete NZB(s)", "Do you really want to delete these NZBs ?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
@@ -854,7 +854,7 @@ class Handler:
             self.gui.guiqueue.put(("reprocess_from_last", selected_nzbs))
 
     def on_button_hist_delete_clicked(self, button):
-        dialog = ConfirmDialog(self.gui.window, "Do you really want to delete these NZBs form history?")
+        dialog = ConfirmDialog(self.gui.window, "Delete NZB(s)", "Do you really want to delete these NZBs form history?")
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.CANCEL:
@@ -879,9 +879,9 @@ class Handler:
 # *** Addtl stuff
 
 class ConfirmDialog(Gtk.Dialog):
-    def __init__(self, parent, txt):
-        Gtk.Dialog.__init__(self, "My Dialog", parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
-                                                           Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+    def __init__(self, parent, title, txt):
+        Gtk.Dialog.__init__(self, title, parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                                     Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
         self.set_default_size(150, 100)
         self.set_border_width(10)
         self.set_modal(True)
