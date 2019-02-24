@@ -266,6 +266,7 @@ class ConnectionThreads:
         result = {}
         for servername, _, _, _ in self.all_connections:
             result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+        return result
 
     def start_threads(self):
         if not self.threads:

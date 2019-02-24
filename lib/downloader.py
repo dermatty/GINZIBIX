@@ -266,6 +266,7 @@ class Downloader(Thread):
                     newresult = True
                 except TypeError:
                     continue
+                self.allbytesdownloaded0 += bytesdownloaded
                 # check if file is completed and put to mp_queue/decode in case
                 (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
                 if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:
@@ -353,6 +354,7 @@ class Downloader(Thread):
         self.thread_is_running = True
 
         # def download(self, nzbname, servers_shut_down):
+        self.allbytesdownloaded0 = 0
         nzbname = self.nzbname
         return_reason = None
         article_count = 0
@@ -397,13 +399,13 @@ class Downloader(Thread):
 
         if startstatus > 2:
             self.logger.info(whoami() + nzbname + "- download complete!")
-            self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+            self.results = nzbname, ((bytescount0, 0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                       self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                       self.allfileslist)), "download complete", self.main_dir
             sys.exit()
 
         # trigger set_data for gui
-        self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+        self.results = nzbname, ((bytescount0, 0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                   self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                   self.allfileslist)), "N/A", self.main_dir
         self.pwdb.exc("db_nzb_update_status", [nzbname, 2], {})    # status "downloading"
@@ -441,7 +443,7 @@ class Downloader(Thread):
                     if (self.filetypecounter["par2vol"]["max"] > 0 and sanity0 < self.crit_art_health_w_par) or\
                        (self.filetypecounter["par2vol"]["max"] == 0 and sanity0 < self.crit_art_health_wo_par):
                         self.pwdb.exc("db_msg_insert", [nzbname, "Sanity less than criticical health level, exiting", "error"], {})
-                        self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+                        self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                                   self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                                   self.allfileslist)), "download failed", self.main_dir
                         sys.exit()
@@ -502,7 +504,7 @@ class Downloader(Thread):
             if self.event_paused.isSet():
                 continue
 
-            self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+            self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                       self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                       self.allfileslist)), "N/A", self.main_dir
 
@@ -628,7 +630,7 @@ class Downloader(Thread):
                         self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})  # status download failed
                         return_reason = "download failed"
                         self.pwdb.exc("db_msg_insert", [nzbname, "download failed due to pw test not possible", "error"], {})
-                        self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+                        self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                                   self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                                   self.allfileslist)), return_reason, self.main_dir
                         self.stop()
@@ -684,10 +686,8 @@ class Downloader(Thread):
                         self.mpp["verifier"] = self.mpp_verifier
                         self.logger.info(whoami() + "verifier started!")
 
-            # print(time.time(), "#6")
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
-            # print(time.time(), "#6a")
             article_failed += failed
             if article_count != 0:
                 article_health = 1 - article_failed / article_count
@@ -720,7 +720,7 @@ class Downloader(Thread):
                     else:
                         self.pwdb.exc("db_msg_insert", [nzbname, "critical health threashold exceeded", "error"], {})
                     return_reason = "download failed"
-                    self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+                    self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                               self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                               self.allfileslist)), return_reason, self.main_dir
                     self.stop()
@@ -753,7 +753,7 @@ class Downloader(Thread):
                 self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
                 self.logger.warning(whoami() + ": records say dl is done, but still some articles in queue, exiting ...")
                 return_reason = "download failed"
-                self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+                self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                           self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                           self.allfileslist)), return_reason, self.main_dir
                 self.stop()
@@ -789,7 +789,7 @@ class Downloader(Thread):
         else:
             msgtype = "info"
         self.pwdb.exc("db_msg_insert", [nzbname, return_reason, msgtype], {})
-        self.results = nzbname, ((bytescount0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+        self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                   self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                   self.allfileslist)), return_reason, self.main_dir
 

@@ -304,8 +304,8 @@ class ApplicationGui(Gtk.Application):
     # ----------------------------------------------------------------------------------------------------
     # all the gui update functions
 
-    def update_mainwindow(self, data, server_config, threads, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
-                          sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata):
+    def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
+                          sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata, gb_downloaded):
 
 
         # fulldata: contains messages
@@ -384,12 +384,7 @@ class ApplicationGui(Gtk.Application):
                 firstsortednzb = None
             if nzbname is not None and nzbname == firstsortednzb:
                 mbitseccurr = 0
-                # calc gbdown, mbitsec_avg
-                gbdown0 = 0
-                for t_bytesdownloaded, t_last_timestamp, t_idn, t_bandwbytes in threads:
-                    gbdown = t_bytesdownloaded / (1024 * 1024 * 1024)
-                    gbdown0 += gbdown
-                gbdown0 += already_downloaded_size
+                gbdown0 = gb_downloaded
                 mbitseccurr = netstat_mbitcur
                 if not dl_running:
                     self.dl_running = False
