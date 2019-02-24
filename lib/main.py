@@ -14,13 +14,14 @@ from .renamer import renamer
 from .nzb_parser import ParseNZB
 from .connections import ConnectionThreads
 from .aux import PWDBSender, mpp_is_alive, clear_postproc_dirs
-#from .guiconnector import GUI_Connector
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
 from .downloader import Downloader
 from setproctitle import setproctitle
 from statistics import mean
 from collections import deque
+import pandas as pd
+import pickle
 
 
 class SigHandler_Main:
@@ -32,6 +33,56 @@ class SigHandler_Main:
     def sighandler(self, a, b):
         self.event_stopped.set()
         self.logger.debug(whoami() + "set event_stopped = True")
+
+
+# serverstats["eweka"] = pd.Series
+# avgmiblist.append((time.time(), bytesdownloaded, download_server))
+def update_server_ts(server_ts, ct, lastt):
+
+    t0 = time.time()
+    if t0 - lastt < 1:
+        return
+
+    current_stats = ct.get_downloaded_per_server()
+    now0 = datetime.datetime.now().replace(microsecond=0)
+
+    # add new bytesdownloaded per server
+    for server, bdl in current_stats.items():
+        try:
+            server_ts[server]["sec"][now0] = bdl / 1024
+
+            server_ts[server]["minute"][now0] = server_ts[server]["minute"].resample("1T").last()
+            server_ts[server]["hour"][now0] = server_ts[server]["hour"].resample("1H").last()
+            server_ts[server]["day"][now0] = server_ts[server]["day"].resample("1D").last()
+            server_ts[server]["month"][now0] = server_ts[server]["month"].resample("1M").last()
+
+            # max 2 minutes for seconds
+            if len(server_ts[server]["sec"]) > 120:
+                del server_ts[server]["sec"][0]
+
+            # max 24h for minutes
+            if len(server_ts[server]["minute"]) > 60 * 24:
+                del server_ts[server]["minute"][0]
+
+            # max 1W for hours
+            if len(server_ts[server]["hour"]) > 24 * 7:
+                del server_ts[server]["hour"][0]
+
+            # max 3M for days
+            if len(server_ts[server]["day"]) > 3 * 31:
+                del server_ts[server]["day"][0]
+
+            # max 12M for months
+            if len(server_ts[server]["month"]) > 12:
+                del server_ts[server]["month"][0]
+
+        except Exception:
+            server_ts[server] = {}
+            server_ts[server]["sec"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='S'))
+            server_ts[server]["minute"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='T'))
+            server_ts[server]["hour"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='H'))
+            server_ts[server]["day"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='D'))
+            server_ts[server]["month"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='M'))
 
 
 def make_allfilelist_wait(pwdb, dirs, logger, timeout0):
@@ -250,6 +301,14 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
              "verifier": [verifier_parent_pipe, verifier_child_pipe]}
 
+    # init serverstats with pandas time series if avail.
+    try:
+        server_ts = pickle.load(open(dirs["main"] + "ginzibix.ts", "rb"))
+        logger.debug(whoami() + "Read ginzibix.ts file ok!")
+    except Exception:
+        logger.debug(whoami() + "Cannot read ginzibix.ts file, resetting pandas time series")
+        server_ts = {}
+
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
 
     # update delay
@@ -304,6 +363,8 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
 
     DEBUGPRINT = False
+
+    lastt_serverstats = 0
 
     try:
         while not event_stopped.is_set():
@@ -365,6 +426,8 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                             print(">>>> #0a main:", time.time(), msg)
                         bytescount0, availmem0, avgmiblist, filetypecounter, _, article_health, overall_size,\
                             already_downloaded_size, p2, overall_size_wparvol, allfileslist = downloaddata
+                        update_server_ts(server_ts, ct, lastt_serverstats)
+                        lastt_serverstats = time.time()
                         if DEBUGPRINT:
                             print(">>>> #0b main:", time.time(), msg)
                         downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,\
@@ -655,11 +718,17 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     logger.debug(whoami() + "closeall: downloader joined")
     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
     dl = None
-    logger.debug(whoami() + "closing: closing gtkgui-socket")
+    logger.debug(whoami() + "closeall: closing gtkgui-socket")
     try:
         socket.close()
         context.term()
     except Exception as e:
         logger.warning(whoami() + str(e))
     logger.debug(whoami() + "closeall: all cleared")
+    # save pandas time series
+    try:
+        pickle.dump(server_ts, open(dirs["main"] + "ginzibix.ts", "wb"))
+        logger.info(whoami() + "closeall: saved downloaded-timeseries to file")
+    except Exception as e:
+        logger.warning(whoami() + str(e) + ": closeall: error in saving download-timeseries")
     logger.info(whoami() + "exited!")

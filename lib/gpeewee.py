@@ -87,6 +87,11 @@ class PWDB():
             message = CharField()
             level = CharField()
 
+        class SERVER_TS(BaseModel):
+            servername = CharField()
+            timestamp = TimeField()
+            downloaded = IntegerField()    # in MB
+
         class NZB(TimestampedModel):
             name = CharField(unique=True)
             priority = IntegerField(default=-1)
@@ -183,7 +188,8 @@ class PWDB():
         self.NZB = NZB
         self.FILE = FILE
         self.ARTICLE = ARTICLE
-        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG]
+        self.SERVER_TS = SERVER_TS
+        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.SERVER_TS]
 
         if self.db_file_exists:
             try:
@@ -245,6 +251,13 @@ class PWDB():
                 nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
             nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
         return nzb_data
+
+    # ---- self.SERVER_TS ----
+    def db_sts_insert(self, servername, downloaded):
+        try:
+            new_sts = self.SERVER_TS.create(servername=servername, timestamp=time.time())
+        except:
+            pass
 
     # ---- self.MSG --------
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):

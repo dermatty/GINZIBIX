@@ -1,6 +1,3 @@
-# parallel download
-
-1. if postproc interrpted: wron filesize on restart last
 2. test, test, test: interrupt <--> reprocess!!
 
 ---------------------------------------------------------------------

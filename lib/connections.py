@@ -262,6 +262,11 @@ class ConnectionThreads:
         self.level_servers = self.servers.level_servers
         self.all_connections = self.servers.all_connections
 
+    def get_downloaded_per_server(self):
+        result = {}
+        for servername, _, _, _ in self.all_connections:
+            result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+
     def start_threads(self):
         if not self.threads:
             self.logger.debug(whoami() + "starting download threads")
