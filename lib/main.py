@@ -36,75 +36,81 @@ class SigHandler_Main:
 
 
 # serverstats["eweka"] = pd.Series
-def update_server_ts(server_ts, ct, lastt_serverstats):
+def update_server_ts(server_ts, ct):
 
-    t0 = time.time()
-    if t0 - lastt_serverstats < 1:
-        return
-    lastt_serverstats = t0
+    hour_in_sec = 3600
+    day_in_sec = hour_in_sec * 24
+    months_in_sec = day_in_sec * 90
 
     current_stats = ct.get_downloaded_per_server()
     now0 = datetime.datetime.now().replace(microsecond=0)
 
-    # add new bytesdownloaded per server
-    for server, bdl in current_stats.items():
-        try:
-            # in KB
-            server_ts[server]["sec"][now0] = bdl / (1024 * 1024)   # in MB
-            server_ts[server]["minute"] = server_ts[server]["sec"].resample("1T").last()
-            server_ts[server]["hour"] = server_ts[server]["minute"].resample("1H").last()
-            server_ts[server]["day"] = server_ts[server]["hour"].resample("1D").last()
-
-            # max 60 seconds
-            if len(server_ts[server]["sec"]) > 60:
-                idx0 = server_ts[server]["sec"].index[0]
-                server_ts[server]["sec"].drop(idx0)
-
-            # max 60 minutes
-            if len(server_ts[server]["minute"]) > 60:
-                idx0 = server_ts[server]["minute"].index[0]
-                server_ts[server]["minute"].drop(idx0)
-
-            # max 24 hours
-            if len(server_ts[server]["hour"]) > 24:
-                idx0 = server_ts[server]["hour"].index[0]
-                server_ts[server]["hour"].drop(idx0)
-
-            # max 31 days
-            if len(server_ts[server]["day"]) > 31:
-                idx0 = server_ts[server]["day"].index[0]
-                server_ts[server]["day"].drop(idx0)
-
-        except Exception:
-            server_ts[server] = {}
-            server_ts[server]["sec"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='S'))
-            server_ts[server]["minute"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='T'))
-            server_ts[server]["hour"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='H'))
-            server_ts[server]["day"] = pd.Series(0, index=pd.date_range(now0, periods=1, freq='D'))
-
     server_ts_diff = {}
     mbit_mean_3sec0 = 0
-    # return differences
-    for server in server_ts:
+
+    mbit_mean_3sec0 = 0
+
+    for server, bdl in current_stats.items():
+        bdl = bdl / (1024 * 1024)   # in MB
+        try:
+            last_datetime = server_ts[server]["sec"].index[-1]
+            if (now0 - last_datetime).total_seconds() < 1:
+                time.sleep(0.25)
+                continue
+        except Exception:
+            server_ts[server] = {}
+            server_ts[server]["sec"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='S'))
+            server_ts[server]["minute"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='min'))
+            server_ts[server]["hour"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='H'))
+            server_ts[server]["day"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='D'))
+
+        server_ts[server]["sec"][now0] = bdl
+
+        # limit seconds to 60
+        while (now0 - server_ts[server]["sec"].index[0]).total_seconds() > 60:
+            server_ts[server]["sec"] = server_ts[server]["sec"].drop(server_ts[server]["sec"].index[0])
+
+        # every 60 sec: minutes entry, max 60 minutes
+        if (now0 - server_ts[server]["minute"].index[-1]).total_seconds() >= 60:
+            server_ts[server]["minute"][now0] = bdl
+            while (now0 - server_ts[server]["minute"].index[0]).total_seconds() > hour_in_sec:
+                server_ts[server]["minute"] = server_ts[server]["minute"].drop(server_ts[server]["minute"].index[0])
+
+        # every 60 minutes: hour entry, max 24 hours
+        if (now0 - server_ts[server]["hour"].index[-1]).total_seconds() >= hour_in_sec:
+            server_ts[server]["hour"][now0] = bdl
+            while (now0 - server_ts[server]["hour"].index[0]).total_seconds() > day_in_sec:
+                server_ts[server]["hour"] = server_ts[server]["hour"].drop(server_ts[server]["hour"].index[0])
+
+        # every 24 hours: day entry, max 90 days
+        if (now0 - server_ts[server]["day"].index[-1]).total_seconds() >= day_in_sec:
+            server_ts[server]["day"][now0] = bdl
+            while (now0 - server_ts[server]["day"].index[0]).total_seconds() > months_in_sec:
+                server_ts[server]["day"] = server_ts[server]["day"].drop(server_ts[server]["day"].index[0])
+
+        df_min_add = server_ts[server]["sec"].resample("1T").mean()[-1]
+        server_ts[server]["minute"][-1] = df_min_add
+
+        df_h_add = server_ts[server]["minute"].resample("1H").mean()[-1]
+        server_ts[server]["hour"][-1] = df_h_add
+
+        df_d_add = server_ts[server]["hour"].resample("1D").mean()[-1]
+        server_ts[server]["day"][-1] = df_d_add
+
         server_ts_diff[server] = {}
         server_ts_diff[server]["sec"] = server_ts[server]["sec"].diff()
         server_ts_diff[server]["minute"] = server_ts[server]["minute"].diff()
         server_ts_diff[server]["hour"] = server_ts[server]["hour"].diff()
         server_ts_diff[server]["day"] = server_ts[server]["day"].diff()
-        iadd = 0
-        mbit_mean_3sec = 0
-        for i in range(3):
-            try:
-                mbit_mean_3sec += server_ts_diff[server]["sec"].iloc[-i - 1]
-                iadd += 1
-            except Exception:
-                pass
-        try:
-            mbit_mean_3sec /= iadd
-        except Exception:
-            mbit_mean_3sec = 0
-        mbit_mean_3sec0 += mbit_mean_3sec
-    return server_ts_diff, mbit_mean_3sec0 * 8
+
+        mbit_mean_3sec0 += server_ts_diff[server]["sec"].rolling(window=3).mean()[-1]
+
+    try:
+        mbit_mean_3sec0 = int(mbit_mean_3sec0 * 8)
+    except Exception:
+        mbit_mean_3sec0 = 0
+
+    return server_ts_diff, mbit_mean_3sec0
 
 
 def make_allfilelist_wait(pwdb, dirs, logger, timeout0):
@@ -323,14 +329,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
              "verifier": [verifier_parent_pipe, verifier_child_pipe]}
 
-    # init serverstats with pandas time series if avail.
-    #try:
-    #    server_ts = pickle.load(open(dirs["main"] + "ginzibix.ts", "rb"))
-    #    logger.debug(whoami() + "Read ginzibix.ts file ok!")
-    #except Exception:
-    #    logger.debug(whoami() + "Cannot read ginzibix.ts file, resetting pandas time series")
-    #    server_ts = {}
-
     server_ts = {}
 
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
@@ -387,8 +385,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
 
     DEBUGPRINT = False
-
-    lastt_serverstats = 0
 
     try:
         while not event_stopped.is_set():
@@ -450,32 +446,17 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                             print(">>>> #0a main:", time.time(), msg)
                         bytescount0, allbytesdownloaded0, availmem0, avgmiblist, filetypecounter, _, article_health,\
                             overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist = downloaddata
-                        server_ts_diff, mean_netstat = update_server_ts(server_ts, ct, lastt_serverstats)
+                        # test for mean_netstat: seems weird, 0s in beetween
+                        try:
+                            server_ts_diff, mean_netstat = update_server_ts(server_ts, ct)
+                        except Exception as e:
+                            print(str(e))
                         gb_downloaded = allbytesdownloaded0 / (1024 * 1024 * 1024)
                         print(server_ts_diff["PROXY"]["sec"][-1] * 8, "MBit", "-", gb_downloaded)
                         if DEBUGPRINT:
                             print(">>>> #0b main:", time.time(), msg)
                         downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,\
                             overall_size, already_downloaded_size
-                        # netstat
-                        '''bytes0 = 0
-                        for t, last_timestamp in ct.threads:
-                            append_tuple = (t.bytesdownloaded, t.last_timestamp, t.idn, t.bandwidth_bytes)
-                            ct_threads.append(append_tuple)
-                            bytes0 += t.bytesdownloaded
-                        if DEBUGPRINT:
-                            print(">>>> #3 main:", time.time(), msg)
-                        if bytes0 > 0:
-                            dt = time.time() - old_t
-                            if dt == 0:
-                                dt = 0.001
-                            mbitcurr = ((bytes0 - oldbytes0) / dt) / (1024 * 1024) * 8
-                            oldbytes0 = bytes0
-                            old_t = time.time()
-                            netstatlist = [(mbit, t) for mbit, t in netstatlist if time.time() - t <= 2.0] + [(mbitcurr, old_t)]
-                            mean_netstat = mean([mbit for mbit, _ in netstatlist])
-                        else:
-                            mean_netstat = 0'''
                         if DEBUGPRINT:
                             print(">>>> #4 main:", time.time(), msg)
                         getdata = downloaddata_gc, serverconfig, dl_running, statusmsg, mean_netstat,\
