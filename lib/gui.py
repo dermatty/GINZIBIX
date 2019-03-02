@@ -86,7 +86,6 @@ class ApplicationGui(Gtk.Application):
         self.app.run(argv)
 
     def on_app_activate(self, app):
-        print("app_activate")
         self.builder = Gtk.Builder()
         self.builder.add_from_file(GLADEFILE)
         self.builder.add_from_string(MENU_XML)

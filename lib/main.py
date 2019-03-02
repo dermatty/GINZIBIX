@@ -24,6 +24,8 @@ import pandas as pd
 import pickle
 
 
+GB_DIVISOR = (1024 * 1024 * 1024)
+
 class SigHandler_Main:
 
     def __init__(self, event_stopped, logger):
@@ -97,12 +99,12 @@ def update_server_ts(server_ts, ct):
         df_d_add = server_ts[server]["hour"].resample("1D").mean()[-1]
         server_ts[server]["day"][-1] = df_d_add
 
+    for server in server_ts:
         server_ts_diff[server] = {}
         server_ts_diff[server]["sec"] = server_ts[server]["sec"].diff()
         server_ts_diff[server]["minute"] = server_ts[server]["minute"].diff()
         server_ts_diff[server]["hour"] = server_ts[server]["hour"].diff()
         server_ts_diff[server]["day"] = server_ts[server]["day"].diff()
-
         mbit_mean_3sec0 += server_ts_diff[server]["sec"].rolling(window=3).mean()[-1]
 
     try:
@@ -433,7 +435,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         serverconfig = ct.servers.server_config
                     full_data_for_gui = pwdb.exc("get_all_data_for_gui", [], {})
                     sorted_nzbs, sorted_nzbshistory = pwdb.exc("get_stored_sorted_nzbs", [], {})
-                    ct_threads = []
                     if dl:
                         dl_results = dl.results
                     else:
@@ -451,8 +452,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                             server_ts_diff, mean_netstat = update_server_ts(server_ts, ct)
                         except Exception as e:
                             print(str(e))
-                        gb_downloaded = allbytesdownloaded0 / (1024 * 1024 * 1024)
-                        print(server_ts_diff["PROXY"]["sec"][-1] * 8, "MBit", "-", gb_downloaded)
+                        gb_downloaded = dl.allbytesdownloaded0 / GB_DIVISOR
                         if DEBUGPRINT:
                             print(">>>> #0b main:", time.time(), msg)
                         downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health,\

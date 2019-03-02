@@ -258,7 +258,7 @@ class Downloader(Thread):
                 if add_bytes:
                     try:
                         bytesdownloaded = sum(len(i) for i in inf0)
-                    except Exception as e:
+                    except Exception:
                         bytesdownloaded = 0
                     avgmiblist.append((time.time(), bytesdownloaded, download_server))
                 try:
