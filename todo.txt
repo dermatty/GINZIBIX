@@ -1,4 +1,5 @@
-2. test, test, test: interrupt <--> reprocess!!
+1. if par_repair needed -> "something is wrong with par_verifier"!!!
+
 
 ---------------------------------------------------------------------
 

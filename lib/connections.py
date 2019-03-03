@@ -144,7 +144,7 @@ class ConnectionWorker(Thread):
             addserver = s[:]
             try:
                 addserver.remove(name)
-            except Exception as e:
+            except Exception:
                 pass
             if addserver:
                 next_servers.append(addserver)
@@ -165,6 +165,10 @@ class ConnectionWorker(Thread):
                 elif time.time() - self.tt_pause_started > self.connection_idle_time and self.nntpobj:
                     if self.servers.close_connection(self.name, self.conn_nr):
                         self.logger.info(whoami() + self.idn + " connection idle, closed!")
+                        self.nntpobj = None
+                        self.connectionstate = -1
+                    else:
+                        self.logger.info(whoami() + self.idn + " connection non existent, closed!")
                         self.nntpobj = None
                         self.connectionstate = -1
                 time.sleep(0.25)

@@ -175,8 +175,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     stop_wait(nzbname, dirs, pwdb)
 
     verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
-    # verifier is running, status == 1 -> wait/join
-    if mpp_is_alive(mpp, "verifier") and verifystatus == 1:
+    # verifier is running, status == 1 (running) or -2 -> wait/join
+    if mpp_is_alive(mpp, "verifier") and verifystatus in [1, -2]:
         logger.info(whoami() + "Waiting for par_verifier to complete")
         try:
             # kill par_verifier in deadlock
@@ -263,7 +263,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         except Exception as e:
             logger.warning(whoami() + str(e))
         logger.debug(whoami() + "verifystatus: " + str(verifystatus) + " / unrarstatus: " + str(unrarstatus))
-        if verifystatus > 0 and unrarstatus == 0:
+        if (verifystatus > 0 or verifystatus == -2) and unrarstatus == 0:
             try:
                 logger.debug(whoami() + "unrarer passiv until now, starting ...")
                 event_unrareridle = mp.Event()
@@ -327,11 +327,11 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                 + str(finalnonrarstate))
     if finalrarstate and finalnonrarstate and finalverifierstate:
         pwdb.exc("db_msg_insert", [nzbname, "unrar/par-repair ok!", "success"], {})
-        logger.info("unrar/par-repair of NZB " + nzbname + " success!")
+        logger.info(whoami() + "unrar/par-repair of NZB " + nzbname + " success!")
     else:
         pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
         pwdb.exc("db_msg_insert", [nzbname, "unrar/par-repair failed!", "error"], {})
-        logger.info("postprocess of NZB " + nzbname + " failed!")
+        logger.info(whoami() + "postprocess of NZB " + nzbname + " failed!")
         sys.exit()
 
     stop_wait(nzbname, dirs, pwdb)

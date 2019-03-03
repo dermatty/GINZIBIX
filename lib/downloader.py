@@ -574,8 +574,7 @@ class Downloader(Thread):
                 except Exception:
                     break
 
-            # print(time.time(), "#3")
-            # if verifier tells us so, we load par2vol files
+            # if verifier tells us so, we load par2vol files, stop unrarer
             if not self.event_stopped.isSet() and not loadpar2vols:
                 if self.pipes["verifier"][0].poll():
                     loadpar2vols = self.pipes["verifier"][0].recv()
@@ -589,6 +588,18 @@ class Downloader(Thread):
                                                                                          self.filetypecounter)
                     bytescount0 += bytescount00
                     article_count += article_count0
+                    # kill unrarer
+                    '''try:
+                        if mpp_is_alive(self.mpp, "unrarer"):
+                            mpid = self.mpp["unrarer"].pid
+                            self.logger.debug(whoami() + "terminating unrarer")
+                            os.kill(mpid, signal.SIGTERM)
+                            self.mpp["unrarer"].join()
+                            self.mpp["unrarer"] = None
+                            self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                            self.logger.info(whoami() + "unrarer terminated!")
+                    except Exception as e:
+                        self.logger.warning(whoami() + str(e))'''
 
             # check if unrarer is dead due to wrong rar on start
             if mpp_is_alive(self.mpp, "unrarer") and self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {}) == -2:
@@ -643,10 +654,10 @@ class Downloader(Thread):
                         self.logger.info(whoami() + "rar archive is pw protected, postponing unrar to postprocess ...")
                     elif is_pwp == -1:
                         # if not pw protected -> normal unrar
-                        self.logger.info(whoami() + "rar archive is not pw protected, starting unrarer ...")
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
                         verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
                         if verifystatus != -2:
+                            self.logger.info(whoami() + "rar archive is not pw protected, starting unrarer ...")
                             # if by some chance unrarer is running: stop it before restarting it
                             if self.mpp["unrarer"] and mpp_is_alive(self.mpp, "unrarer"):
                                 self.logger.debug(whoami() + "stopping unrarer")
@@ -662,6 +673,8 @@ class Downloader(Thread):
                                                                                       nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
                             self.mpp_unrarer.start()
                             self.mpp["unrarer"] = self.mpp_unrarer
+                        else:
+                            self.logger.debug(whoami() + "not starting unrarer due to verifier state = -2")
                     elif is_pwp == -3:
                         self.logger.info(whoami() + ": cannot check for pw protection as first rar not present yet")
                 else:

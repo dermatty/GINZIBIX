@@ -447,11 +447,10 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                             print(">>>> #0a main:", time.time(), msg)
                         bytescount0, allbytesdownloaded0, availmem0, avgmiblist, filetypecounter, _, article_health,\
                             overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist = downloaddata
-                        # test for mean_netstat: seems weird, 0s in beetween
                         try:
                             server_ts_diff, mean_netstat = update_server_ts(server_ts, ct)
                         except Exception as e:
-                            print(str(e))
+                            logger.warning(whoami() + str(e))
                         gb_downloaded = dl.allbytesdownloaded0 / GB_DIVISOR
                         if DEBUGPRINT:
                             print(">>>> #0b main:", time.time(), msg)

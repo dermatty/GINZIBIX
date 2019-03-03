@@ -14,6 +14,7 @@ from setproctitle import setproctitle
 
 
 TERMINATED = False
+TEST_FOR_FAILED_RAR = False
 
 
 class SigHandler_Verifier:
@@ -63,7 +64,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
             f_short = filename.split("/")[-1]
             md5 = calc_file_md5hash(renamed_dir + filename)
             md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
-            if False in md5match:
+            if False in md5match or TEST_FOR_FAILED_RAR and "part02.rar" in f_short:
                 logger.warning(whoami() + " error in md5 hash match for file " + f_short)
                 # pwdb.db_file_update_parstatus(f_origname, -1)
                 pwdb.exc("db_file_update_parstatus", [f_origname, -1], {})
@@ -124,7 +125,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                         f_short = f0_renamedname.split("/")[-1]
                         md5 = calc_file_md5hash(renamed_dir + rar0)
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0_renamedname]
-                        if False in md5match:
+                        if False in md5match or TEST_FOR_FAILED_RAR and "part02.rar" in f_short:
                             logger.warning(whoami() + "error in md5 hash match for file " + f_short)
                             pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
                             pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
@@ -187,7 +188,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
     else:
         pwdb.exc("db_msg_insert", ["nzbname", "rar file repair failed, no par files available", "error"], {})
         logger.warning(whoami() + "some rars are corrupt but cannot repair (no par2 files)")
-        pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
+        pwdb.exc("db_nzb_update_verify_status", [nzbname, -1], {})
     logger.info(whoami() + "terminated!")
     sys.exit()
 
