@@ -140,6 +140,40 @@ def make_dirs():
     return userhome, maindir, dirs, subdirs
 
 
+# reads servers from config
+def get_server_config(cfg):
+    # get servers from config, max SERVER10
+    snr = 0
+    idx = 0
+    sconf = []
+    while idx < 10:
+        idx += 1
+        try:
+            snr += 1
+            snrstr = "SERVER" + str(snr)
+            useserver = True if cfg[snrstr]["USE_SERVER"].lower() == "yes" else False
+            server_name = cfg[snrstr]["SERVER_NAME"]
+            server_url = cfg[snrstr]["SERVER_URL"]
+            user = cfg[snrstr]["USER"]
+            password = cfg[snrstr]["PASSWORD"]
+            port = int(cfg[snrstr]["PORT"])
+            usessl = True if cfg[snrstr]["SSL"].lower() == "yes" else False
+            level = int(cfg[snrstr]["LEVEL"])
+            connections = int(cfg[snrstr]["CONNECTIONS"])
+        except Exception:
+            snr -= 1
+            continue
+        if useserver:
+            try:
+                retention = int(cfg[snrstr]["RETENTION"])
+                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
+            except Exception:
+                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))
+    if not sconf:
+        return None
+    return sconf
+
+
 class PWDBSender():
     def __init__(self):
         self.context = None
@@ -307,12 +341,12 @@ class GUI_Poller(Thread):
                     if datatype == "NOOK":
                         continue
                     elif datatype == "DL_DATA":
-                        data, server_config, dl_running, nzb_status_string, netstat_mbitcurr, sortednzblist, sortednzbhistorylist,  \
-                            article_health, connection_health, dlconfig, full_data, gb_downloaded = datarec
+                        data, server_config, dl_running, nzb_status_string, sortednzblist, sortednzbhistorylist,  \
+                            article_health, connection_health, dlconfig, full_data, gb_downloaded, server_ts = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, dl_running, nzb_status_string,
-                                          netstat_mbitcurr, sortednzblist, sortednzbhistorylist, article_health, connection_health,
-                                          dlconfig, full_data, gb_downloaded)
+                                          sortednzblist, sortednzbhistorylist, article_health, connection_health,
+                                          dlconfig, full_data, gb_downloaded, server_ts)
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))

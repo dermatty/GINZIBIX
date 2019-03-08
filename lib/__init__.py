@@ -12,7 +12,7 @@ from .main import ginzi_main
 from .gtkgui import Application
 from .gui import ApplicationGui
 from .aux import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, get_cut_nzbname, get_cut_msg, get_bg_color, get_status_name_and_color,\
-    clear_postproc_dirs
+    clear_postproc_dirs, get_server_config
 from .guiconnector import GUI_Connector
 from .downloader import Downloader
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume

@@ -1,4 +1,4 @@
-#!/home/stephan/.virtualenvs/nntp/bin/python
+#!/home/stephan/.virtualenvs/gzbx/bin/python
 
 import configparser
 import signal
@@ -110,7 +110,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
     signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
-    app = lib.ApplicationGui(dirs, cfg_file, mp_loggerqueue)
+    app = lib.ApplicationGui(dirs, cfg, mp_loggerqueue)
     exit_status = app.run(sys.argv)
 
     sh.shutdown()

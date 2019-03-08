@@ -1,12 +1,23 @@
 import gi
+import matplotlib
 import queue
-import configparser
 import threading
 import time
 import datetime
+import pandas as pd
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib
-from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color
+from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color, get_server_config
 from .mplogging import whoami, setup_logger
+matplotlib.rcParams['toolbar'] = 'None'
+matplotlib.use('GTK3Agg')  # or 'GTK3Cairo'
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_gtk3agg import (
+    FigureCanvasGTK3Agg as FigureCanvas)
+from matplotlib.figure import Figure
+from matplotlib.dates import DayLocator, HourLocator, SecondLocator, DateFormatter, drange
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
+
 
 gi.require_version("Gtk", "3.0")
 
@@ -45,12 +56,23 @@ MENU_XML = """
 </interface>
 """
 
+# black blue red green orange magenta darkgreen steelblue brown darkred
+COLORCODES = ["#000000", "#0000FF", "#FF0000", "#008000", "#FFA500", "#FF00FF", "#006400", "#4682B4", "#A52A2A", "#8B0000"] * 2
+LINESTYLES = ["-", "--", "-.", ":"] * 5
+MARKERS = ["D", "o", ".", "h", "^"] * 4
+
+FREQ_DIC = {"Speed MiB / sec": "mbsec",
+            "Download - seconds": "dlsec",
+            "Download - minutes": "dlmin",
+            "Download - hours": "dlh",
+            "Download - days": "dld"}
+
 
 # ******************************************************************************************************
 # *** main gui itself
 class ApplicationGui(Gtk.Application):
 
-    def __init__(self, dirs, cfg_file, mp_loggerqueue):
+    def __init__(self, dirs, cfg, mp_loggerqueue):
 
         # init app
         self.app = Gtk.Application.new("org.dermatty.ginzibix", Gio.ApplicationFlags(0), )
@@ -58,10 +80,13 @@ class ApplicationGui(Gtk.Application):
         self.app.connect("activate", self.on_app_activate)
         self.app.connect("shutdown", self.on_app_shutdown)
 
+        # settings from cfg
+        self.settings_servers = None
+        self.port = None
+        self.host = None
+
         # data
         self.logger = setup_logger(mp_loggerqueue, __file__)
-        self.cfg_file = cfg_file
-        self.cfg = configparser.ConfigParser()
         self.dirs = dirs
         self.lock = threading.Lock()
         self.liststore = None
@@ -69,18 +94,14 @@ class ApplicationGui(Gtk.Application):
         self.liststore_nzbhistory = None
         self.mbitlabel2 = None
         self.single_selected = None
-        try:
-            self.cfg.read(cfg_file)
-        except Exception as e:
-            self.logger.error(whoami() + str(e) + ", exiting!")
-            self.app.quit()
-            # Gtk.main_quit() ???
+        self.cfg = cfg
         self.appdata = AppData(self.lock)
-        self.read_config_file()
+        self.read_config()
         self.dl_running = True
         self.nzb_status_string = ""
         self.guiqueue = queue.Queue()
         self.lock = threading.Lock()
+        self.activestack = None
 
     def run(self, argv):
         self.app.run(argv)
@@ -97,6 +118,9 @@ class ApplicationGui(Gtk.Application):
         self.mbitlabel2 = self.obj("mbitlabel2")
         self.no_queued_label = self.obj("no_queued")
         self.overall_eta_label = self.obj("overalleta")
+        self.servergraph_sw = self.obj("servercanvas_sw")
+        self.comboboxtext = self.obj("frequencycombotext")
+        self.comboboxtext.set_active(0)
         self.builder.connect_signals(Handler(self))
         self.window.set_application(self.app)
 
@@ -114,6 +138,14 @@ class ApplicationGui(Gtk.Application):
         self.n_monitors = screen.get_n_monitors()
         self.window.set_default_size(int(self.max_width/(2 * self.n_monitors)), self.max_height)
         self.window.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+
+        # setup servergraph w/ pyplot
+        self.servergraph_sw.set_border_width(10)
+        self.servergraph_figure = Figure(figsize=(5, 4), dpi=100)
+        self.servergraph_canvas = FigureCanvas(self.servergraph_figure)
+        self.servergraph_canvas.set_size_request(400, 300)
+        self.servergraph_sw.add(self.servergraph_canvas)
+        self.setup_pyplot()
 
         # add non-standard actions
         self.add_simple_action("about", self.on_action_about_activated)
@@ -300,12 +332,60 @@ class ApplicationGui(Gtk.Application):
         self.treeview_nzblist.append_column(column_text7)
         self.obj("scrolled_window_nzblist").add(self.treeview_nzblist)
 
+    def update_servergraph(self, ti_str):
+        anns = []
+        for i, s in enumerate(self.appdata.server_ts_diff):
+            tsd = self.appdata.server_ts_diff[s][ti_str]
+            xdata = [pd.to_datetime(tsd.index[i]) for i in range(len(tsd))]
+            ydata = [int(tsd[i]) * 8 for i in range(len(tsd))]
+            ax0 = self.ax[i]
+            lines0 = self.lines[i]
+            lines0.set_xdata(xdata)
+            lines0.set_ydata(ydata)
+            ax0.relim()
+            _, maxy = ax0.get_ylim()
+            if maxy < self.appdata.max_mbitsec:
+                ax0.set_ylim([0, self.appdata.max_mbitsec * 1.1])
+            ax0.autoscale_view()
+            i, j = list(zip(xdata, ydata))[-1]
+            anns.append(ax0.annotate("%s" % j, xy=(i, j), xytext=(-1, 6), xycoords="data", textcoords="offset points",
+                                     fontsize=14))
+        self.servergraph_figure.canvas.draw()
+        self.servergraph_figure.canvas.flush_events()
+        for a in anns:
+            a.remove()
+
     # ----------------------------------------------------------------------------------------------------
     # all the gui update functions
 
-    def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, netstat_mbitcur, sortednzblist0,
-                          sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata, gb_downloaded):
+    def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, sortednzblist0,
+                          sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata,
+                          gb_downloaded, server_ts):
 
+        # calc current speed
+        netstat_mbitcur = 0
+        self.appdata.server_ts_diff = {}
+        self.appdata.server_ts = server_ts
+        for serversetting in self.settings_servers:
+            server_name, _, _, _, _, _, _, _, _, _ = serversetting
+            self.appdata.server_ts_diff[server_name] = {}
+            try:
+                self.appdata.server_ts_diff[server_name]["sec"] = server_ts[server_name]["sec"].diff().fillna(0)
+                sts_window = min(3, len(self.appdata.server_ts_diff[server_name]["sec"]))
+                netstat_mbitcur += int(self.appdata.server_ts_diff[server_name]["sec"].
+                                       rolling(window=sts_window).mean()[-1]) * 8
+            except Exception:
+                pass
+
+        # ### stack "SERVERGRAPHS" ###
+        if self.activestack == "servergraphs":
+            '''FREQ_DIC = {"Speed MiB / sec": "mbsec",
+            "Download - seconds": "dlsec",
+            "Download - minutes": "dlmin",
+            "Download - hours": "dlh",
+            "Download - days": "dld"}'''
+            # pass self.appdata.servergraph_freq to update_server
+            self.update_servergraph("sec")
 
         # fulldata: contains messages
         if fulldata and self.appdata.fulldata != fulldata:
@@ -316,26 +396,27 @@ class ApplicationGui(Gtk.Application):
                 self.appdata.nzbname = None
             self.update_logstore()
 
-        # nzbhistory
-        if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
-            if sortednzbhistorylist0 == [-1]:
-                sortednzbhistorylist = []
-            else:
-                sortednzbhistorylist = sortednzbhistorylist0
-            nzbs_copy = self.appdata.nzbs_history.copy()
-            self.appdata.nzbs_history = []
-            for idx1, (n_name, n_prio, n_updatedate, n_status, n_size, n_downloaded) in enumerate(sortednzbhistorylist):
-                n_downloaded_gb = n_downloaded / GIBDIVISOR
-                n_size_gb = n_size / GIBDIVISOR
-                n_perc_downloaded = n_downloaded_gb / n_size_gb
-                selected = False
-                for n_selected0, n_name0, n_status0, n_size0, n_downloaded0, _, _ in nzbs_copy:
-                    if n_name0 == n_name:
-                        selected = n_selected0
-                self.appdata.nzbs_history.append((selected, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, "white"))
-            if nzbs_copy != self.appdata.nzbs_history:
-                self.update_nzbhistory_liststore()
-            self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
+        # ### stack "HISTORY" ###
+        if self.activestack == "history":
+            if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
+                if sortednzbhistorylist0 == [-1]:
+                    sortednzbhistorylist = []
+                else:
+                    sortednzbhistorylist = sortednzbhistorylist0
+                nzbs_copy = self.appdata.nzbs_history.copy()
+                self.appdata.nzbs_history = []
+                for idx1, (n_name, n_prio, n_updatedate, n_status, n_size, n_downloaded) in enumerate(sortednzbhistorylist):
+                    n_downloaded_gb = n_downloaded / GIBDIVISOR
+                    n_size_gb = n_size / GIBDIVISOR
+                    n_perc_downloaded = n_downloaded_gb / n_size_gb
+                    selected = False
+                    for n_selected0, n_name0, n_status0, n_size0, n_downloaded0, _, _ in nzbs_copy:
+                        if n_name0 == n_name:
+                            selected = n_selected0
+                    self.appdata.nzbs_history.append((selected, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, "white"))
+                if nzbs_copy != self.appdata.nzbs_history:
+                    self.update_nzbhistory_liststore()
+                self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
 
         # downloading nzbs
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
@@ -414,7 +495,40 @@ class ApplicationGui(Gtk.Application):
             self.appdata.gbdown = n_dl
             self.appdata.overall_size = n_size
 
-    def read_config_file(self):
+    # set up pyplot for servergraph
+    def setup_pyplot(self):
+        self.ax = []
+        self.lines = []
+        no_servers = len(self.settings_servers)
+        for i, serversetting in enumerate(self.settings_servers):
+            server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle = serversetting
+
+            color, marker, linestyle = plstyle
+            ax0 = self.servergraph_figure.add_subplot(no_servers, 1, i+1)
+            lines0, = ax0.plot([], [], color=color, marker=marker, linestyle=linestyle, label=server_name)
+            ax0.legend()
+            ax0.set_autoscaley_on(True)
+            ax0.xaxis.set_major_locator(SecondLocator(interval=5))
+            ax0.xaxis.set_minor_locator(SecondLocator(interval=1))
+            ax0.xaxis.set_major_formatter(DateFormatter('%S'))
+            ax0.xaxis_date()
+            ax0.fmt_xdata = DateFormatter('%S')
+            self.ax.append(ax0)
+            self.lines.append(lines0)
+
+    def read_config(self):
+        # read serversettings and assign colors
+        settings_servers = get_server_config(self.cfg)
+        self.settings_servers = []
+        i = 0
+        for j, serversetting in enumerate(settings_servers):
+            server_name, server_url, user, password, port, usessl, level, connections, retention = serversetting
+            self.settings_servers.append((server_name, server_url, user, password, port, usessl, level, connections,
+                                          retention, (COLORCODES[i], MARKERS[i], LINESTYLES[i])))
+            i += 1
+            if (i+1) % 20 == 1:
+                i = 0
+
         # update_delay
         try:
             self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
@@ -687,6 +801,30 @@ class Handler:
     def __init__(self, gui):
         self.gui = gui
 
+    def on_frequencycombotext_changed(self, combo):
+        text = combo.get_active_text()
+        with self.gui.lock:
+            try:
+                self.gui.appdata.servergraph_freq = FREQ_DIC[text]
+            except Exception:
+                pass
+
+    def on_stack_done_draw(self, a, b):
+        with self.gui.lock:
+            self.gui.activestack = "history"
+
+    def on_stack_servers_draw(self, a, b):
+        with self.gui.lock:
+            self.gui.activestack = "servergraphs"
+
+    def on_stack_downloading_draw(self, a, b):
+        with self.gui.lock:
+            self.gui.activestack = "downloading"
+
+    def on_stack_settings_draw(self, a, b):
+        with self.gui.lock:
+            self.gui.activestack = "settings"
+
     def on_button_pause_resume_clicked(self, button):
         with self.gui.lock:
             self.gui.appdata.dl_running = not self.gui.appdata.dl_running
@@ -893,7 +1031,6 @@ class AppData:
         self.nzbs = []
         self.overall_size = 0
         self.gbdown = 0
-        self.servers = [("EWEKA", 40), ("BUCKETNEWS", 15), ("TWEAK", 0)]
         self.dl_running = True
         self.max_mbitsec = 0
         # crit_art_health is taken from server
@@ -910,3 +1047,6 @@ class AppData:
         self.nzbs_history = []
         self.nzbs_history = [(False, "Test.nzb", 3, 1.5, 1.4, 0.9, "white")]
         self.overall_eta = 0
+        self.server_ts_diff = {}
+        self.server_ts = {}
+        self.servergraph_freq = list(FREQ_DIC.items())[0][1]

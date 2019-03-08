@@ -1,6 +1,7 @@
 import ssl
 import nntplib
 from .mplogging import whoami
+from .aux import get_server_config
 
 
 # Does all the server stuff (open, close connctions) and contains all relevant
@@ -11,7 +12,7 @@ class Servers():
         self.cfg = cfg
         self.logger = logger
         # server_config = [(server_name, server_url, user, password, port, usessl, level, connections, retention)]
-        self.server_config = self.get_server_config()
+        self.server_config = get_server_config(self.cfg)
         # all_connections = [(server_name, conn#, retention, nntp_obj)]
         self.all_connections = self.get_all_connections()
         # level_servers0 = {"0": ["EWEKA", "BULK"], "1": ["TWEAK"], "2": ["NEWS", "BALD"]}
@@ -108,34 +109,3 @@ class Servers():
                 except Exception as e:
                     self.logger.warning(whoami() + "Cannot quit server " + sn + ": " + str(e))
 
-    def get_server_config(self):
-        # get servers from config, max SERVER10
-        snr = 0
-        idx = 0
-        sconf = []
-        while idx < 10:
-            idx += 1
-            try:
-                snr += 1
-                snrstr = "SERVER" + str(snr)
-                useserver = True if self.cfg[snrstr]["USE_SERVER"].lower() == "yes" else False
-                server_name = self.cfg[snrstr]["SERVER_NAME"]
-                server_url = self.cfg[snrstr]["SERVER_URL"]
-                user = self.cfg[snrstr]["USER"]
-                password = self.cfg[snrstr]["PASSWORD"]
-                port = int(self.cfg[snrstr]["PORT"])
-                usessl = True if self.cfg[snrstr]["SSL"].lower() == "yes" else False
-                level = int(self.cfg[snrstr]["LEVEL"])
-                connections = int(self.cfg[snrstr]["CONNECTIONS"])
-            except Exception as e:
-                snr -= 1
-                continue
-            if useserver:
-                try:
-                    retention = int(self.cfg[snrstr]["RETENTION"])
-                    sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
-                except Exception as e:
-                    sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))
-        if not sconf:
-            return None
-        return sconf

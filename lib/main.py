@@ -18,13 +18,12 @@ from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
 from .downloader import Downloader
 from setproctitle import setproctitle
-from statistics import mean
 from collections import deque
 import pandas as pd
-import pickle
 
 
 GB_DIVISOR = (1024 * 1024 * 1024)
+
 
 class SigHandler_Main:
 
@@ -47,11 +46,6 @@ def update_server_ts(server_ts, ct):
     current_stats = ct.get_downloaded_per_server()
     now0 = datetime.datetime.now().replace(microsecond=0)
 
-    server_ts_diff = {}
-    mbit_mean_3sec0 = 0
-
-    mbit_mean_3sec0 = 0
-
     for server, bdl in current_stats.items():
         bdl = bdl / (1024 * 1024)   # in MB
         try:
@@ -61,10 +55,11 @@ def update_server_ts(server_ts, ct):
                 continue
         except Exception:
             server_ts[server] = {}
-            server_ts[server]["sec"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='S'))
-            server_ts[server]["minute"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='min'))
-            server_ts[server]["hour"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='H'))
-            server_ts[server]["day"] = pd.Series(bdl, index=pd.date_range(now0, periods=1, freq='D'))
+            now0_minus1 = now0 - datetime.timedelta(seconds=1)
+            server_ts[server]["sec"] = pd.Series(bdl, index=pd.date_range(now0_minus1, periods=2, freq='S'))
+            server_ts[server]["minute"] = pd.Series(bdl, index=pd.date_range(now0_minus1, periods=2, freq='min'))
+            server_ts[server]["hour"] = pd.Series(bdl, index=pd.date_range(now0_minus1, periods=2, freq='H'))
+            server_ts[server]["day"] = pd.Series(bdl, index=pd.date_range(now0_minus1, periods=2, freq='D'))
 
         server_ts[server]["sec"][now0] = bdl
 
@@ -98,21 +93,7 @@ def update_server_ts(server_ts, ct):
 
         df_d_add = server_ts[server]["hour"].resample("1D").mean()[-1]
         server_ts[server]["day"][-1] = df_d_add
-
-    for server in server_ts:
-        server_ts_diff[server] = {}
-        server_ts_diff[server]["sec"] = server_ts[server]["sec"].diff()
-        server_ts_diff[server]["minute"] = server_ts[server]["minute"].diff()
-        server_ts_diff[server]["hour"] = server_ts[server]["hour"].diff()
-        server_ts_diff[server]["day"] = server_ts[server]["day"].diff()
-        mbit_mean_3sec0 += server_ts_diff[server]["sec"].rolling(window=3).mean()[-1]
-
-    try:
-        mbit_mean_3sec0 = int(mbit_mean_3sec0 * 8)
-    except Exception:
-        mbit_mean_3sec0 = 0
-
-    return server_ts_diff, mbit_mean_3sec0
+    return
 
 
 def make_allfilelist_wait(pwdb, dirs, logger, timeout0):
@@ -433,6 +414,10 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         serverconfig = None
                     else:
                         serverconfig = ct.servers.server_config
+                    try:
+                        update_server_ts(server_ts, ct)
+                    except Exception as e:
+                        logger.warning(whoami() + str(e))
                     full_data_for_gui = pwdb.exc("get_all_data_for_gui", [], {})
                     sorted_nzbs, sorted_nzbshistory = pwdb.exc("get_stored_sorted_nzbs", [], {})
                     if dl:
@@ -447,10 +432,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                             print(">>>> #0a main:", time.time(), msg)
                         bytescount0, allbytesdownloaded0, availmem0, avgmiblist, filetypecounter, _, article_health,\
                             overall_size, already_downloaded_size, p2, overall_size_wparvol, allfileslist = downloaddata
-                        try:
-                            server_ts_diff, mean_netstat = update_server_ts(server_ts, ct)
-                        except Exception as e:
-                            logger.warning(whoami() + str(e))
                         gb_downloaded = dl.allbytesdownloaded0 / GB_DIVISOR
                         if DEBUGPRINT:
                             print(">>>> #0b main:", time.time(), msg)
@@ -458,13 +439,13 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                             overall_size, already_downloaded_size
                         if DEBUGPRINT:
                             print(">>>> #4 main:", time.time(), msg)
-                        getdata = downloaddata_gc, serverconfig, dl_running, statusmsg, mean_netstat,\
+                        getdata = downloaddata_gc, serverconfig, dl_running, statusmsg,\
                             sorted_nzbs, sorted_nzbshistory, article_health, connection_health, dl.serverhealth(),\
-                            full_data_for_gui, gb_downloaded
+                            full_data_for_gui, gb_downloaded, server_ts
                     else:
                         downloaddata_gc = None, None, None, None, None, None, None, None
-                        getdata = downloaddata_gc, serverconfig, dl_running, statusmsg, 0,\
-                            sorted_nzbs, sorted_nzbshistory, 0, 0, None, full_data_for_gui, 0
+                        getdata = downloaddata_gc, serverconfig, dl_running, statusmsg, \
+                            sorted_nzbs, sorted_nzbshistory, 0, 0, None, full_data_for_gui, 0, server_ts
                         # if one element in getdata != None - send:
                     if getdata.count(None) != len(getdata) or downloaddata_gc.count(None) != len(downloaddata_gc):
                         sendtuple = ("DL_DATA", getdata)
@@ -646,9 +627,6 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
                         if paused:
                             dl.pause()
                         dl.start()
-                    old_t = 0
-                    oldbytes0 = 0
-                    netstatlist = []
             else:
                 stat0 = pwdb.exc("db_nzb_getstatus", [nzbname], {})
                 # if postproc ok
