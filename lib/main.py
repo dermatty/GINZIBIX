@@ -93,6 +93,7 @@ def update_server_ts(server_ts, ct):
 
         df_d_add = server_ts[server]["hour"].resample("1D").mean()[-1]
         server_ts[server]["day"][-1] = df_d_add
+
     return
 
 

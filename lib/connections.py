@@ -268,8 +268,10 @@ class ConnectionThreads:
 
     def get_downloaded_per_server(self):
         result = {}
-        for servername, _, _, _ in self.all_connections:
+        result["-ALL SERVERS-"] = 0
+        for servername, _, _, _, _, _, _, _, _ in self.servers.server_config:
             result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+            result["-ALL SERVERS-"] += result[servername]
         return result
 
     def start_threads(self):

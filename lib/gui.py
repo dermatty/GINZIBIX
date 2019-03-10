@@ -8,14 +8,14 @@ import pandas as pd
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib
 from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color, get_server_config
 from .mplogging import whoami, setup_logger
-matplotlib.rcParams['toolbar'] = 'None'
-matplotlib.use('GTK3Agg')  # or 'GTK3Cairo'
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_gtk3agg import (
     FigureCanvasGTK3Agg as FigureCanvas)
 from matplotlib.figure import Figure
-from matplotlib.dates import DayLocator, HourLocator, SecondLocator, DateFormatter, drange
+from matplotlib.dates import DayLocator, MinuteLocator, HourLocator, SecondLocator, DateFormatter
 from pandas.plotting import register_matplotlib_converters
+
+matplotlib.rcParams['toolbar'] = 'None'
+matplotlib.use('GTK3Agg') 
 register_matplotlib_converters()
 
 
@@ -132,19 +132,19 @@ class ApplicationGui(Gtk.Application):
         self.window.set_wmclass(__appname__, __appname__)
 
         # set app position
-        screen = self.window.get_screen()
-        self.max_width = screen.get_width()
-        self.max_height = screen.get_height()
-        self.n_monitors = screen.get_n_monitors()
-        self.window.set_default_size(int(self.max_width/(2 * self.n_monitors)), self.max_height)
-        self.window.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+        #screen = self.window.get_screen()
+        #self.max_width = screen.get_width()
+        #self.max_height = screen.get_height()
+        #self.n_monitors = screen.get_n_monitors()
+        #self.window.set_default_size(int(self.max_width/(2 * self.n_monitors)), self.max_height)
+        # self.window.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
 
         # setup servergraph w/ pyplot
-        self.servergraph_sw.set_border_width(10)
-        self.servergraph_figure = Figure(figsize=(5, 4), dpi=100)
+        self.servergraph_sw.set_border_width(0)
+        self.servergraph_figure = Figure(figsize=(4, 5), dpi=100)
         self.servergraph_canvas = FigureCanvas(self.servergraph_figure)
         self.servergraph_canvas.set_size_request(400, 300)
-        self.servergraph_sw.add(self.servergraph_canvas)
+        self.servergraph_sw.add_with_viewport(self.servergraph_canvas)
         self.setup_pyplot()
 
         # add non-standard actions
@@ -153,10 +153,11 @@ class ApplicationGui(Gtk.Application):
         self.add_simple_action("quit", self.on_action_quit_activated)
         self.add_simple_action("settings", self.on_action_settings_activated)
 
-        # set liststore for nzb downloading list
+        # set liststores / treeviews
         self.setup_frame_nzblist()
         self.setup_frame_logs()
         self.setup_frame_nzbhistory()
+        self.setup_frame_serverlist()
 
         self.gridbuttonlist = [self.obj("button_top"), self.obj("button_up"), self.obj("button_down"),
                                self.obj("button_bottom"), self.obj("button_interrupt"), self.obj("button_delete")]
@@ -216,6 +217,32 @@ class ApplicationGui(Gtk.Application):
 
     # ----------------------------------------------------------------------------------------------------
     #  -- liststores / treeviews
+
+    # liststore/treeview for server selection in server graph window
+
+    def setup_frame_serverlist(self):
+        self.serverlist_liststore = Gtk.ListStore(bool, str)
+        self.treeview_serverlist = Gtk.TreeView(model=self.serverlist_liststore)
+
+        self.treeview_serverlist.set_reorderable(False)
+        # sel = self.treeview_serverlist.get_selection()
+        # sel.set_mode(Gtk.SelectionMode.NONE)
+        self.update_serverlist_liststore(init=True)
+
+        # 0th selection toggled
+        renderer_toggle = Gtk.CellRendererToggle()
+        column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=0)
+        renderer_toggle.connect("toggled", self.on_inverted_toggled_serverlist)
+        self.treeview_serverlist.append_column(column_toggle)
+
+        # 1st column: server name
+        renderer_text0 = Gtk.CellRendererText()
+        column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=1)
+        column_text0.set_expand(True)
+        column_text0.set_min_width(320)
+        self.treeview_serverlist.append_column(column_text0)
+
+        self.obj("serverlist_sw").add(self.treeview_serverlist)
 
     # liststore/treeview for logs in stack DOWNLOADING
     def setup_frame_logs(self):
@@ -332,28 +359,51 @@ class ApplicationGui(Gtk.Application):
         self.treeview_nzblist.append_column(column_text7)
         self.obj("scrolled_window_nzblist").add(self.treeview_nzblist)
 
-    def update_servergraph(self, ti_str):
-        anns = []
+    def update_servergraph(self):
+        '''FREQ_DIC = {"Speed MiB / sec": "mbsec",
+            "Download - seconds": "dlsec",
+            "Download - minutes": "dlmin",
+            "Download - hours": "dlh",
+            "Download - days": "dld"}'''
+        for a in self.annotations:
+                a.remove()
+        self.annotations[:] = []
+        selected_servers = self.get_selected_from_serverlist_liststore()
         for i, s in enumerate(self.appdata.server_ts_diff):
-            tsd = self.appdata.server_ts_diff[s][ti_str]
-            xdata = [pd.to_datetime(tsd.index[i]) for i in range(len(tsd))]
-            ydata = [int(tsd[i]) * 8 for i in range(len(tsd))]
+            try:
+                tsd = self.appdata.server_ts_diff[s]["sec"]
+            except Exception:
+                continue
             ax0 = self.ax[i]
+            if s not in selected_servers:
+                ax0.set_visible(False)
+            else:
+                ax0.set_visible(True)
+            if self.appdata.servergraph_freq == "mbsec":
+                ydata = [int(tsd[i]) * 8 for i in range(len(tsd))]
+            else:
+                if self.appdata.servergraph_freq == "dlsec":
+                    tsd = self.appdata.server_ts_diff[s]["sec"]
+                elif self.appdata.servergraph_freq == "dlmin":
+                    tsd = self.appdata.server_ts_diff[s]["minute"] = self.appdata.server_ts[s]["minute"].diff().fillna(0)
+                elif self.appdata.servergraph_freq == "dlh":
+                    tsd = self.appdata.server_ts_diff[s]["hour"] = self.appdata.server_ts[s]["hour"].diff().fillna(0)
+                elif self.appdata.servergraph_freq == "dld":
+                    tsd = self.appdata.server_ts_diff[s]["day"] = self.appdata.server_ts[s]["day"].diff().fillna(0)
+                else:
+                    continue
+                ydata = [int(tsd[i]) for i in range(len(tsd))]
+            xdata = [pd.to_datetime(tsd.index[i]) for i in range(len(tsd))]
             lines0 = self.lines[i]
             lines0.set_xdata(xdata)
             lines0.set_ydata(ydata)
             ax0.relim()
-            _, maxy = ax0.get_ylim()
-            if maxy < self.appdata.max_mbitsec:
-                ax0.set_ylim([0, self.appdata.max_mbitsec * 1.1])
             ax0.autoscale_view()
-            i, j = list(zip(xdata, ydata))[-1]
-            anns.append(ax0.annotate("%s" % j, xy=(i, j), xytext=(-1, 6), xycoords="data", textcoords="offset points",
-                                     fontsize=14))
+            for i, j in zip(xdata, ydata):
+                self.annotations.append(ax0.annotate("%s" % j, xy=(i, j), xytext=(-1, 6), xycoords="data", textcoords="offset points",
+                                                     fontsize=10))
         self.servergraph_figure.canvas.draw()
         self.servergraph_figure.canvas.flush_events()
-        for a in anns:
-            a.remove()
 
     # ----------------------------------------------------------------------------------------------------
     # all the gui update functions
@@ -362,7 +412,7 @@ class ApplicationGui(Gtk.Application):
                           sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata,
                           gb_downloaded, server_ts):
 
-        # calc current speed
+        # calc current speed + differences time series
         netstat_mbitcur = 0
         self.appdata.server_ts_diff = {}
         self.appdata.server_ts = server_ts
@@ -371,21 +421,17 @@ class ApplicationGui(Gtk.Application):
             self.appdata.server_ts_diff[server_name] = {}
             try:
                 self.appdata.server_ts_diff[server_name]["sec"] = server_ts[server_name]["sec"].diff().fillna(0)
-                sts_window = min(3, len(self.appdata.server_ts_diff[server_name]["sec"]))
-                netstat_mbitcur += int(self.appdata.server_ts_diff[server_name]["sec"].
-                                       rolling(window=sts_window).mean()[-1]) * 8
             except Exception:
                 pass
+        try:
+            sts_window = min(3, len(self.appdata.server_ts_diff["-ALL SERVERS-"]["sec"]))
+            netstat_mbitcur = int(self.appdata.server_ts_diff["-ALL SERVERS-"]["sec"].rolling(window=sts_window).mean()[-1]) * 8
+        except Exception:
+            netstat_mbitcur = 0
 
         # ### stack "SERVERGRAPHS" ###
         if self.activestack == "servergraphs":
-            '''FREQ_DIC = {"Speed MiB / sec": "mbsec",
-            "Download - seconds": "dlsec",
-            "Download - minutes": "dlmin",
-            "Download - hours": "dlh",
-            "Download - days": "dld"}'''
-            # pass self.appdata.servergraph_freq to update_server
-            self.update_servergraph("sec")
+            self.update_servergraph()
 
         # fulldata: contains messages
         if fulldata and self.appdata.fulldata != fulldata:
@@ -499,6 +545,11 @@ class ApplicationGui(Gtk.Application):
     def setup_pyplot(self):
         self.ax = []
         self.lines = []
+        try:
+            for a in self.annotations:
+                a.remove()
+        except Exception:
+            self.annotations = []
         no_servers = len(self.settings_servers)
         for i, serversetting in enumerate(self.settings_servers):
             server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle = serversetting
@@ -519,9 +570,11 @@ class ApplicationGui(Gtk.Application):
     def read_config(self):
         # read serversettings and assign colors
         settings_servers = get_server_config(self.cfg)
-        self.settings_servers = []
-        i = 0
+        i = 1
         for j, serversetting in enumerate(settings_servers):
+            if j == 0:
+                self.settings_servers = [("-ALL SERVERS-", None, None, None, None, None, None, None, None, (COLORCODES[i], MARKERS[i], LINESTYLES[i]))]
+                i += 1
             server_name, server_url, user, password, port, usessl, level, connections, retention = serversetting
             self.settings_servers.append((server_name, server_url, user, password, port, usessl, level, connections,
                                           retention, (COLORCODES[i], MARKERS[i], LINESTYLES[i])))
@@ -600,6 +653,10 @@ class ApplicationGui(Gtk.Application):
         selected_list = [ro[1] for ro in self.nzbhistory_liststore if ro[0]]
         return selected_list
 
+    def get_selected_from_serverlist_liststore(self):
+        selected_list = [sl_el[1] for sl_el in self.serverlist_liststore if sl_el[0]]
+        return selected_list
+
     def on_inverted_toggled_nzbhistory(self, widget, path):
         with self.lock:
             self.nzbhistory_liststore[path][0] = not self.nzbhistory_liststore[path][0]
@@ -617,6 +674,22 @@ class ApplicationGui(Gtk.Application):
             newnzb[6] = self.nzblist_liststore[path][6]
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
+
+    def on_inverted_toggled_serverlist(self, widget, path):
+        with self.lock:
+            self.serverlist_liststore[path][0] = not self.serverlist_liststore[path][0]
+
+    def update_serverlist_liststore(self, init=False):
+        self.serverlist_liststore.clear()
+        # server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle
+        for server_name, _, _, _, _, _, _, connections, retention, _ in self.settings_servers:
+            servers_as_list = []
+            if server_name == "-ALL SERVERS-":
+                servers_as_list.append(True)
+            else:
+                servers_as_list.append(False)
+            servers_as_list.append(server_name)
+            self.serverlist_liststore.append(servers_as_list)
 
     def update_logstore(self):
         # only show msgs for current nzb
@@ -806,6 +879,33 @@ class Handler:
         with self.gui.lock:
             try:
                 self.gui.appdata.servergraph_freq = FREQ_DIC[text]
+                for i, s in enumerate(self.gui.appdata.server_ts_diff):
+                    ax0 = self.gui.ax[i]
+                    if self.gui.appdata.servergraph_freq == "mbsec":
+                        ax0.xaxis.set_major_locator(SecondLocator(interval=5))
+                        ax0.xaxis.set_minor_locator(SecondLocator(interval=1))
+                        ax0.xaxis.set_major_formatter(DateFormatter('%S'))
+                        ax0.fmt_xdata = DateFormatter('%S')
+                    elif self.gui.appdata.servergraph_freq == "dlsec":
+                        ax0.xaxis.set_major_locator(SecondLocator(interval=5))
+                        ax0.xaxis.set_minor_locator(SecondLocator(interval=1))
+                        ax0.xaxis.set_major_formatter(DateFormatter('%M:%S'))
+                        ax0.fmt_xdata = DateFormatter('%M:%S')
+                    elif self.gui.appdata.servergraph_freq == "dlmin":
+                        ax0.xaxis.set_major_locator(MinuteLocator(interval=5))
+                        ax0.xaxis.set_minor_locator(MinuteLocator(interval=1))
+                        ax0.xaxis.set_major_formatter(DateFormatter('%H:%Mh'))
+                        ax0.fmt_xdata = DateFormatter('%H:%Mh')
+                    elif self.gui.appdata.servergraph_freq == "dlh":
+                        ax0.xaxis.set_major_locator(HourLocator(interval=5))
+                        ax0.xaxis.set_minor_locator(HourLocator(interval=1))
+                        ax0.xaxis.set_major_formatter(DateFormatter('%d-%m %Hh'))
+                        ax0.fmt_xdata = DateFormatter('%d-%m %Hh')
+                    elif self.gui.appdata.servergraph_freq == "dld":
+                        ax0.xaxis.set_major_locator(DayLocator(interval=5))
+                        ax0.xaxis.set_minor_locator(DayLocator(interval=1))
+                        ax0.xaxis.set_major_formatter(DateFormatter('%d-%m'))
+                        ax0.fmt_xdata = DateFormatter('%d-%m')
             except Exception:
                 pass
 
