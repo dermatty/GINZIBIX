@@ -1,4 +1,4 @@
-1. if par_repair needed -> "something is wrong with par_verifier"!!!
+1. if gui exited during unrar -> main does not exit!
 
 
 ---------------------------------------------------------------------

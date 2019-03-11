@@ -15,7 +15,7 @@ from matplotlib.dates import DayLocator, MinuteLocator, HourLocator, SecondLocat
 from pandas.plotting import register_matplotlib_converters
 
 matplotlib.rcParams['toolbar'] = 'None'
-matplotlib.use('GTK3Agg') 
+matplotlib.use('GTK3Agg')
 register_matplotlib_converters()
 
 
@@ -61,11 +61,12 @@ COLORCODES = ["#000000", "#0000FF", "#FF0000", "#008000", "#FFA500", "#FF00FF", 
 LINESTYLES = ["-", "--", "-.", ":"] * 5
 MARKERS = ["D", "o", ".", "h", "^"] * 4
 
-FREQ_DIC = {"Speed MiB / sec": "mbsec",
-            "Download - seconds": "dlsec",
-            "Download - minutes": "dlmin",
-            "Download - hours": "dlh",
-            "Download - days": "dld"}
+FREQ_DIC = {"per second": "dlsec",
+            "per minute": "dlmin",
+            "per hour": "dlh",
+            "per days": "dld"}
+
+UNIT_DIC = {"MBit": "mbit", "KB": "kb", "MB": "mb", "GB": "gb"}
 
 
 # ******************************************************************************************************
@@ -119,6 +120,7 @@ class ApplicationGui(Gtk.Application):
         self.no_queued_label = self.obj("no_queued")
         self.overall_eta_label = self.obj("overalleta")
         self.servergraph_sw = self.obj("servercanvas_sw")
+
         self.comboboxtext = self.obj("frequencycombotext")
         self.comboboxtext.set_active(0)
         self.builder.connect_signals(Handler(self))
@@ -132,18 +134,15 @@ class ApplicationGui(Gtk.Application):
         self.window.set_wmclass(__appname__, __appname__)
 
         # set app position
-        #screen = self.window.get_screen()
-        #self.max_width = screen.get_width()
-        #self.max_height = screen.get_height()
-        #self.n_monitors = screen.get_n_monitors()
-        #self.window.set_default_size(int(self.max_width/(2 * self.n_monitors)), self.max_height)
-        # self.window.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+        screen = self.window.get_screen()
+        self.max_width = screen.get_width()
+        self.max_height = screen.get_height()
+        self.n_monitors = screen.get_n_monitors()
+        self.window.set_size_request(int(self.max_width/(2 * self.n_monitors)), self.max_height)
 
         # setup servergraph w/ pyplot
-        self.servergraph_sw.set_border_width(0)
-        self.servergraph_figure = Figure(figsize=(4, 5), dpi=100)
+        self.servergraph_figure = Figure(figsize=(5, 4), dpi=100)
         self.servergraph_canvas = FigureCanvas(self.servergraph_figure)
-        self.servergraph_canvas.set_size_request(400, 300)
         self.servergraph_sw.add_with_viewport(self.servergraph_canvas)
         self.setup_pyplot()
 
@@ -218,29 +217,35 @@ class ApplicationGui(Gtk.Application):
     # ----------------------------------------------------------------------------------------------------
     #  -- liststores / treeviews
 
-    # liststore/treeview for server selection in server graph window
-
     def setup_frame_serverlist(self):
-        self.serverlist_liststore = Gtk.ListStore(bool, str)
+        self.serverlist_liststore = Gtk.ListStore(str, str, str)
         self.treeview_serverlist = Gtk.TreeView(model=self.serverlist_liststore)
 
         self.treeview_serverlist.set_reorderable(False)
-        # sel = self.treeview_serverlist.get_selection()
-        # sel.set_mode(Gtk.SelectionMode.NONE)
+        sel = self.treeview_serverlist.get_selection()
+        sel.set_mode(Gtk.SelectionMode.NONE)
+
         self.update_serverlist_liststore(init=True)
 
-        # 0th selection toggled
-        renderer_toggle = Gtk.CellRendererToggle()
-        column_toggle = Gtk.TreeViewColumn("Select", renderer_toggle, active=0)
-        renderer_toggle.connect("toggled", self.on_inverted_toggled_serverlist)
-        self.treeview_serverlist.append_column(column_toggle)
-
-        # 1st column: server name
+        # 0st column: server name
         renderer_text0 = Gtk.CellRendererText()
-        column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=1)
+        column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=0)
         column_text0.set_expand(True)
         column_text0.set_min_width(320)
         self.treeview_serverlist.append_column(column_text0)
+
+        # 1st column: pixbuf edit
+        renderer_pixbuf0 = Gtk.CellRendererPixbuf()
+        self.column_pixbuf_edit = Gtk.TreeViewColumn("Edit", renderer_pixbuf0, icon_name=1)
+        self.treeview_serverlist.append_column(self.column_pixbuf_edit)
+
+        # 1st column: pixbuf delete
+        renderer_pixbuf1 = Gtk.CellRendererPixbuf()
+        self.column_pixbuf_delete = Gtk.TreeViewColumn("Delete", renderer_pixbuf1, icon_name=2)
+        self.treeview_serverlist.append_column(self.column_pixbuf_delete)
+
+        self.treeview_serverlist.set_activate_on_single_click(True)
+        self.treeview_serverlist.connect("row_activated", self.serverlist_action_icon_clicked)
 
         self.obj("serverlist_sw").add(self.treeview_serverlist)
 
@@ -368,19 +373,21 @@ class ApplicationGui(Gtk.Application):
         for a in self.annotations:
                 a.remove()
         self.annotations[:] = []
-        selected_servers = self.get_selected_from_serverlist_liststore()
         for i, s in enumerate(self.appdata.server_ts_diff):
             try:
                 tsd = self.appdata.server_ts_diff[s]["sec"]
             except Exception:
                 continue
             ax0 = self.ax[i]
-            if s not in selected_servers:
-                ax0.set_visible(False)
-            else:
-                ax0.set_visible(True)
-            if self.appdata.servergraph_freq == "mbsec":
-                ydata = [int(tsd[i]) * 8 for i in range(len(tsd))]
+            if self.appdata.servergraph_cumulative:
+                if self.appdata.servergraph_freq == "dlsec":
+                    tsd = self.appdata.server_ts[s]["sec"].fillna(0)
+                elif self.appdata.servergraph_freq == "dlmin":
+                    tsd = self.appdata.server_ts[s]["minute"].fillna(0)
+                elif self.appdata.servergraph_freq == "dlh":
+                    tsd = self.appdata.server_ts[s]["hour"].fillna(0)
+                elif self.appdata.servergraph_freq == "dld":
+                    tsd = self.appdata.server_ts[s]["day"].fillna(0)
             else:
                 if self.appdata.servergraph_freq == "dlsec":
                     tsd = self.appdata.server_ts_diff[s]["sec"]
@@ -390,9 +397,15 @@ class ApplicationGui(Gtk.Application):
                     tsd = self.appdata.server_ts_diff[s]["hour"] = self.appdata.server_ts[s]["hour"].diff().fillna(0)
                 elif self.appdata.servergraph_freq == "dld":
                     tsd = self.appdata.server_ts_diff[s]["day"] = self.appdata.server_ts[s]["day"].diff().fillna(0)
-                else:
-                    continue
+            # data is stored in MB
+            if self.appdata.servergraph_unit == "mbit":
+                ydata = [int(tsd[i] * 8) for i in range(len(tsd))]
+            elif self.appdata.servergraph_unit == "mb":
                 ydata = [int(tsd[i]) for i in range(len(tsd))]
+            elif self.appdata.servergraph_unit == "kb":
+                ydata = [int(tsd[i] * 1000) for i in range(len(tsd))]
+            elif self.appdata.servergraph_unit == "gb":
+                ydata = [float("{0:.2f}".format(tsd[i]/1000)) for i in range(len(tsd))]
             xdata = [pd.to_datetime(tsd.index[i]) for i in range(len(tsd))]
             lines0 = self.lines[i]
             lines0.set_xdata(xdata)
@@ -401,7 +414,7 @@ class ApplicationGui(Gtk.Application):
             ax0.autoscale_view()
             for i, j in zip(xdata, ydata):
                 self.annotations.append(ax0.annotate("%s" % j, xy=(i, j), xytext=(-1, 6), xycoords="data", textcoords="offset points",
-                                                     fontsize=10))
+                                                     fontsize=8))
         self.servergraph_figure.canvas.draw()
         self.servergraph_figure.canvas.flush_events()
 
@@ -551,6 +564,7 @@ class ApplicationGui(Gtk.Application):
         except Exception:
             self.annotations = []
         no_servers = len(self.settings_servers)
+        self.servergraph_canvas.set_size_request(600, self.max_height * int((no_servers / 2.5)))
         for i, serversetting in enumerate(self.settings_servers):
             server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle = serversetting
 
@@ -653,9 +667,15 @@ class ApplicationGui(Gtk.Application):
         selected_list = [ro[1] for ro in self.nzbhistory_liststore if ro[0]]
         return selected_list
 
-    def get_selected_from_serverlist_liststore(self):
-        selected_list = [sl_el[1] for sl_el in self.serverlist_liststore if sl_el[0]]
-        return selected_list
+    def serverlist_action_icon_clicked(self, treeview, path, column):
+        iter = self.serverlist_liststore.get_iter(path)
+        servername = self.serverlist_liststore.get_value(iter, 0)
+        if not servername:
+            return
+        if column == self.column_pixbuf_delete:
+            print("delete ", servername)
+        if column == self.column_pixbuf_edit:
+            print("edit ", servername)
 
     def on_inverted_toggled_nzbhistory(self, widget, path):
         with self.lock:
@@ -674,22 +694,6 @@ class ApplicationGui(Gtk.Application):
             newnzb[6] = self.nzblist_liststore[path][6]
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
-
-    def on_inverted_toggled_serverlist(self, widget, path):
-        with self.lock:
-            self.serverlist_liststore[path][0] = not self.serverlist_liststore[path][0]
-
-    def update_serverlist_liststore(self, init=False):
-        self.serverlist_liststore.clear()
-        # server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle
-        for server_name, _, _, _, _, _, _, connections, retention, _ in self.settings_servers:
-            servers_as_list = []
-            if server_name == "-ALL SERVERS-":
-                servers_as_list.append(True)
-            else:
-                servers_as_list.append(False)
-            servers_as_list.append(server_name)
-            self.serverlist_liststore.append(servers_as_list)
 
     def update_logstore(self):
         # only show msgs for current nzb
@@ -727,6 +731,17 @@ class ApplicationGui(Gtk.Application):
             log_as_list.append(bg)
             log_as_list.append(fg)
             self.logs_liststore.append(log_as_list)
+
+    def update_serverlist_liststore(self, init=False):
+        self.serverlist_liststore.clear()
+        # server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle
+        for server_name, _, _, _, _, _, _, connections, retention, _ in self.settings_servers:
+            servers_as_list = []
+            if server_name != "-ALL SERVERS-":
+                servers_as_list.append(server_name)
+                servers_as_list.append("document-edit")
+                servers_as_list.append("edit-delete")
+                self.serverlist_liststore.append(servers_as_list)
 
     def update_nzbhistory_liststore(self):
         # appdata.nzbs_history = selected, n_name, n_status, n_siz, n_downloaded, color
@@ -874,6 +889,17 @@ class Handler:
     def __init__(self, gui):
         self.gui = gui
 
+    def on_cumulative_cb_toggled(self, a):
+        self.gui.appdata.servergraph_cumulative = not self.gui.appdata.servergraph_cumulative
+
+    def on_unitscombotext_changed(self, combo):
+        text = combo.get_active_text()
+        with self.gui.lock:
+            try:
+                self.gui.appdata.servergraph_unit = UNIT_DIC[text]
+            except Exception:
+                pass
+
     def on_frequencycombotext_changed(self, combo):
         text = combo.get_active_text()
         with self.gui.lock:
@@ -881,16 +907,11 @@ class Handler:
                 self.gui.appdata.servergraph_freq = FREQ_DIC[text]
                 for i, s in enumerate(self.gui.appdata.server_ts_diff):
                     ax0 = self.gui.ax[i]
-                    if self.gui.appdata.servergraph_freq == "mbsec":
+                    if self.gui.appdata.servergraph_freq == "dlsec":
                         ax0.xaxis.set_major_locator(SecondLocator(interval=5))
                         ax0.xaxis.set_minor_locator(SecondLocator(interval=1))
                         ax0.xaxis.set_major_formatter(DateFormatter('%S'))
                         ax0.fmt_xdata = DateFormatter('%S')
-                    elif self.gui.appdata.servergraph_freq == "dlsec":
-                        ax0.xaxis.set_major_locator(SecondLocator(interval=5))
-                        ax0.xaxis.set_minor_locator(SecondLocator(interval=1))
-                        ax0.xaxis.set_major_formatter(DateFormatter('%M:%S'))
-                        ax0.fmt_xdata = DateFormatter('%M:%S')
                     elif self.gui.appdata.servergraph_freq == "dlmin":
                         ax0.xaxis.set_major_locator(MinuteLocator(interval=5))
                         ax0.xaxis.set_minor_locator(MinuteLocator(interval=1))
@@ -1150,3 +1171,5 @@ class AppData:
         self.server_ts_diff = {}
         self.server_ts = {}
         self.servergraph_freq = list(FREQ_DIC.items())[0][1]
+        self.servergraph_unit = list(UNIT_DIC.items())[0][1]
+        self.servergraph_cumulative = False

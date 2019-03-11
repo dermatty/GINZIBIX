@@ -223,7 +223,7 @@ class ConnectionWorker(Thread):
                     name, conn_nr = self.connection
                     if self.servers.close_connection(name, conn_nr):
                         self.nntpobj = None
-                except Exception as e:
+                except Exception:
                     pass
                 self.nntpobj = None
                 # take next server

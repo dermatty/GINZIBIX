@@ -563,123 +563,175 @@
                     <property name="orientation">vertical</property>
                     <signal name="draw" handler="on_stack_servers_draw" swapped="no"/>
                     <child>
-                      <object class="GtkBox" id="servergraph_topbox">
+                      <object class="GtkFrame" id="Serverlist_Frame">
+                        <property name="height_request">80</property>
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
+                        <property name="label_xalign">0</property>
+                        <property name="shadow_type">out</property>
                         <child>
-                          <object class="GtkFrame" id="Frequency">
+                          <object class="GtkScrolledWindow" id="serverlist_sw">
                             <property name="visible">True</property>
-                            <property name="can_focus">False</property>
-                            <property name="halign">center</property>
-                            <property name="label_xalign">0</property>
-                            <property name="shadow_type">none</property>
+                            <property name="can_focus">True</property>
+                            <property name="margin_left">4</property>
+                            <property name="margin_right">4</property>
+                            <property name="margin_bottom">4</property>
+                            <property name="shadow_type">in</property>
+                            <property name="min_content_height">80</property>
+                            <property name="max_content_height">120</property>
+                            <property name="propagate_natural_width">True</property>
+                            <property name="propagate_natural_height">True</property>
                             <child>
-                              <object class="GtkAlignment">
-                                <property name="visible">True</property>
-                                <property name="can_focus">False</property>
-                                <child>
-                                  <object class="GtkComboBoxText" id="frequencycombotext">
-                                    <property name="visible">True</property>
-                                    <property name="can_focus">False</property>
-                                    <property name="active">1</property>
-                                    <property name="has_entry">True</property>
-                                    <property name="active_id">fct_speed</property>
-                                    <items>
-                                      <item id="fct_speed" translatable="yes">Speed MiB / sec</item>
-                                      <item id="fct_mbsec" translatable="yes">Download - seconds</item>
-                                      <item id="fct_mbmin" translatable="yes">Download - minutes</item>
-                                      <item id="fct_mbhour" translatable="yes">Download - hours</item>
-                                      <item id="fct_mbday" translatable="yes">Download - days</item>
-                                    </items>
-                                    <signal name="changed" handler="on_frequencycombotext_changed" swapped="no"/>
-                                    <child internal-child="entry">
-                                      <object class="GtkEntry">
-                                        <property name="can_focus">False</property>
-                                        <property name="text" translatable="yes">Download  - seconds</property>
-                                      </object>
-                                    </child>
-                                  </object>
-                                </child>
-                              </object>
-                            </child>
-                            <child type="label">
-                              <object class="GtkLabel">
-                                <property name="visible">True</property>
-                                <property name="can_focus">False</property>
-                                <property name="label" translatable="yes">Frequency</property>
-                              </object>
+                              <placeholder/>
                             </child>
                           </object>
-                          <packing>
-                            <property name="expand">False</property>
-                            <property name="fill">True</property>
-                            <property name="position">0</property>
-                          </packing>
                         </child>
-                        <child>
-                          <object class="GtkFrame" id="Serverlist">
+                        <child type="label">
+                          <object class="GtkLabel">
                             <property name="visible">True</property>
                             <property name="can_focus">False</property>
-                            <property name="label_xalign">0</property>
-                            <property name="shadow_type">none</property>
-                            <child>
-                              <object class="GtkAlignment">
-                                <property name="visible">True</property>
-                                <property name="can_focus">False</property>
-                                <child>
-                                  <object class="GtkScrolledWindow" id="serverlist_sw">
-                                    <property name="visible">True</property>
-                                    <property name="can_focus">True</property>
-                                    <property name="shadow_type">in</property>
-                                    <property name="min_content_height">80</property>
-                                    <property name="max_content_height">100</property>
-                                    <property name="propagate_natural_width">True</property>
-                                    <property name="propagate_natural_height">True</property>
-                                    <child>
-                                      <placeholder/>
-                                    </child>
-                                  </object>
-                                </child>
-                              </object>
-                            </child>
-                            <child type="label">
-                              <object class="GtkLabel">
-                                <property name="visible">True</property>
-                                <property name="can_focus">False</property>
-                                <property name="label" translatable="yes">Servers</property>
-                              </object>
-                            </child>
+                            <property name="label" translatable="yes">News-Servers</property>
                           </object>
-                          <packing>
-                            <property name="expand">True</property>
-                            <property name="fill">True</property>
-                            <property name="position">1</property>
-                          </packing>
                         </child>
                       </object>
                       <packing>
                         <property name="expand">False</property>
                         <property name="fill">True</property>
-                        <property name="padding">6</property>
+                        <property name="padding">4</property>
                         <property name="position">0</property>
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkFrame" id="ServerCanvas">
+                      <object class="GtkFrame" id="graph_settings">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
                         <property name="label_xalign">0</property>
-                        <property name="shadow_type">none</property>
+                        <property name="shadow_type">out</property>
                         <child>
-                          <object class="GtkScrolledWindow" id="servercanvas_sw">
+                          <object class="GtkAlignment">
                             <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="shadow_type">in</property>
-                            <property name="min_content_height">100</property>
-                            <property name="propagate_natural_width">True</property>
-                            <property name="propagate_natural_height">True</property>
+                            <property name="can_focus">False</property>
                             <child>
-                              <placeholder/>
+                              <object class="GtkBox">
+                                <property name="visible">True</property>
+                                <property name="can_focus">False</property>
+                                <property name="margin_bottom">4</property>
+                                <property name="homogeneous">True</property>
+                                <child>
+                                  <object class="GtkFrame" id="Units">
+                                    <property name="visible">True</property>
+                                    <property name="can_focus">False</property>
+                                    <property name="label_xalign">0</property>
+                                    <property name="shadow_type">none</property>
+                                    <child>
+                                      <object class="GtkComboBoxText" id="unitscombotext">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="active">0</property>
+                                        <property name="active_id">units_mbit</property>
+                                        <items>
+                                          <item id="units_mbit" translatable="yes">MBit</item>
+                                          <item id="units_kb" translatable="yes">KB</item>
+                                          <item id="units_mb" translatable="yes">MB</item>
+                                          <item id="units_gb" translatable="yes">GB</item>
+                                        </items>
+                                        <signal name="changed" handler="on_unitscombotext_changed" swapped="no"/>
+                                      </object>
+                                    </child>
+                                    <child type="label">
+                                      <object class="GtkLabel">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="label" translatable="yes">Units</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                  <packing>
+                                    <property name="expand">True</property>
+                                    <property name="fill">False</property>
+                                    <property name="padding">6</property>
+                                    <property name="position">0</property>
+                                  </packing>
+                                </child>
+                                <child>
+                                  <object class="GtkFrame" id="Frequency">
+                                    <property name="visible">True</property>
+                                    <property name="can_focus">False</property>
+                                    <property name="halign">center</property>
+                                    <property name="label_xalign">0</property>
+                                    <property name="shadow_type">none</property>
+                                    <child>
+                                      <object class="GtkAlignment">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <child>
+                                          <object class="GtkComboBoxText" id="frequencycombotext">
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">False</property>
+                                            <property name="active">0</property>
+                                            <property name="active_id">freq_sec</property>
+                                            <items>
+                                              <item id="freq_sec" translatable="yes">per second</item>
+                                              <item id="freq_min" translatable="yes">per minute</item>
+                                              <item id="freq_h" translatable="yes">per hour</item>
+                                              <item id="freq_d" translatable="yes">per day</item>
+                                            </items>
+                                            <signal name="changed" handler="on_frequencycombotext_changed" swapped="no"/>
+                                          </object>
+                                        </child>
+                                      </object>
+                                    </child>
+                                    <child type="label">
+                                      <object class="GtkLabel">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="label" translatable="yes">Frequency</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                  <packing>
+                                    <property name="expand">True</property>
+                                    <property name="fill">False</property>
+                                    <property name="position">1</property>
+                                  </packing>
+                                </child>
+                                <child>
+                                  <object class="GtkFrame" id="Cumulative">
+                                    <property name="visible">True</property>
+                                    <property name="can_focus">False</property>
+                                    <property name="label_xalign">0</property>
+                                    <property name="shadow_type">none</property>
+                                    <child>
+                                      <object class="GtkAlignment">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                        <property name="left_padding">12</property>
+                                        <child>
+                                          <object class="GtkCheckButton" id="cumulative_cb">
+                                            <property name="label" translatable="yes">cumulative</property>
+                                            <property name="visible">True</property>
+                                            <property name="can_focus">True</property>
+                                            <property name="receives_default">False</property>
+                                            <property name="draw_indicator">True</property>
+                                            <signal name="toggled" handler="on_cumulative_cb_toggled" swapped="no"/>
+                                          </object>
+                                        </child>
+                                      </object>
+                                    </child>
+                                    <child type="label">
+                                      <object class="GtkLabel">
+                                        <property name="visible">True</property>
+                                        <property name="can_focus">False</property>
+                                      </object>
+                                    </child>
+                                  </object>
+                                  <packing>
+                                    <property name="expand">True</property>
+                                    <property name="fill">False</property>
+                                    <property name="position">2</property>
+                                  </packing>
+                                </child>
+                              </object>
                             </child>
                           </object>
                         </child>
@@ -692,17 +744,36 @@
                         </child>
                       </object>
                       <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="padding">4</property>
+                        <property name="position">1</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkScrolledWindow" id="servercanvas_sw">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="hscrollbar_policy">always</property>
+                        <property name="vscrollbar_policy">always</property>
+                        <property name="shadow_type">in</property>
+                        <property name="propagate_natural_width">True</property>
+                        <property name="propagate_natural_height">True</property>
+                        <child>
+                          <placeholder/>
+                        </child>
+                      </object>
+                      <packing>
                         <property name="expand">True</property>
                         <property name="fill">True</property>
-                        <property name="padding">6</property>
-                        <property name="pack_type">end</property>
-                        <property name="position">3</property>
+                        <property name="padding">4</property>
+                        <property name="position">2</property>
                       </packing>
                     </child>
                   </object>
                   <packing>
                     <property name="name">servers</property>
-                    <property name="title" translatable="yes">SERVER GRAPHS</property>
+                    <property name="title" translatable="yes">NEWS-SERVERS</property>
                     <property name="position">2</property>
                   </packing>
                 </child>
