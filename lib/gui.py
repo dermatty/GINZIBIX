@@ -5,7 +5,7 @@ import threading
 import time
 import datetime
 import pandas as pd
-from gi.repository import Gtk, Gio, GdkPixbuf, GLib
+from gi.repository import Gtk, Gio, GdkPixbuf, GLib, Pango
 from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color, get_server_config
 from .mplogging import whoami, setup_logger
 from matplotlib.backends.backend_gtk3agg import (
@@ -64,7 +64,7 @@ MARKERS = ["D", "o", ".", "h", "^"] * 4
 FREQ_DIC = {"per second": "dlsec",
             "per minute": "dlmin",
             "per hour": "dlh",
-            "per days": "dld"}
+            "per day": "dld"}
 
 UNIT_DIC = {"MBit": "mbit", "KB": "kb", "MB": "mb", "GB": "gb"}
 
@@ -120,6 +120,8 @@ class ApplicationGui(Gtk.Application):
         self.no_queued_label = self.obj("no_queued")
         self.overall_eta_label = self.obj("overalleta")
         self.servergraph_sw = self.obj("servercanvas_sw")
+        self.server_edit_button = self.obj("server_edit")
+        self.server_delete_button = self.obj("server_delete")
 
         self.comboboxtext = self.obj("frequencycombotext")
         self.comboboxtext.set_active(0)
@@ -218,34 +220,23 @@ class ApplicationGui(Gtk.Application):
     #  -- liststores / treeviews
 
     def setup_frame_serverlist(self):
-        self.serverlist_liststore = Gtk.ListStore(str, str, str)
+        self.serverlist_liststore = Gtk.ListStore(str)
         self.treeview_serverlist = Gtk.TreeView(model=self.serverlist_liststore)
 
         self.treeview_serverlist.set_reorderable(False)
         sel = self.treeview_serverlist.get_selection()
-        sel.set_mode(Gtk.SelectionMode.NONE)
+        sel.set_mode(Gtk.SelectionMode.SINGLE)
+        sel.connect("changed", self.on_treeviewserverlist_selection_changed)
 
         self.update_serverlist_liststore(init=True)
 
         # 0st column: server name
-        renderer_text0 = Gtk.CellRendererText()
+        renderer_text0 = Gtk.CellRendererText(max_width_chars=50, ellipsize=Pango.EllipsizeMode.END)
         column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=0)
-        column_text0.set_expand(True)
-        column_text0.set_min_width(320)
         self.treeview_serverlist.append_column(column_text0)
 
-        # 1st column: pixbuf edit
-        renderer_pixbuf0 = Gtk.CellRendererPixbuf()
-        self.column_pixbuf_edit = Gtk.TreeViewColumn("Edit", renderer_pixbuf0, icon_name=1)
-        self.treeview_serverlist.append_column(self.column_pixbuf_edit)
-
-        # 1st column: pixbuf delete
-        renderer_pixbuf1 = Gtk.CellRendererPixbuf()
-        self.column_pixbuf_delete = Gtk.TreeViewColumn("Delete", renderer_pixbuf1, icon_name=2)
-        self.treeview_serverlist.append_column(self.column_pixbuf_delete)
-
-        self.treeview_serverlist.set_activate_on_single_click(True)
-        self.treeview_serverlist.connect("row_activated", self.serverlist_action_icon_clicked)
+        self.server_delete_button.set_sensitive(False)
+        self.server_edit_button.set_sensitive(False)
 
         self.obj("serverlist_sw").add(self.treeview_serverlist)
 
@@ -630,6 +621,8 @@ class ApplicationGui(Gtk.Application):
                 b.set_sensitive(False)
         return False    # because of Glib.idle_add
 
+    
+
     def toggle_buttons(self):
         one_is_selected = False
         for ls in range(len(self.nzblist_liststore)):
@@ -667,7 +660,7 @@ class ApplicationGui(Gtk.Application):
         selected_list = [ro[1] for ro in self.nzbhistory_liststore if ro[0]]
         return selected_list
 
-    def serverlist_action_icon_clicked(self, treeview, path, column):
+    '''def serverlist_action_icon_clicked(self, treeview, path, column):
         iter = self.serverlist_liststore.get_iter(path)
         servername = self.serverlist_liststore.get_value(iter, 0)
         if not servername:
@@ -675,7 +668,7 @@ class ApplicationGui(Gtk.Application):
         if column == self.column_pixbuf_delete:
             print("delete ", servername)
         if column == self.column_pixbuf_edit:
-            print("edit ", servername)
+            print("edit ", servername)'''
 
     def on_inverted_toggled_nzbhistory(self, widget, path):
         with self.lock:
@@ -694,6 +687,19 @@ class ApplicationGui(Gtk.Application):
             newnzb[6] = self.nzblist_liststore[path][6]
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
+
+    def on_treeviewserverlist_selection_changed(self, selection):
+        model, treeiter = selection.get_selected()
+        if treeiter is not None:
+            self.servergraph_selectedserver = model[treeiter][0]
+            self.server_delete_button.set_sensitive(True)
+            self.server_edit_button.set_sensitive(True)
+            # print("You selected", model[treeiter][0])
+        else:
+            self.servergraph_selectedserver = None
+            self.server_delete_button.set_sensitive(False)
+            self.server_edit_button.set_sensitive(False)
+            # print("You selected: None")
 
     def update_logstore(self):
         # only show msgs for current nzb
@@ -739,8 +745,8 @@ class ApplicationGui(Gtk.Application):
             servers_as_list = []
             if server_name != "-ALL SERVERS-":
                 servers_as_list.append(server_name)
-                servers_as_list.append("document-edit")
-                servers_as_list.append("edit-delete")
+                # servers_as_list.append("document-edit")
+                # servers_as_list.append("edit-delete")
                 self.serverlist_liststore.append(servers_as_list)
 
     def update_nzbhistory_liststore(self):
@@ -1173,3 +1179,4 @@ class AppData:
         self.servergraph_freq = list(FREQ_DIC.items())[0][1]
         self.servergraph_unit = list(UNIT_DIC.items())[0][1]
         self.servergraph_cumulative = False
+        self.servergraph_selectedserver = None
