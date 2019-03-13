@@ -358,14 +358,11 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     dl = None
     nzbname = None
     paused = False
-    # guiconnector.set_health(0, 0)
     article_health = 0
     connection_health = 0
 
-    old_t = 0
-    oldbytes0 = 0
-    netstatlist = []
     dl_running = True
+
     # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
 
     DEBUGPRINT = False

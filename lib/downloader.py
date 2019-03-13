@@ -812,7 +812,7 @@ class Downloader(Thread):
             level_servers = serverlist
             le_dic = {}
             for le in level_servers:
-                _, _, _, _, _, _, _, _, age = self.ct.servers.get_single_server_config(le)
+                _, _, _, _, _, _, _, _, age, _ = self.ct.servers.get_single_server_config(le)
                 le_dic[le] = age
             les = [le for le in level_servers if le_dic[le] > retention * 0.9]
             le_serv0.append(les)

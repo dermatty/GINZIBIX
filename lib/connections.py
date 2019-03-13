@@ -50,7 +50,7 @@ class ConnectionWorker(Thread):
         sn, _ = self.connection
         bytesdownloaded = 0
         info0 = None
-        server_name, server_url, user, password, port, usessl, level, connections, retention = self.servers.get_single_server_config(sn)
+        server_name, server_url, user, password, port, usessl, level, connections, retention, useserver = self.servers.get_single_server_config(sn)
         if self.mode == "sanitycheck":
             try:
                 resp, number, message_id = self.nntpobj.stat(article_name)
@@ -269,9 +269,14 @@ class ConnectionThreads:
     def get_downloaded_per_server(self):
         result = {}
         result["-ALL SERVERS-"] = 0
-        for servername, _, _, _, _, _, _, _, _ in self.servers.server_config:
-            result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
-            result["-ALL SERVERS-"] += result[servername]
+        try:
+            for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
+                if useserver:
+                    result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+                    result["-ALL SERVERS-"] += result[servername]
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+        
         return result
 
     def start_threads(self):

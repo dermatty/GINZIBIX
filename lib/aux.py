@@ -163,12 +163,11 @@ def get_server_config(cfg):
         except Exception:
             snr -= 1
             continue
-        if useserver:
-            try:
-                retention = int(cfg[snrstr]["RETENTION"])
-                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention))
-            except Exception:
-                sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999))
+        try:
+            retention = int(cfg[snrstr]["RETENTION"])
+            sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention, useserver))
+        except Exception:
+            sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999, useserver))
     if not sconf:
         return None
     return sconf

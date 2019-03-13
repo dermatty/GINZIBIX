@@ -29,7 +29,7 @@ ICONFILE = "lib/gzbx1.png"
 GLADEFILE = "lib/ginzibix.glade"
 
 GIBDIVISOR = (1024 * 1024 * 1024)
-CLOSEALL_TIMEOUT = 1
+CLOSEALL_TIMEOUT = 8
 MAX_NZB_LEN = 50
 MAX_MSG_LEN = 120
 
@@ -220,7 +220,7 @@ class ApplicationGui(Gtk.Application):
     #  -- liststores / treeviews
 
     def setup_frame_serverlist(self):
-        self.serverlist_liststore = Gtk.ListStore(str)
+        self.serverlist_liststore = Gtk.ListStore(str, bool)
         self.treeview_serverlist = Gtk.TreeView(model=self.serverlist_liststore)
 
         self.treeview_serverlist.set_reorderable(False)
@@ -234,6 +234,12 @@ class ApplicationGui(Gtk.Application):
         renderer_text0 = Gtk.CellRendererText(max_width_chars=50, ellipsize=Pango.EllipsizeMode.END)
         column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=0)
         self.treeview_serverlist.append_column(column_text0)
+
+        # 1th server toggled
+        renderer_toggle0 = Gtk.CellRendererToggle()
+        column_toggle0 = Gtk.TreeViewColumn("Active", renderer_toggle0, active=1)
+        # renderer_toggle0.connect("toggled", self.on_inverted_toggled_nzbhistory)
+        self.treeview_serverlist.append_column(column_toggle0)
 
         self.server_delete_button.set_sensitive(False)
         self.server_edit_button.set_sensitive(False)
@@ -364,7 +370,9 @@ class ApplicationGui(Gtk.Application):
         for a in self.annotations:
                 a.remove()
         self.annotations[:] = []
-        for i, s in enumerate(self.appdata.server_ts_diff):
+        for i, s0 in enumerate(self.appdata.active_servers):
+            # for i, s in enumerate(self.appdata.server_ts_diff):
+            s, _, _, _, _, _, _, _, _, _, _ = s0
             try:
                 tsd = self.appdata.server_ts_diff[s]["sec"]
             except Exception:
@@ -421,12 +429,13 @@ class ApplicationGui(Gtk.Application):
         self.appdata.server_ts_diff = {}
         self.appdata.server_ts = server_ts
         for serversetting in self.settings_servers:
-            server_name, _, _, _, _, _, _, _, _, _ = serversetting
-            self.appdata.server_ts_diff[server_name] = {}
-            try:
-                self.appdata.server_ts_diff[server_name]["sec"] = server_ts[server_name]["sec"].diff().fillna(0)
-            except Exception:
-                pass
+            server_name, _, _, _, _, _, _, _, _, _, useserver = serversetting
+            if useserver:
+                self.appdata.server_ts_diff[server_name] = {}
+                try:
+                    self.appdata.server_ts_diff[server_name]["sec"] = server_ts[server_name]["sec"].diff().fillna(0)
+                except Exception:
+                    pass
         try:
             sts_window = min(3, len(self.appdata.server_ts_diff["-ALL SERVERS-"]["sec"]))
             netstat_mbitcur = int(self.appdata.server_ts_diff["-ALL SERVERS-"]["sec"].rolling(window=sts_window).mean()[-1]) * 8
@@ -554,10 +563,14 @@ class ApplicationGui(Gtk.Application):
                 a.remove()
         except Exception:
             self.annotations = []
-        no_servers = len(self.settings_servers)
+        self.appdata.active_servers = [(server_name, server_url, user, password, port, usessl, level, connections, retention, use_server, plstyle)
+                                       for server_name, server_url, user, password, port, usessl, level, connections, retention, use_server, plstyle
+                                       in self.settings_servers if use_server]
+        # print(active_servers)
+        no_servers = len(self.appdata.active_servers)
         self.servergraph_canvas.set_size_request(600, self.max_height * int((no_servers / 2.5)))
-        for i, serversetting in enumerate(self.settings_servers):
-            server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle = serversetting
+        for i, serversetting in enumerate(self.appdata.active_servers):
+            server_name, server_url, user, password, port, usessl, level, connections, retention, useserver, plstyle = serversetting
 
             color, marker, linestyle = plstyle
             ax0 = self.servergraph_figure.add_subplot(no_servers, 1, i+1)
@@ -578,11 +591,11 @@ class ApplicationGui(Gtk.Application):
         i = 1
         for j, serversetting in enumerate(settings_servers):
             if j == 0:
-                self.settings_servers = [("-ALL SERVERS-", None, None, None, None, None, None, None, None, (COLORCODES[i], MARKERS[i], LINESTYLES[i]))]
+                self.settings_servers = [("-ALL SERVERS-", None, None, None, None, None, None, None, None, True, (COLORCODES[i], MARKERS[i], LINESTYLES[i]))]
                 i += 1
-            server_name, server_url, user, password, port, usessl, level, connections, retention = serversetting
+            server_name, server_url, user, password, port, usessl, level, connections, retention, useserver = serversetting
             self.settings_servers.append((server_name, server_url, user, password, port, usessl, level, connections,
-                                          retention, (COLORCODES[i], MARKERS[i], LINESTYLES[i])))
+                                          retention, useserver, (COLORCODES[i], MARKERS[i], LINESTYLES[i])))
             i += 1
             if (i+1) % 20 == 1:
                 i = 0
@@ -740,13 +753,13 @@ class ApplicationGui(Gtk.Application):
 
     def update_serverlist_liststore(self, init=False):
         self.serverlist_liststore.clear()
-        # server_name, server_url, user, password, port, usessl, level, connections, retention, plstyle
-        for server_name, _, _, _, _, _, _, connections, retention, _ in self.settings_servers:
+        # server_name, server_url, user, password, port, usessl, level, connections, retention, useserver, plstyle
+        for server_name, _, _, _, _, _, _, connections, retention, useserver, _ in self.settings_servers:
             servers_as_list = []
             if server_name != "-ALL SERVERS-":
+                print(server_name, useserver)
                 servers_as_list.append(server_name)
-                # servers_as_list.append("document-edit")
-                # servers_as_list.append("edit-delete")
+                servers_as_list.append(useserver)
                 self.serverlist_liststore.append(servers_as_list)
 
     def update_nzbhistory_liststore(self):

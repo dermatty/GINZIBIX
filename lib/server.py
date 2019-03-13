@@ -11,7 +11,8 @@ class Servers():
     def __init__(self, cfg, logger):
         self.cfg = cfg
         self.logger = logger
-        # server_config = [(server_name, server_url, user, password, port, usessl, level, connections, retention)]
+        # server_config = [(server_name, server_url, user, password, port, usessl, level, connections,
+        #                   retention, useserver)]
         self.server_config = get_server_config(self.cfg)
         # all_connections = [(server_name, conn#, retention, nntp_obj)]
         self.all_connections = self.get_all_connections()
@@ -24,22 +25,24 @@ class Servers():
         return True
 
     def get_single_server_config(self, server_name0):
-        for server_name, server_url, user, password, port, usessl, level, connections, retention in self.server_config:
+        for server_name, server_url, user, password, port, usessl, level, connections, retention, useserver in self.server_config:
             if server_name == server_name0:
-                return server_name, server_url, user, password, port, usessl, level, connections, retention
+                return server_name, server_url, user, password, port, usessl, level, connections, retention, useserver
         return None
 
     def get_all_connections(self):
         conn = []
-        for s_name, _, _, _, _, _, _, s_connections, s_retention in self.server_config:
+        for s_name, _, _, _, _, _, _, s_connections, s_retention, s_useserver in self.server_config:
             for c in range(s_connections):
-                conn.append((s_name, c + 1, s_retention, None))
+                if s_useserver:
+                    conn.append((s_name, c + 1, s_retention, None))
         return conn
 
     def get_level_servers(self):
         s_tuples = []
-        for s_name, _, _, _, _, _, s_level, _, _ in self.server_config:
-            s_tuples.append((s_name, s_level))
+        for s_name, _, _, _, _, _, s_level, _, _, s_useserver in self.server_config:
+            if s_useserver:
+                s_tuples.append((s_name, s_level))
         sorted_s_tuples = sorted(s_tuples, key=lambda server: server[1])
         ls = {}
         for s_name, s_level in sorted_s_tuples:
@@ -58,25 +61,27 @@ class Servers():
                     context = ssl.SSLContext(ssl.PROTOCOL_TLS)
                     sc = self.get_single_server_config(server_name0)
                     if sc:
-                        server_name, server_url, user, password, port, usessl, level, connections, retention = self.get_single_server_config(server_name0)
-                        try:
-                            self.logger.debug(whoami() + "Opening connection # " + str(conn_nr) + "to server " + server_name)
-                            if usessl:
-                                nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True)
-                            else:
-                                # this is just for ginzicut preloading
-                                if user.lower() == "ginzicut" or password.lower() == "ginzicut":
-                                    nntpobj = nntplib.NNTP(server_url, port=port)
+                        server_name, server_url, user, password, port, usessl, level, connections, retention, useserver\
+                            = self.get_single_server_config(server_name0)
+                        if useserver:
+                            try:
+                                self.logger.debug(whoami() + "Opening connection # " + str(conn_nr) + "to server " + server_name)
+                                if usessl:
+                                    nntpobj = nntplib.NNTP_SSL(server_url, user=user, password=password, ssl_context=context, port=port, readermode=True)
                                 else:
-                                    nntpobj = nntplib.NNTP(server_url, user=user, password=password, readermode=True, port=port)
-                            self.logger.debug(whoami() + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
-                            result = nntpobj
-                            self.all_connections[idx] = (sn, cn, rt, nntpobj)
-                            break
-                        except Exception as e:
-                            self.logger.error(whoami() + "Server " + server_name0 + " connect error: " + str(e))
-                            self.all_connections[idx] = (sn, cn, rt, None)
-                            break
+                                    # this is just for ginzicut preloading
+                                    if user.lower() == "ginzicut" or password.lower() == "ginzicut":
+                                        nntpobj = nntplib.NNTP(server_url, port=port)
+                                    else:
+                                        nntpobj = nntplib.NNTP(server_url, user=user, password=password, readermode=True, port=port)
+                                self.logger.debug(whoami() + "Opened Connection #" + str(conn_nr) + " on server " + server_name0)
+                                result = nntpobj
+                                self.all_connections[idx] = (sn, cn, rt, nntpobj)
+                                break
+                            except Exception as e:
+                                self.logger.error(whoami() + "Server " + server_name0 + " connect error: " + str(e))
+                                self.all_connections[idx] = (sn, cn, rt, None)
+                                break
                     else:
                         self.logger.error(whoami() + "Cannot get server config for server: " + server_name0)
                         self.all_connections[idx] = (sn, cn, rt, None)
