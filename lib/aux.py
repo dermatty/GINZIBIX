@@ -286,7 +286,7 @@ class GUI_Poller(Thread):
                     msg0_val = [nzb[0] for nzb in self.appdata.nzbs]
                 elif elem_type == "closeall":
                     msg0 = "SET_CLOSEALL"
-                    msg0_val = None
+                    msg0_val = elem_val          # non-empty if apply / restart!
                     self.appdata.closeall = True
                 elif elem_type == "nzb_added":
                     msg0 = "NZB_ADDED"

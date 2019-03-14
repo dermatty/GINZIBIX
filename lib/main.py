@@ -1,6 +1,7 @@
 #!/home/stephan/.virtualenvs/nntp/bin/python
 
 import zmq
+import sys
 import time
 import os
 import datetime
@@ -284,7 +285,7 @@ def remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger, removenzbfile=True):
 
 
 # main loop for ginzibix downloader
-def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
+def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
 
     setproctitle("gzbx." + os.path.basename(__file__))
 
@@ -362,6 +363,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
     connection_health = 0
 
     dl_running = True
+    applied_datarec = None
 
     # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
 
@@ -469,6 +471,7 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
             elif msg == "SET_CLOSEALL":
                 try:
                     socket.send_pyobj(("SET_CLOSE_OK", None))
+                    applied_datarec = datarec
                     event_stopped.set()
                     continue
                 except Exception as e:
@@ -707,9 +710,18 @@ def ginzi_main(cfg, dirs, subdirs, mp_loggerqueue):
         logger.warning(whoami() + str(e))
     logger.debug(whoami() + "closeall: all cleared")
     # save pandas time series
-    #try:
+    # try:
     #    pickle.dump(server_ts, open(dirs["main"] + "ginzibix.ts", "wb"))
     #    logger.info(whoami() + "closeall: saved downloaded-timeseries to file")
-    #except Exception as e:
+    # except Exception as e:
     #    logger.warning(whoami() + str(e) + ": closeall: error in saving download-timeseries")
     logger.info(whoami() + "exited!")
+    # if restart because of settings applied in gui -> write cfg to file
+    if applied_datarec:
+        try:
+            with open(cfg_file, 'w') as configfile:
+                applied_datarec.write(configfile)
+            logger.debug(whoami() + "changed config file written!")
+        except Exception as e:
+            logger.error(whoami() + str(e) + ": cannot write changed config file!")
+    sys.exit(0)

@@ -269,6 +269,8 @@ class ConnectionThreads:
     def get_downloaded_per_server(self):
         result = {}
         result["-ALL SERVERS-"] = 0
+        if not self.servers:
+            return result
         try:
             for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
                 if useserver:
@@ -276,7 +278,6 @@ class ConnectionThreads:
                     result["-ALL SERVERS-"] += result[servername]
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-        
         return result
 
     def start_threads(self):

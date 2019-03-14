@@ -1,6 +1,7 @@
 import gi
 import matplotlib
 import queue
+import sys
 import threading
 import time
 import datetime
@@ -103,9 +104,18 @@ class ApplicationGui(Gtk.Application):
         self.guiqueue = queue.Queue()
         self.lock = threading.Lock()
         self.activestack = None
+        self.restartall = False
 
     def run(self, argv):
         self.app.run(argv)
+        try:
+            self.window.close()
+        except Exception:
+            pass
+        if self.appdata.settings_changed and self.restartall:
+            return 3
+        else:
+            return 0
 
     def on_app_activate(self, app):
         self.builder = Gtk.Builder()
@@ -122,6 +132,7 @@ class ApplicationGui(Gtk.Application):
         self.servergraph_sw = self.obj("servercanvas_sw")
         self.server_edit_button = self.obj("server_edit")
         self.server_delete_button = self.obj("server_delete")
+        self.server_apply_button = self.obj("apply_server")
 
         self.comboboxtext = self.obj("frequencycombotext")
         self.comboboxtext.set_active(0)
@@ -177,7 +188,11 @@ class ApplicationGui(Gtk.Application):
 
     def on_app_shutdown(self, app):
         self.appdata.closeall = True
-        self.guiqueue.put(("closeall", None))
+        if self.appdata.settings_changed:
+            closeval = self.cfg
+        else:
+            closeval = None
+        self.guiqueue.put(("closeall", closeval))
         t0 = time.time()
         while self.appdata.closeall and time.time() - t0 < CLOSEALL_TIMEOUT:
             time.sleep(0.1)
@@ -205,7 +220,7 @@ class ApplicationGui(Gtk.Application):
         try:
             about_dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(ICONFILE, 64, 64))
         except GLib.GError as e:
-            print(whoami() + str(e) + "cannot find icon file!")
+            self.logger.error(whoami() + str(e) + ": cannot find icon file!")
 
         about_dialog.set_license_type(Gtk.License.GPL_3_0)
         about_dialog.present()
@@ -231,18 +246,21 @@ class ApplicationGui(Gtk.Application):
         self.update_serverlist_liststore(init=True)
 
         # 0st column: server name
-        renderer_text0 = Gtk.CellRendererText(max_width_chars=50, ellipsize=Pango.EllipsizeMode.END)
+        renderer_text0 = Gtk.CellRendererText(width_chars=75, ellipsize=Pango.EllipsizeMode.END)
         column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=0)
+        column_text0.set_expand(True)
         self.treeview_serverlist.append_column(column_text0)
 
         # 1th server toggled
         renderer_toggle0 = Gtk.CellRendererToggle()
         column_toggle0 = Gtk.TreeViewColumn("Active", renderer_toggle0, active=1)
-        # renderer_toggle0.connect("toggled", self.on_inverted_toggled_nzbhistory)
+        renderer_toggle0.connect("toggled", self.on_activated_toggled_serverlist)
+        column_toggle0.set_alignment(0.5)
         self.treeview_serverlist.append_column(column_toggle0)
 
         self.server_delete_button.set_sensitive(False)
         self.server_edit_button.set_sensitive(False)
+        self.server_apply_button.set_sensitive(False)
 
         self.obj("serverlist_sw").add(self.treeview_serverlist)
 
@@ -566,7 +584,6 @@ class ApplicationGui(Gtk.Application):
         self.appdata.active_servers = [(server_name, server_url, user, password, port, usessl, level, connections, retention, use_server, plstyle)
                                        for server_name, server_url, user, password, port, usessl, level, connections, retention, use_server, plstyle
                                        in self.settings_servers if use_server]
-        # print(active_servers)
         no_servers = len(self.appdata.active_servers)
         self.servergraph_canvas.set_size_request(600, self.max_height * int((no_servers / 2.5)))
         for i, serversetting in enumerate(self.appdata.active_servers):
@@ -634,8 +651,6 @@ class ApplicationGui(Gtk.Application):
                 b.set_sensitive(False)
         return False    # because of Glib.idle_add
 
-    
-
     def toggle_buttons(self):
         one_is_selected = False
         for ls in range(len(self.nzblist_liststore)):
@@ -673,16 +688,6 @@ class ApplicationGui(Gtk.Application):
         selected_list = [ro[1] for ro in self.nzbhistory_liststore if ro[0]]
         return selected_list
 
-    '''def serverlist_action_icon_clicked(self, treeview, path, column):
-        iter = self.serverlist_liststore.get_iter(path)
-        servername = self.serverlist_liststore.get_value(iter, 0)
-        if not servername:
-            return
-        if column == self.column_pixbuf_delete:
-            print("delete ", servername)
-        if column == self.column_pixbuf_edit:
-            print("edit ", servername)'''
-
     def on_inverted_toggled_nzbhistory(self, widget, path):
         with self.lock:
             self.nzbhistory_liststore[path][0] = not self.nzbhistory_liststore[path][0]
@@ -701,18 +706,37 @@ class ApplicationGui(Gtk.Application):
             self.appdata.nzbs[i] = tuple(newnzb)
             self.toggle_buttons()
 
+    def on_activated_toggled_serverlist(self, widget, path):
+        with self.lock:
+            self.serverlist_liststore[path][1] = not self.serverlist_liststore[path][1]
+            self.appdata.settings_changed = True
+            # insert into cfg
+            useserver = self.serverlist_liststore[path][1]
+            servername = self.serverlist_liststore[path][0]
+            snr = 1
+            idx = 0
+            serverfound = False
+            while idx < 10:
+                snrstr = "SERVER" + str(snr)
+                if self.cfg[snrstr]["server_name"] == servername:
+                    self.cfg[snrstr]["use_server"] = "yes" if useserver else "no"
+                    serverfound = True
+                    break
+                snr += 1
+                idx += 1
+            if serverfound:
+                self.server_apply_button.set_sensitive(True)
+
     def on_treeviewserverlist_selection_changed(self, selection):
         model, treeiter = selection.get_selected()
         if treeiter is not None:
             self.servergraph_selectedserver = model[treeiter][0]
             self.server_delete_button.set_sensitive(True)
             self.server_edit_button.set_sensitive(True)
-            # print("You selected", model[treeiter][0])
         else:
             self.servergraph_selectedserver = None
             self.server_delete_button.set_sensitive(False)
             self.server_edit_button.set_sensitive(False)
-            # print("You selected: None")
 
     def update_logstore(self):
         # only show msgs for current nzb
@@ -757,7 +781,6 @@ class ApplicationGui(Gtk.Application):
         for server_name, _, _, _, _, _, _, connections, retention, useserver, _ in self.settings_servers:
             servers_as_list = []
             if server_name != "-ALL SERVERS-":
-                print(server_name, useserver)
                 servers_as_list.append(server_name)
                 servers_as_list.append(useserver)
                 self.serverlist_liststore.append(servers_as_list)
@@ -907,6 +930,13 @@ class Handler:
 
     def __init__(self, gui):
         self.gui = gui
+
+    def on_server_add_clicked(self, button):
+        print("Add Server clicked")
+
+    def on_apply_server_clicked(self, button):
+        self.gui.restartall = True
+        self.gui.app.quit()
 
     def on_cumulative_cb_toggled(self, a):
         self.gui.appdata.servergraph_cumulative = not self.gui.appdata.servergraph_cumulative
@@ -1193,3 +1223,4 @@ class AppData:
         self.servergraph_unit = list(UNIT_DIC.items())[0][1]
         self.servergraph_cumulative = False
         self.servergraph_selectedserver = None
+        self.settings_changed = False
