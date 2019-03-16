@@ -5,6 +5,7 @@ from threading import Thread
 import socket
 import queue
 from .mplogging import whoami
+import copy
 
 
 # This is the thread worker per connection to NNTP server
@@ -253,13 +254,19 @@ class ConnectionWorker(Thread):
 
 # this class deals on a meta-level with usenet connections
 class ConnectionThreads:
-    def __init__(self, cfg, articlequeue, resultqueue, logger):
+    def __init__(self, cfg, articlequeue, resultqueue, server_ts, logger):
         self.cfg = cfg
         self.logger = logger
         self.threads = []
         self.articlequeue = articlequeue
         self.resultqueue = resultqueue
         self.servers = None
+        self.bdl_results = {}
+        for s in server_ts:
+            try:
+                self.bdl_results[s] = server_ts[s]["sec"].max() * (1024 * 1024)
+            except Exception:
+                self.bdl_results[s] = 0
 
     def init_servers(self):
         self.servers = Servers(self.cfg, self.logger)
@@ -267,17 +274,20 @@ class ConnectionThreads:
         self.all_connections = self.servers.all_connections
 
     def get_downloaded_per_server(self):
-        result = {}
+        result = copy.deepcopy(self.bdl_results)
         result["-ALL SERVERS-"] = 0
         if not self.servers:
             return result
-        try:
-            for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
-                if useserver:
+        for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
+            if useserver:
+                try:
+                    result[servername] += sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+                except Exception:
                     result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+                try:
                     result["-ALL SERVERS-"] += result[servername]
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
+                except Exception:
+                    pass
         return result
 
     def start_threads(self):

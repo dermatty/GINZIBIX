@@ -1,3 +1,6 @@
+0a: test timeseries with multiple servers
+0b: why is there bulknews in server_ts_diff in gui.py 951 ff ???
+
 1. if gui exited during unrar -> main does not exit!
 
 

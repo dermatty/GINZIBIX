@@ -160,6 +160,12 @@ class PWDB():
             # -2 .. failed
             status = IntegerField(default=0)
 
+        class SERVERS_TS_SEC(BaseModel):
+            servername = CharField()
+            # a = pd.timeseries
+            # d = a.to_dict()        -> converts timeseries to dic
+            # b = pd.DataFrame.from_dict(d, orient="index")
+
         def max_sql_variables():
             import sqlite3
             db = sqlite3.connect(':memory:')

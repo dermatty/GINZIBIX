@@ -588,7 +588,6 @@ class ApplicationGui(Gtk.Application):
         self.servergraph_canvas.set_size_request(600, self.max_height * int((no_servers / 2.5)))
         for i, serversetting in enumerate(self.appdata.active_servers):
             server_name, server_url, user, password, port, usessl, level, connections, retention, useserver, plstyle = serversetting
-
             color, marker, linestyle = plstyle
             ax0 = self.servergraph_figure.add_subplot(no_servers, 1, i+1)
             lines0, = ax0.plot([], [], color=color, marker=marker, linestyle=linestyle, label=server_name)
@@ -1215,7 +1214,8 @@ class AppData:
         self.fulldata = None
         self.closeall = False
         self.nzbs_history = []
-        self.nzbs_history = [(False, "Test.nzb", 3, 1.5, 1.4, 0.9, "white")]
+        self.nzbs_history = []
+        # self.nzbs_history = [(False, "Test.nzb", 3, 1.5, 1.4, 0.9, "white")]
         self.overall_eta = 0
         self.server_ts_diff = {}
         self.server_ts = {}

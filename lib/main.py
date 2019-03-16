@@ -14,14 +14,14 @@ import shutil
 from .renamer import renamer
 from .nzb_parser import ParseNZB
 from .connections import ConnectionThreads
-from .aux import PWDBSender, mpp_is_alive, clear_postproc_dirs
+from .aux import PWDBSender, mpp_is_alive, clear_postproc_dirs, get_configured_servers
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
 from .downloader import Downloader
 from setproctitle import setproctitle
 from collections import deque
 import pandas as pd
-
+import pickle
 
 GB_DIVISOR = (1024 * 1024 * 1024)
 
@@ -48,6 +48,8 @@ def update_server_ts(server_ts, ct):
     now0 = datetime.datetime.now().replace(microsecond=0)
 
     for server, bdl in current_stats.items():
+        if server == "-ALL SERVERS-" and bdl == 0:
+            bdl = server_ts(server)["sec"].max() * (1024 * 1024)
         bdl = bdl / (1024 * 1024)   # in MB
         try:
             last_datetime = server_ts[server]["sec"].index[-1]
@@ -89,6 +91,7 @@ def update_server_ts(server_ts, ct):
         df_min_add = server_ts[server]["sec"].resample("1T").mean()[-1]
         server_ts[server]["minute"][-1] = df_min_add
 
+        # ATTENTION HERE IS THE BUG!!!!!!!
         df_h_add = server_ts[server]["minute"].resample("1H").mean()[-1]
         server_ts[server]["hour"][-1] = df_h_add
 
@@ -314,9 +317,19 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
              "verifier": [verifier_parent_pipe, verifier_child_pipe]}
 
-    server_ts = {}
+    # load server ts from file
+    try:
+        server_ts0 = pickle.load(open(dirs["main"] + "ginzibix.ts", "rb"))
+    except Exception:
+        server_ts0 = {}
+    config_servers = get_configured_servers(cfg)
+    config_servers.append("-ALL SERVERS-")
+    server_ts = {key: server_ts0[key] for key in server_ts0 if key in config_servers}
+    del server_ts0
+    print(server_ts)
+    print("-" * 80)
 
-    ct = ConnectionThreads(cfg, articlequeue, resultqueue, logger)
+    ct = ConnectionThreads(cfg, articlequeue, resultqueue, server_ts, logger)
 
     # update delay
     try:
@@ -710,12 +723,12 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
         logger.warning(whoami() + str(e))
     logger.debug(whoami() + "closeall: all cleared")
     # save pandas time series
-    # try:
-    #    pickle.dump(server_ts, open(dirs["main"] + "ginzibix.ts", "wb"))
-    #    logger.info(whoami() + "closeall: saved downloaded-timeseries to file")
-    # except Exception as e:
-    #    logger.warning(whoami() + str(e) + ": closeall: error in saving download-timeseries")
-    logger.info(whoami() + "exited!")
+    try:
+        print(server_ts)
+        pickle.dump(server_ts, open(dirs["main"] + "ginzibix.ts", "wb"))
+        logger.info(whoami() + "closeall: saved downloaded-timeseries to file")
+    except Exception as e:
+        logger.warning(whoami() + str(e) + ": closeall: error in saving download-timeseries")
     # if restart because of settings applied in gui -> write cfg to file
     if applied_datarec:
         try:
@@ -724,4 +737,5 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
             logger.debug(whoami() + "changed config file written!")
         except Exception as e:
             logger.error(whoami() + str(e) + ": cannot write changed config file!")
+    logger.info(whoami() + "exited!")
     sys.exit(0)

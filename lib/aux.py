@@ -140,13 +140,33 @@ def make_dirs():
     return userhome, maindir, dirs, subdirs
 
 
+# gets only names of configured servers
+def get_configured_servers(cfg):
+    # get servers from config, max SERVER10
+    snr = 0
+    idx = 0
+    sconf = []
+    while idx < 99:
+        idx += 1
+        try:
+            snr += 1
+            snrstr = "SERVER" + str(snr)
+            server_name = cfg[snrstr]["SERVER_NAME"]
+            sconf.append(server_name)
+        except Exception:
+            continue
+    if not sconf:
+        return None
+    return sconf
+
+
 # reads servers from config
 def get_server_config(cfg):
     # get servers from config, max SERVER10
     snr = 0
     idx = 0
     sconf = []
-    while idx < 10:
+    while idx < 99:
         idx += 1
         try:
             snr += 1
@@ -161,7 +181,7 @@ def get_server_config(cfg):
             level = int(cfg[snrstr]["LEVEL"])
             connections = int(cfg[snrstr]["CONNECTIONS"])
         except Exception:
-            snr -= 1
+            # snr -= 1
             continue
         try:
             retention = int(cfg[snrstr]["RETENTION"])
