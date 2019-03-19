@@ -49,7 +49,7 @@ def update_server_ts(server_ts, ct):
 
     for server, bdl in current_stats.items():
         if server == "-ALL SERVERS-" and bdl == 0:
-            bdl = server_ts(server)["sec"].max() * (1024 * 1024)
+            bdl = server_ts[server]["sec"].max() * (1024 * 1024)
         bdl = bdl / (1024 * 1024)   # in MB
         try:
             last_datetime = server_ts[server]["sec"].index[-1]
@@ -65,6 +65,15 @@ def update_server_ts(server_ts, ct):
             server_ts[server]["day"] = pd.Series(bdl, index=pd.date_range(now0_minus1, periods=2, freq='D'))
 
         server_ts[server]["sec"][now0] = bdl
+
+        df_min_add = server_ts[server]["sec"].resample("1T").mean()[-1]
+        server_ts[server]["minute"][-1] = df_min_add
+
+        df_h_add = server_ts[server]["minute"].resample("1H").mean()[-1]
+        server_ts[server]["hour"][-1] = df_h_add
+
+        df_d_add = server_ts[server]["hour"].resample("1D").mean()[-1]
+        server_ts[server]["day"][-1] = df_d_add
 
         # limit seconds to 60
         while (now0 - server_ts[server]["sec"].index[0]).total_seconds() > 60:
@@ -87,17 +96,6 @@ def update_server_ts(server_ts, ct):
             server_ts[server]["day"][now0] = bdl
             while (now0 - server_ts[server]["day"].index[0]).total_seconds() > months_in_sec:
                 server_ts[server]["day"] = server_ts[server]["day"].drop(server_ts[server]["day"].index[0])
-
-        df_min_add = server_ts[server]["sec"].resample("1T").mean()[-1]
-        server_ts[server]["minute"][-1] = df_min_add
-
-        # ATTENTION HERE IS THE BUG!!!!!!!
-        df_h_add = server_ts[server]["minute"].resample("1H").mean()[-1]
-        server_ts[server]["hour"][-1] = df_h_add
-
-        df_d_add = server_ts[server]["hour"].resample("1D").mean()[-1]
-        server_ts[server]["day"][-1] = df_d_add
-
     return
 
 
@@ -326,8 +324,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
     config_servers.append("-ALL SERVERS-")
     server_ts = {key: server_ts0[key] for key in server_ts0 if key in config_servers}
     del server_ts0
-    print(server_ts)
-    print("-" * 80)
 
     ct = ConnectionThreads(cfg, articlequeue, resultqueue, server_ts, logger)
 
@@ -724,7 +720,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
     logger.debug(whoami() + "closeall: all cleared")
     # save pandas time series
     try:
-        print(server_ts)
         pickle.dump(server_ts, open(dirs["main"] + "ginzibix.ts", "wb"))
         logger.info(whoami() + "closeall: saved downloaded-timeseries to file")
     except Exception as e:

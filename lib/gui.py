@@ -7,7 +7,8 @@ import time
 import datetime
 import pandas as pd
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib, Pango
-from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color, get_server_config
+from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color,\
+    get_server_config, get_config_for_server
 from .mplogging import whoami, setup_logger
 from matplotlib.backends.backend_gtk3agg import (
     FigureCanvasGTK3Agg as FigureCanvas)
@@ -133,6 +134,19 @@ class ApplicationGui(Gtk.Application):
         self.server_edit_button = self.obj("server_edit")
         self.server_delete_button = self.obj("server_delete")
         self.server_apply_button = self.obj("apply_server")
+
+        self.serversettingsdialog = None
+        self.server_setting_box = self.obj("server_setting_box")
+        self.serverdialog_server_name_entry = self.obj("server_name_entry")
+        self.serverdialog_server_active = self.obj("server_active")
+        self.serverdialog_server_url = self.obj("server_url_entry")
+        self.serverdialog_server_user = self.obj("server_user_entry")
+        self.serverdialog_server_pass = self.obj("server_pass_entry")
+        self.serverdialog_server_ssl = self.obj("server_ssl")
+        self.serverdialog_port = self.obj("settings_port_spinbutton")
+        self.serverdialog_level = self.obj("settings_level_spinbutton")
+        self.serverdialog_connections = self.obj("settings_connections_spinbutton")
+        self.serverdialog_retention = self.obj("settings_retention_spinbutton")
 
         self.comboboxtext = self.obj("frequencycombotext")
         self.comboboxtext.set_active(0)
@@ -447,7 +461,7 @@ class ApplicationGui(Gtk.Application):
         self.appdata.server_ts_diff = {}
         self.appdata.server_ts = server_ts
         for serversetting in self.settings_servers:
-            server_name, _, _, _, _, _, _, _, _, _, useserver = serversetting
+            server_name, _, _, _, _, _, _, _, _, useserver, _ = serversetting
             if useserver:
                 self.appdata.server_ts_diff[server_name] = {}
                 try:
@@ -601,8 +615,7 @@ class ApplicationGui(Gtk.Application):
             self.ax.append(ax0)
             self.lines.append(lines0)
 
-    def read_config(self):
-        # read serversettings and assign colors
+    def read_serverconfig(self):
         settings_servers = get_server_config(self.cfg)
         i = 1
         for j, serversetting in enumerate(settings_servers):
@@ -615,6 +628,10 @@ class ApplicationGui(Gtk.Application):
             i += 1
             if (i+1) % 20 == 1:
                 i = 0
+
+    def read_config(self):
+        # read serversettings and assign colors
+        self.read_serverconfig()
 
         # update_delay
         try:
@@ -715,7 +732,7 @@ class ApplicationGui(Gtk.Application):
             snr = 1
             idx = 0
             serverfound = False
-            while idx < 10:
+            while idx < 99:
                 snrstr = "SERVER" + str(snr)
                 if self.cfg[snrstr]["server_name"] == servername:
                     self.cfg[snrstr]["use_server"] = "yes" if useserver else "no"
@@ -929,6 +946,74 @@ class Handler:
 
     def __init__(self, gui):
         self.gui = gui
+
+    def on_server_edit_clicked(self, button):
+        servername = self.gui.servergraph_selectedserver
+        serverconfig = get_config_for_server(servername, self.gui.cfg)
+        if not serverconfig:
+            return
+        self.gui.appdata.settings_dialog_results = serverconfig
+        if not self.gui.serversettingsdialog:
+            self.gui.serversettingsdialog = NewsserverDialog(self.gui.window, servername, self.gui)
+        # preset values
+        self.gui.serverdialog_server_name_entry.set_text(self.gui.appdata.settings_dialog_results["server_name"])
+        if self.gui.appdata.settings_dialog_results["active"].lower() == "yes":
+            self.gui.serverdialog_server_active.set_active(True)
+        else:
+            self.gui.serverdialog_server_active.set_active(False)
+        self.gui.serverdialog_server_url.set_text(self.gui.appdata.settings_dialog_results["url"])
+        self.gui.serverdialog_server_user.set_text(self.gui.appdata.settings_dialog_results["user"])
+        self.gui.serverdialog_server_pass.set_text(self.gui.appdata.settings_dialog_results["password"])
+        if self.gui.appdata.settings_dialog_results["ssl"].lower() == "yes":
+            self.gui.serverdialog_server_ssl.set_active(True)
+        else:
+            self.gui.serverdialog_server_ssl.set_active(True)
+        self.gui.serverdialog_port.set_value(int(self.gui.appdata.settings_dialog_results["port"]))
+        self.gui.serverdialog_level.set_value(int(self.gui.appdata.settings_dialog_results["level"]))
+        self.gui.serverdialog_connections.set_value(int(self.gui.appdata.settings_dialog_results["connections"]))
+        self.gui.serverdialog_retention.set_value(int(self.gui.appdata.settings_dialog_results["retention"]))
+
+        response = self.gui.serversettingsdialog.run()
+        self.gui.serversettingsdialog.hide()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+        # get return values
+        new_name = self.gui.serverdialog_server_name_entry.get_text()
+        new_active = "yes" if self.gui.serverdialog_server_active.get_active() else "no"
+        new_url = self.gui.serverdialog_server_url.get_text()
+        new_user = self.gui.serverdialog_server_user.get_text()
+        new_pass = self.gui.serverdialog_server_pass.get_text()
+        new_ssl = "yes" if self.gui.serverdialog_server_ssl.get_active() else "no"
+        new_port = self.gui.serverdialog_port.get_value_as_int()
+        new_level = self.gui.serverdialog_level.get_value_as_int()
+        new_connections = self.gui.serverdialog_connections.get_value_as_int()
+        new_retention = self.gui.serverdialog_retention.get_value_as_int()
+        print(new_name, new_active, new_level, new_url, new_user, new_pass, new_ssl, new_port, new_level,
+              new_connections, new_retention)
+
+    def on_server_delete_clicked(self, button):
+        servername = self.gui.servergraph_selectedserver
+        dialog = ConfirmDialog(self.gui.window, "Delete News-Server", "Do you really want to delete " + servername + "?")
+        response = dialog.run()
+        dialog.destroy()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+        snr = 1
+        idx = 0
+        serverfound = False
+        while idx < 99:
+            snrstr = "SERVER" + str(snr)
+            if self.gui.cfg[snrstr]["server_name"] == servername:
+                del self.gui.cfg[snrstr]
+                serverfound = True
+                break
+            snr += 1
+            idx += 1
+        if serverfound:
+            self.gui.read_serverconfig()
+            self.gui.update_serverlist_liststore()
+            self.gui.appdata.settings_changed = True
+            self.gui.server_apply_button.set_sensitive(True)
 
     def on_server_add_clicked(self, button):
         print("Add Server clicked")
@@ -1193,6 +1278,21 @@ class ConfirmDialog(Gtk.Dialog):
         self.show_all()
 
 
+class NewsserverDialog(Gtk.Dialog):
+    def __init__(self, parent, title, gui):
+        Gtk.Dialog.__init__(self, title, parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                                     Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        self.set_default_size(150, 100)
+        self.set_border_width(10)
+        self.set_modal(True)
+
+        box = self.get_content_area()
+        box.add(gui.server_setting_box)
+        gui.serverdialog_server_name_entry.set_text(gui.appdata.settings_dialog_results["server_name"])
+        
+        self.show_all()
+
+
 class AppData:
     def __init__(self, lock):
         self.lock = lock
@@ -1224,3 +1324,6 @@ class AppData:
         self.servergraph_cumulative = False
         self.servergraph_selectedserver = None
         self.settings_changed = False
+        self.settings_dialog_results = {"server_name": None, "active": None, "url": None, "username": None,
+                                        "password": None, "ssl": None, "port": None, "level": None,
+                                        "connections": None, "retention": None}

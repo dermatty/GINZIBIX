@@ -160,6 +160,59 @@ def get_configured_servers(cfg):
     return sconf
 
 
+def get_config_for_server(servername0, cfg):
+    snr = 0
+    idx = 0
+    result = {}
+    while idx < 99:
+        idx += 1
+        try:
+            snr += 1
+            snrstr = "SERVER" + str(snr)
+            if servername0 == cfg[snrstr]["SERVER_NAME"]:
+                result["server_name"] = cfg[snrstr]["server_name"]
+                try:
+                    result["active"] = cfg[snrstr]["use_server"]
+                except Exception:
+                    result["active"] = "no"
+                try:
+                    result["url"] = cfg[snrstr]["server_url"]
+                except Exception:
+                    result["url"] = ""
+                try:
+                    result["user"] = cfg[snrstr]["user"]
+                except Exception:
+                    result["user"] = ""
+                try:
+                    result["password"] = cfg[snrstr]["password"]
+                except Exception:
+                    result["password"] = ""
+                try:
+                    result["ssl"] = cfg[snrstr]["ssl"]
+                except Exception:
+                    result["ssl"] = "no"
+                try:
+                    result["port"] = cfg[snrstr]["port"]
+                except Exception:
+                    result["port"] = "119"
+                try:
+                    result["level"] = cfg[snrstr]["level"]
+                except Exception:
+                    result["level"] = "0"
+                try:
+                    result["connections"] = cfg[snrstr]["connections"]
+                except Exception:
+                    result["connections"] = "1"
+                try:
+                    result["retention"] = cfg[snrstr]["retention"]
+                except Exception:
+                    result["retention"] = "-1"
+                break
+        except Exception:
+            pass
+    return result
+
+
 # reads servers from config
 def get_server_config(cfg):
     # get servers from config, max SERVER10

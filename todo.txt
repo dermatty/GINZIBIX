@@ -1,5 +1,5 @@
-0a: test timeseries with multiple servers
-0b: why is there bulknews in server_ts_diff in gui.py 951 ff ???
+0a. show in serverlist_treeview: sum_downloaded, avg speed (problem - sample
+only non zeros!!!)
 
 1. if gui exited during unrar -> main does not exit!
 
