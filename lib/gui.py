@@ -943,25 +943,21 @@ class ApplicationGui(Gtk.Application):
 
 
 class ConnectionTester(Thread):
-    def __init__(self, spinner, label, button):
+    def __init__(self, spinner, label):
         Thread.__init__(self)
         self.daemon = True
         self.done = False
         self.spinner = spinner
         self.label = label
-        self.button = button
 
     def run(self):
-        #self.label.set_text("")
 
-        self.spinner.start()
         t0 = time.time()
         while time.time() - t0 < 2:
-            time.sleep(0.1)
+            time.sleep(0.25)
 
         self.spinner.stop()
-        #self.label.set_text("OK")
-        #self.button.set_sensitive(True)
+        self.label.set_markup('<span foreground="green" font-weight="bold">OK</span>')
 
 
 # ******************************************************************************************************
@@ -976,15 +972,9 @@ class Handler:
         self.t0 = time.time()
         self.gui.serverdialog_test_label.set_text("")
         self.gui.serverdialog_test_spinner.start()
-        self.timeout_id = GLib.timeout_add(250, self.on_spinner_timeout)
 
-    def on_spinner_timeout(self):
-        if time.time() - self.t0 > 2:
-            self.gui.serverdialog_test_spinner.stop()
-            GLib.source_remove(self.timeout_id)
-            self.gui.serverdialog_test_label.set_markup('<span foreground="green" font-weight="bold">OK</span>')
-            return False
-        return True
+        ct = ConnectionTester(self.gui.serverdialog_test_spinner, self.gui.serverdialog_test_label)
+        ct.start()
 
     def on_server_edit_clicked(self, button):
         servername = self.gui.servergraph_selectedserver
