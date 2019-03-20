@@ -1,7 +1,7 @@
 import gi
 import matplotlib
 import queue
-import sys
+from threading import Thread
 import threading
 import time
 import datetime
@@ -147,6 +147,9 @@ class ApplicationGui(Gtk.Application):
         self.serverdialog_level = self.obj("settings_level_spinbutton")
         self.serverdialog_connections = self.obj("settings_connections_spinbutton")
         self.serverdialog_retention = self.obj("settings_retention_spinbutton")
+        self.serverdialog_test_button = self.obj("test_connection_button")
+        self.serverdialog_test_spinner = self.obj("test_connection_spinner")
+        self.serverdialog_test_label = self.obj("test_connection_label")
 
         self.comboboxtext = self.obj("frequencycombotext")
         self.comboboxtext.set_active(0)
@@ -939,6 +942,28 @@ class ApplicationGui(Gtk.Application):
             self.overall_eta_label.set_text("ETA: -")
 
 
+class ConnectionTester(Thread):
+    def __init__(self, spinner, label, button):
+        Thread.__init__(self)
+        self.daemon = True
+        self.done = False
+        self.spinner = spinner
+        self.label = label
+        self.button = button
+
+    def run(self):
+        #self.label.set_text("")
+
+        self.spinner.start()
+        t0 = time.time()
+        while time.time() - t0 < 2:
+            time.sleep(0.1)
+
+        self.spinner.stop()
+        #self.label.set_text("OK")
+        #self.button.set_sensitive(True)
+
+
 # ******************************************************************************************************
 # *** Handler for buttons
 
@@ -947,6 +972,20 @@ class Handler:
     def __init__(self, gui):
         self.gui = gui
 
+    def on_test_connection_button_clicked(self, button):
+        self.t0 = time.time()
+        self.gui.serverdialog_test_label.set_text("")
+        self.gui.serverdialog_test_spinner.start()
+        self.timeout_id = GLib.timeout_add(250, self.on_spinner_timeout)
+
+    def on_spinner_timeout(self):
+        if time.time() - self.t0 > 2:
+            self.gui.serverdialog_test_spinner.stop()
+            GLib.source_remove(self.timeout_id)
+            self.gui.serverdialog_test_label.set_markup('<span foreground="green" font-weight="bold">OK</span>')
+            return False
+        return True
+
     def on_server_edit_clicked(self, button):
         servername = self.gui.servergraph_selectedserver
         serverconfig = get_config_for_server(servername, self.gui.cfg)
@@ -954,7 +993,7 @@ class Handler:
             return
         self.gui.appdata.settings_dialog_results = serverconfig
         if not self.gui.serversettingsdialog:
-            self.gui.serversettingsdialog = NewsserverDialog(self.gui.window, servername, self.gui)
+            self.gui.serversettingsdialog = NewsserverDialog(self.gui.window, "Settings for " + servername, self.gui)
         # preset values
         self.gui.serverdialog_server_name_entry.set_text(self.gui.appdata.settings_dialog_results["server_name"])
         if self.gui.appdata.settings_dialog_results["active"].lower() == "yes":
@@ -973,6 +1012,7 @@ class Handler:
         self.gui.serverdialog_connections.set_value(int(self.gui.appdata.settings_dialog_results["connections"]))
         self.gui.serverdialog_retention.set_value(int(self.gui.appdata.settings_dialog_results["retention"]))
 
+        # wait for dialog completed
         response = self.gui.serversettingsdialog.run()
         self.gui.serversettingsdialog.hide()
         if response == Gtk.ResponseType.CANCEL:
@@ -988,8 +1028,8 @@ class Handler:
         new_level = self.gui.serverdialog_level.get_value_as_int()
         new_connections = self.gui.serverdialog_connections.get_value_as_int()
         new_retention = self.gui.serverdialog_retention.get_value_as_int()
-        print(new_name, new_active, new_level, new_url, new_user, new_pass, new_ssl, new_port, new_level,
-              new_connections, new_retention)
+        #print(new_name, new_active, new_level, new_url, new_user, new_pass, new_ssl, new_port, new_level,
+        #      new_connections, new_retention)
 
     def on_server_delete_clicked(self, button):
         servername = self.gui.servergraph_selectedserver
