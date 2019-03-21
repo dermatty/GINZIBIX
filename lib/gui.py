@@ -6,6 +6,8 @@ import threading
 import time
 import datetime
 import pandas as pd
+import nntplib
+import ssl
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib, Pango
 from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color,\
     get_server_config, get_config_for_server
@@ -26,6 +28,8 @@ gi.require_version("Gtk", "3.0")
 __appname__ = "ginzibix"
 __version__ = "0.01 pre-alpha"
 __author__ = "dermatty"
+
+DEBUGPRINT = True
 
 ICONFILE = "lib/gzbx1.png"
 GLADEFILE = "lib/ginzibix.glade"
@@ -106,6 +110,9 @@ class ApplicationGui(Gtk.Application):
         self.lock = threading.Lock()
         self.activestack = None
         self.restartall = False
+        self.tester_done = False
+        self.tester_return_msg = ""
+        self.ct = None
 
     def run(self, argv):
         self.app.run(argv)
@@ -458,6 +465,18 @@ class ApplicationGui(Gtk.Application):
     def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, sortednzblist0,
                           sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata,
                           gb_downloaded, server_ts):
+
+        # check if connection_tester has completed -> if yes, join tester thread, stop spinner etc.
+        # !! can only be called from a Glib.idle_add !!
+        if self.tester_done:
+            with self.lock:
+                self.tester_done = False
+                if self.ct:
+                    self.ct.join()
+                    self.ct = None
+                self.serverdialog_test_button.set_sensitive(True)
+                self.serverdialog_test_spinner.stop()
+                self.serverdialog_test_label.set_markup(self.tester_return_msg)
 
         # calc current speed + differences time series
         netstat_mbitcur = 0
@@ -942,22 +961,68 @@ class ApplicationGui(Gtk.Application):
             self.overall_eta_label.set_text("ETA: -")
 
 
+# ******************************************************************************************************
+# *** Thread for connection testing
+# ***    Attention: no gui action must be set here!!!
+
 class ConnectionTester(Thread):
-    def __init__(self, spinner, label):
+    def __init__(self, gui, test_url, test_user, test_pass, test_ssl, test_port, ):
         Thread.__init__(self)
         self.daemon = True
-        self.done = False
-        self.spinner = spinner
-        self.label = label
+        self.gui = gui
+        self.url = test_url
+        self.user = test_user
+        self.passw = test_pass
+        self.ssl = test_ssl
+        self.port = test_port
+        with self.gui.lock:
+            self.gui.tester_done = False
 
     def run(self):
+        error0 = ""
+        if self.ssl:
+            try:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+                nntpobj = nntplib.NNTP_SSL(self.url, user=self.user, password=self.passw, ssl_context=context, port=self.port, readermode=True, timeout=5)
+                nntpobj.getwelcome()
+                nntpobj.list()
+                nntpobj.quit()
+            except Exception as e:
+                error0 = str(e)
+        else:
+            try:
+                nntpobj = nntplib.NNTP(self.url, user=self.user, password=self.passw, port=self.port, readermode=True, timeout=5)
+                nntpobj.getwelcome()
+                nntpobj.list()
+                nntpobj.quit()
+            except Exception as e:
+                error0 = str(e)
 
-        t0 = time.time()
-        while time.time() - t0 < 2:
-            time.sleep(0.25)
+        if not error0:
+            return_msg = '<span foreground="green" font-weight="bold">OK!</span>'
+        else:
+            if "Errno 111" in error0:
+                errstr = "dial-up refused!"
+            elif "Errno -2" in error0:
+                errstr = "unknown url/provider"
+            elif "502" in error0:
+                errstr = "auth failed"
+            elif "482" in error0:
+                errstr = "invalid user/passwd"
+            elif "timed out" in error0:
+                errstr = "time out"
+            elif "getsockaddrarg: bad family" in error0:
+                errstr = "bad port (!?)"
+            else:
+                errstr = "unknown"
+                if DEBUGPRINT:
+                    print(error0)
+            return_msg = '<span foreground="red" font-weight="bold">ERROR - ' + errstr + '</span>'
 
-        self.spinner.stop()
-        self.label.set_markup('<span foreground="green" font-weight="bold">OK</span>')
+        # pass results to main thread and make spinner stop etc. from update_mainwindow!
+        with self.gui.lock:
+            self.gui.tester_return_msg = return_msg
+            self.gui.tester_done = True
 
 
 # ******************************************************************************************************
@@ -969,16 +1034,22 @@ class Handler:
         self.gui = gui
 
     def on_test_connection_button_clicked(self, button):
-        self.t0 = time.time()
+        self.gui.serverdialog_test_button.set_sensitive(False)
+        test_url = self.gui.serverdialog_server_url.get_text()
+        test_user = self.gui.serverdialog_server_user.get_text()
+        test_pass = self.gui.serverdialog_server_pass.get_text()
+        test_ssl = self.gui.serverdialog_server_ssl.get_active()
+        test_port = self.gui.serverdialog_port.get_value_as_int()
+
         self.gui.serverdialog_test_label.set_text("")
         self.gui.serverdialog_test_spinner.start()
-
-        ct = ConnectionTester(self.gui.serverdialog_test_spinner, self.gui.serverdialog_test_label)
+        ct = ConnectionTester(self.gui, test_url, test_user, test_pass, test_ssl, test_port)
+        self.gui.ct = ct
         ct.start()
 
     def on_server_edit_clicked(self, button):
         servername = self.gui.servergraph_selectedserver
-        serverconfig = get_config_for_server(servername, self.gui.cfg)
+        snrstr, serverconfig = get_config_for_server(servername, self.gui.cfg)
         if not serverconfig:
             return
         self.gui.appdata.settings_dialog_results = serverconfig
@@ -1002,24 +1073,29 @@ class Handler:
         self.gui.serverdialog_connections.set_value(int(self.gui.appdata.settings_dialog_results["connections"]))
         self.gui.serverdialog_retention.set_value(int(self.gui.appdata.settings_dialog_results["retention"]))
 
+        self.gui.serverdialog_test_label.set_text("")
+
         # wait for dialog completed
         response = self.gui.serversettingsdialog.run()
         self.gui.serversettingsdialog.hide()
         if response == Gtk.ResponseType.CANCEL:
             return
-        # get return values
-        new_name = self.gui.serverdialog_server_name_entry.get_text()
-        new_active = "yes" if self.gui.serverdialog_server_active.get_active() else "no"
-        new_url = self.gui.serverdialog_server_url.get_text()
-        new_user = self.gui.serverdialog_server_user.get_text()
-        new_pass = self.gui.serverdialog_server_pass.get_text()
-        new_ssl = "yes" if self.gui.serverdialog_server_ssl.get_active() else "no"
-        new_port = self.gui.serverdialog_port.get_value_as_int()
-        new_level = self.gui.serverdialog_level.get_value_as_int()
-        new_connections = self.gui.serverdialog_connections.get_value_as_int()
-        new_retention = self.gui.serverdialog_retention.get_value_as_int()
-        #print(new_name, new_active, new_level, new_url, new_user, new_pass, new_ssl, new_port, new_level,
-        #      new_connections, new_retention)
+        # get & store return values
+        with self.gui.lock:
+            self.gui.cfg[snrstr]["server_name"] = self.gui.serverdialog_server_name_entry.get_text()
+            self.gui.cfg[snrstr]["use_server"] = "yes" if self.gui.serverdialog_server_active.get_active() else "no"
+            self.gui.cfg[snrstr]["server_url"] = self.gui.serverdialog_server_url.get_text()
+            self.gui.cfg[snrstr]["user"] = self.gui.serverdialog_server_user.get_text()
+            self.gui.cfg[snrstr]["pass"] = self.gui.serverdialog_server_pass.get_text()
+            self.gui.cfg[snrstr]["ssl"] = "yes" if self.gui.serverdialog_server_ssl.get_active() else "no"
+            self.gui.cfg[snrstr]["port"] = str(self.gui.serverdialog_port.get_value_as_int())
+            self.gui.cfg[snrstr]["level"] = str(self.gui.serverdialog_level.get_value_as_int())
+            self.gui.cfg[snrstr]["connections"] = str(self.gui.serverdialog_connections.get_value_as_int())
+            self.gui.cfg[snrstr]["retention"] = str(self.gui.serverdialog_retention.get_value_as_int())
+            self.gui.read_serverconfig()
+            self.gui.update_serverlist_liststore()
+            self.gui.appdata.settings_changed = True
+            self.gui.server_apply_button.set_sensitive(True)
 
     def on_server_delete_clicked(self, button):
         servername = self.gui.servergraph_selectedserver

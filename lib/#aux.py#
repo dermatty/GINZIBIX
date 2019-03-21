@@ -160,22 +160,6 @@ def get_configured_servers(cfg):
     return sconf
 
 
-def update_config_for_server(servername0, cfg):
-    snr = 0
-    idx = 0
-    result = {}
-    while idx < 99:
-        idx += 1
-        try:
-            snr += 1
-            snrstr = "SERVER" + str(snr)
-            if servername0 == cfg[snrstr]["SERVER_NAME"]:
-                del cfg[snrstr]
-                break
-        except Exception:
-            pass
-
-
 def get_config_for_server(servername0, cfg):
     snr = 0
     idx = 0
