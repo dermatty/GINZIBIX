@@ -1,4 +1,5 @@
 import zmq
+import socket
 import time
 import queue
 import threading
@@ -140,6 +141,21 @@ def make_dirs():
     return userhome, maindir, dirs, subdirs
 
 
+def get_free_server_cfg(cfg):
+    snr = 0
+    idx = 0
+    snrstr = ""
+    while idx < 99:
+        idx += 1
+        try:
+            snr += 1
+            snrstr = "SERVER" + str(snr)
+            assert cfg[snrstr]["SERVER_NAME"]
+        except Exception:
+            break
+    return snrstr
+
+
 # gets only names of configured servers
 def get_configured_servers(cfg):
     # get servers from config, max SERVER10
@@ -235,7 +251,6 @@ def get_server_config(cfg):
             level = int(cfg[snrstr]["LEVEL"])
             connections = int(cfg[snrstr]["CONNECTIONS"])
         except Exception:
-            # snr -= 1
             continue
         try:
             retention = int(cfg[snrstr]["RETENTION"])
@@ -306,6 +321,11 @@ class PWDBSender():
         except Exception:
             self.context = None
             return False
+
+
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
 
 
 # connects to guiconnector

@@ -10,7 +10,7 @@ import nntplib
 import ssl
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib, Pango
 from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color,\
-    get_server_config, get_config_for_server
+    get_server_config, get_config_for_server, get_free_server_cfg
 from .mplogging import whoami, setup_logger
 from matplotlib.backends.backend_gtk3agg import (
     FigureCanvasGTK3Agg as FigureCanvas)
@@ -645,11 +645,13 @@ class ApplicationGui(Gtk.Application):
                 self.settings_servers = [("-ALL SERVERS-", None, None, None, None, None, None, None, None, True, (COLORCODES[i], MARKERS[i], LINESTYLES[i]))]
                 i += 1
             server_name, server_url, user, password, port, usessl, level, connections, retention, useserver = serversetting
+            print(server_name)
             self.settings_servers.append((server_name, server_url, user, password, port, usessl, level, connections,
                                           retention, useserver, (COLORCODES[i], MARKERS[i], LINESTYLES[i])))
             i += 1
             if (i+1) % 20 == 1:
                 i = 0
+        print("-" * 40)
 
     def read_config(self):
         # read serversettings and assign colors
@@ -1052,26 +1054,25 @@ class Handler:
         snrstr, serverconfig = get_config_for_server(servername, self.gui.cfg)
         if not serverconfig:
             return
-        self.gui.appdata.settings_dialog_results = serverconfig
         if not self.gui.serversettingsdialog:
             self.gui.serversettingsdialog = NewsserverDialog(self.gui.window, "Settings for " + servername, self.gui)
         # preset values
-        self.gui.serverdialog_server_name_entry.set_text(self.gui.appdata.settings_dialog_results["server_name"])
-        if self.gui.appdata.settings_dialog_results["active"].lower() == "yes":
+        self.gui.serverdialog_server_name_entry.set_text(serverconfig["server_name"])
+        if serverconfig["active"].lower() == "yes":
             self.gui.serverdialog_server_active.set_active(True)
         else:
             self.gui.serverdialog_server_active.set_active(False)
-        self.gui.serverdialog_server_url.set_text(self.gui.appdata.settings_dialog_results["url"])
-        self.gui.serverdialog_server_user.set_text(self.gui.appdata.settings_dialog_results["user"])
-        self.gui.serverdialog_server_pass.set_text(self.gui.appdata.settings_dialog_results["password"])
-        if self.gui.appdata.settings_dialog_results["ssl"].lower() == "yes":
+        self.gui.serverdialog_server_url.set_text(serverconfig["url"])
+        self.gui.serverdialog_server_user.set_text(serverconfig["user"])
+        self.gui.serverdialog_server_pass.set_text(serverconfig["password"])
+        if serverconfig["ssl"].lower() == "yes":
             self.gui.serverdialog_server_ssl.set_active(True)
         else:
             self.gui.serverdialog_server_ssl.set_active(True)
-        self.gui.serverdialog_port.set_value(int(self.gui.appdata.settings_dialog_results["port"]))
-        self.gui.serverdialog_level.set_value(int(self.gui.appdata.settings_dialog_results["level"]))
-        self.gui.serverdialog_connections.set_value(int(self.gui.appdata.settings_dialog_results["connections"]))
-        self.gui.serverdialog_retention.set_value(int(self.gui.appdata.settings_dialog_results["retention"]))
+        self.gui.serverdialog_port.set_value(int(serverconfig["port"]))
+        self.gui.serverdialog_level.set_value(int(serverconfig["level"]))
+        self.gui.serverdialog_connections.set_value(int(serverconfig["connections"]))
+        self.gui.serverdialog_retention.set_value(int(serverconfig["retention"]))
 
         self.gui.serverdialog_test_label.set_text("")
 
@@ -1108,11 +1109,14 @@ class Handler:
         idx = 0
         serverfound = False
         while idx < 99:
-            snrstr = "SERVER" + str(snr)
-            if self.gui.cfg[snrstr]["server_name"] == servername:
-                del self.gui.cfg[snrstr]
-                serverfound = True
-                break
+            try:
+                snrstr = "SERVER" + str(snr)
+                if self.gui.cfg[snrstr]["server_name"] == servername:
+                    del self.gui.cfg[snrstr]
+                    serverfound = True
+                    break
+            except Exception:
+                pass
             snr += 1
             idx += 1
         if serverfound:
@@ -1122,7 +1126,42 @@ class Handler:
             self.gui.server_apply_button.set_sensitive(True)
 
     def on_server_add_clicked(self, button):
-        print("Add Server clicked")
+        snrstr = get_free_server_cfg(self.gui.cfg)
+        if not self.gui.serversettingsdialog:
+            self.gui.serversettingsdialog = NewsserverDialog(self.gui.window, "Settings for new server", self.gui)
+        # preset values
+        self.gui.serverdialog_server_name_entry.set_text(snrstr)
+        self.gui.serverdialog_server_active.set_active(False)
+        self.gui.serverdialog_server_url.set_text("news.newsserver.eu")
+        self.gui.serverdialog_server_user.set_text("user1")
+        self.gui.serverdialog_server_pass.set_text("123456")
+        self.gui.serverdialog_server_ssl.set_active(False)
+        self.gui.serverdialog_port.set_value(119)
+        self.gui.serverdialog_level.set_value(0)
+        self.gui.serverdialog_connections.set_value(1)
+        self.gui.serverdialog_retention.set_value(-1)
+        self.gui.serverdialog_test_label.set_text("")
+        # wait for dialog completed
+        response = self.gui.serversettingsdialog.run()
+        self.gui.serversettingsdialog.hide()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+        # get & store return values
+        with self.gui.lock:
+            self.gui.cfg[snrstr] = {"server_name": self.gui.serverdialog_server_name_entry.get_text(),
+                                    "use_server": self.gui.serverdialog_server_name_entry.get_text(),
+                                    "server_url": self.gui.serverdialog_server_url.get_text(),
+                                    "user": self.gui.serverdialog_server_user.get_text(),
+                                    "password": self.gui.serverdialog_server_pass.get_text(),
+                                    "ssl": "yes" if self.gui.serverdialog_server_ssl.get_active() else "no",
+                                    "port": str(self.gui.serverdialog_port.get_value_as_int()),
+                                    "level": str(self.gui.serverdialog_level.get_value_as_int()),
+                                    "connections": str(self.gui.serverdialog_connections.get_value_as_int()),
+                                    "retention": str(self.gui.serverdialog_retention.get_value_as_int())}
+            self.gui.read_serverconfig()
+            self.gui.update_serverlist_liststore()
+            self.gui.appdata.settings_changed = True
+            self.gui.server_apply_button.set_sensitive(True)
 
     def on_apply_server_clicked(self, button):
         self.gui.restartall = True
@@ -1393,9 +1432,7 @@ class NewsserverDialog(Gtk.Dialog):
         self.set_modal(True)
 
         box = self.get_content_area()
-        box.add(gui.server_setting_box)
-        gui.serverdialog_server_name_entry.set_text(gui.appdata.settings_dialog_results["server_name"])
-        
+        box.add(gui.server_setting_box)        
         self.show_all()
 
 
@@ -1430,6 +1467,3 @@ class AppData:
         self.servergraph_cumulative = False
         self.servergraph_selectedserver = None
         self.settings_changed = False
-        self.settings_dialog_results = {"server_name": None, "active": None, "url": None, "username": None,
-                                        "password": None, "ssl": None, "port": None, "level": None,
-                                        "connections": None, "retention": None}

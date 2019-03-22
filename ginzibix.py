@@ -9,7 +9,7 @@ import lib
 import gi
 import sys
 import os
-import time
+from lib import is_port_in_use
 from setproctitle import setproctitle
 gi.require_version('Gtk', '3.0')
 
@@ -48,6 +48,9 @@ class SigHandler_Ginzibix:
 
 if __name__ == '__main__':
     setproctitle("gzbx." + os.path.basename(__file__))
+
+    # here search for open ports
+    # is_port_in_use(port)
 
     exit_status = 3
 

@@ -1,5 +1,8 @@
-0a. show in serverlist_treeview: sum_downloaded, avg speed (problem - sample
-only non zeros!!!)
+0. remove ports and host --> check in startup if ports are free; remove from
+config file
+0a. remove crit_art_health.., crit_conn_health, use_sabyenc
+
+
 
 1. if gui exited during unrar -> main does not exit!
 
