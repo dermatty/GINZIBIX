@@ -22,6 +22,10 @@ empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
                       b'\x9E\x92\x93\x9D\x4A\x93\x9D\x4A\x8F\x97\x9A\x9E\xA3\x34\x0D\x0A',
                       b"=yend size=14 crc32=8111111c"]
 
+CRIT_ART_HEALTH_W_PAR = 0.98
+CRIT_ART_HEALTH_WO_PAR = 0.998
+CRIT_CONN_HEALTH = 0.7
+
 
 # Handles download of a NZB file
 class Downloader(Thread):
@@ -59,6 +63,10 @@ class Downloader(Thread):
         self.stopped_counter = 0
         self.thread_is_running = False
 
+        self.crit_conn_health = CRIT_CONN_HEALTH
+        self.crit_art_health_w_par = CRIT_ART_HEALTH_W_PAR
+        self.crit_art_health_wo_par = CRIT_ART_HEALTH_WO_PAR
+
         if self.pw_file:
             try:
                 self.logger.debug(whoami() + "as a first test, open password file")
@@ -95,27 +103,6 @@ class Downloader(Thread):
         except Exception as e:
             self.logger.debug(whoami() + str(e) + ": no pw file provided!")
             self.pw_file = None
-        # critical connection health
-        try:
-            self.crit_conn_health = float(self.cfg["OPTIONS"]["crit_conn_health"])
-            assert(self.crit_conn_health > 0 and self.crit_conn_health <= 1)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            self.crit_conn_health = 0.70
-        # critical health with par files avail.
-        try:
-            self.crit_art_health_w_par = float(self.cfg["OPTIONS"]["crit_art_health_w_par"])
-            assert(self.crit_art_health_w_par > 0 and self.crit_art_health_w_par <= 1)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            self.crit_art_health_w_par = 0.98
-        # critical health without par files avail.
-        try:
-            self.crit_art_health_wo_par = float(self.cfg["OPTIONS"]["crit_art_health_wo_par"])
-            assert(self.crit_art_health_wo_par > 0 and self.crit_art_health_wo_par <= 1)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            self.crit_art_health_wo_par = 0.999
 
     def serverhealth(self):
         if self.contains_par_files:

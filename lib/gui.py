@@ -79,7 +79,7 @@ UNIT_DIC = {"MBit": "mbit", "KB": "kb", "MB": "mb", "GB": "gb"}
 # *** main gui itself
 class ApplicationGui(Gtk.Application):
 
-    def __init__(self, dirs, cfg, mp_loggerqueue):
+    def __init__(self, dirs, cfg, guiport, mp_loggerqueue):
 
         # init app
         self.app = Gtk.Application.new("org.dermatty.ginzibix", Gio.ApplicationFlags(0), )
@@ -89,8 +89,8 @@ class ApplicationGui(Gtk.Application):
 
         # settings from cfg
         self.settings_servers = None
-        self.port = None
-        self.host = None
+        self.port = guiport
+        self.host = "127.0.0.1"
 
         # data
         self.logger = setup_logger(mp_loggerqueue, __file__)
@@ -202,7 +202,7 @@ class ApplicationGui(Gtk.Application):
 
         self.window.show_all()
 
-        self.guipoller = GUI_Poller(self, delay=self.update_delay, host=self.host, port=self.port)
+        self.guipoller = GUI_Poller(self, self.port, delay=self.update_delay)
         self.guipoller.start()
 
         # call main thread from here!!
@@ -645,13 +645,11 @@ class ApplicationGui(Gtk.Application):
                 self.settings_servers = [("-ALL SERVERS-", None, None, None, None, None, None, None, None, True, (COLORCODES[i], MARKERS[i], LINESTYLES[i]))]
                 i += 1
             server_name, server_url, user, password, port, usessl, level, connections, retention, useserver = serversetting
-            print(server_name)
             self.settings_servers.append((server_name, server_url, user, password, port, usessl, level, connections,
                                           retention, useserver, (COLORCODES[i], MARKERS[i], LINESTYLES[i])))
             i += 1
             if (i+1) % 20 == 1:
                 i = 0
-        print("-" * 40)
 
     def read_config(self):
         # read serversettings and assign colors
@@ -659,23 +657,10 @@ class ApplicationGui(Gtk.Application):
 
         # update_delay
         try:
-            self.update_delay = float(self.cfg["GTKGUI"]["UPDATE_DELAY"])
+            self.update_delay = float(self.cfg["OPTIONS"]["UPDATE_DELAY"])
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ", setting update_delay to default 0.5")
             self.update_delay = 0.5
-        # host ip
-        try:
-            self.host = self.cfg["OPTIONS"]["HOST"]
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting host to default 127.0.0.1")
-            self.host = "127.0.0.1"
-        # host port
-        try:
-            self.port = self.cfg["OPTIONS"]["PORT"]
-            assert(int(self.port) > 1024 and int(self.port) <= 65535)
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting port to default 36603")
-            self.port = "36603"
 
     def toggle_buttons_history(self):
         one_is_selected = False
@@ -1015,6 +1000,8 @@ class ConnectionTester(Thread):
                 errstr = "time out"
             elif "getsockaddrarg: bad family" in error0:
                 errstr = "bad port (!?)"
+            elif "500 command" in error0:
+                errstr = "command not recognized"
             else:
                 errstr = "unknown"
                 if DEBUGPRINT:
@@ -1068,7 +1055,7 @@ class Handler:
         if serverconfig["ssl"].lower() == "yes":
             self.gui.serverdialog_server_ssl.set_active(True)
         else:
-            self.gui.serverdialog_server_ssl.set_active(True)
+            self.gui.serverdialog_server_ssl.set_active(False)
         self.gui.serverdialog_port.set_value(int(serverconfig["port"]))
         self.gui.serverdialog_level.set_value(int(serverconfig["level"]))
         self.gui.serverdialog_connections.set_value(int(serverconfig["connections"]))
@@ -1087,7 +1074,7 @@ class Handler:
             self.gui.cfg[snrstr]["use_server"] = "yes" if self.gui.serverdialog_server_active.get_active() else "no"
             self.gui.cfg[snrstr]["server_url"] = self.gui.serverdialog_server_url.get_text()
             self.gui.cfg[snrstr]["user"] = self.gui.serverdialog_server_user.get_text()
-            self.gui.cfg[snrstr]["pass"] = self.gui.serverdialog_server_pass.get_text()
+            self.gui.cfg[snrstr]["password"] = self.gui.serverdialog_server_pass.get_text()
             self.gui.cfg[snrstr]["ssl"] = "yes" if self.gui.serverdialog_server_ssl.get_active() else "no"
             self.gui.cfg[snrstr]["port"] = str(self.gui.serverdialog_port.get_value_as_int())
             self.gui.cfg[snrstr]["level"] = str(self.gui.serverdialog_level.get_value_as_int())

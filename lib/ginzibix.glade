@@ -348,6 +348,8 @@
       <object class="GtkBox" id="box_primary">
         <property name="visible">True</property>
         <property name="can_focus">False</property>
+        <property name="margin_right">4</property>
+        <property name="spacing">4</property>
         <child>
           <object class="GtkBox" id="box_main">
             <property name="visible">True</property>
@@ -498,7 +500,7 @@
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
                     <property name="orientation">vertical</property>
-                    <property name="spacing">2</property>
+                    <property name="spacing">4</property>
                     <signal name="draw" handler="on_stack_downloading_draw" swapped="no"/>
                     <child>
                       <object class="GtkFrame" id="frame_nzblist">
@@ -762,6 +764,7 @@
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
                     <property name="orientation">vertical</property>
+                    <property name="spacing">4</property>
                     <signal name="draw" handler="on_stack_done_draw" swapped="no"/>
                     <child>
                       <object class="GtkFrame" id="detailsframe2">
@@ -897,6 +900,7 @@
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
                     <property name="orientation">vertical</property>
+                    <property name="spacing">4</property>
                     <signal name="draw" handler="on_stack_servers_draw" swapped="no"/>
                     <child>
                       <object class="GtkFrame">
@@ -1151,18 +1155,19 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkBox" id="stack_settings">
+                  <object class="GtkBox" id="stack_about">
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
                     <property name="orientation">vertical</property>
+                    <property name="spacing">4</property>
                     <signal name="draw" handler="on_stack_settings_draw" swapped="no"/>
                     <child>
                       <placeholder/>
                     </child>
                   </object>
                   <packing>
-                    <property name="name">settings</property>
-                    <property name="title" translatable="yes">EINSTELLUNGEN</property>
+                    <property name="name">stack_about</property>
+                    <property name="title" translatable="yes">ÜBER</property>
                     <property name="position">3</property>
                   </packing>
                 </child>

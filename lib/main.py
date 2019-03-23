@@ -286,7 +286,7 @@ def remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger, removenzbfile=True):
 
 
 # main loop for ginzibix downloader
-def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
+def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     setproctitle("gzbx." + os.path.basename(__file__))
 
@@ -329,21 +329,15 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, mp_loggerqueue):
 
     # update delay
     try:
-        update_delay = float(cfg["GTKGUI"]["UPDATE_DELAY"])
+        update_delay = float(cfg["OPTIONS"]["UPDATE_DELAY"])
     except Exception as e:
         logger.warning(whoami() + str(e) + ", setting update_delay to default 0.5")
         update_delay = 0.5
 
     # init tcp with gtkgui.py
-    try:
-        port = cfg["OPTIONS"]["PORT"]
-        assert(int(port) > 1024 and int(port) <= 65535)
-    except Exception as e:
-        logger.debug(whoami() + str(e) + ", setting port to default 36603")
-        port = "36603"
     context = zmq.Context()
     socket = context.socket(zmq.REP)
-    socket.bind("tcp://*:" + port)
+    socket.bind("tcp://*:" + str(guiport))
     socket.setsockopt(zmq.RCVTIMEO, int(update_delay * 1000))
 
     # init sighandler

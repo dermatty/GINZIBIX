@@ -62,7 +62,7 @@ class Servers():
                     sc = self.get_single_server_config(server_name0)
                     if sc:
                         server_name, server_url, user, password, port, usessl, level, connections, retention, useserver\
-                            = self.get_single_server_config(server_name0)
+                            = sc
                         if useserver:
                             try:
                                 self.logger.debug(whoami() + "Opening connection # " + str(conn_nr) + "to server " + server_name)

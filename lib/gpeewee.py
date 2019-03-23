@@ -65,7 +65,6 @@ class PWDB():
         self.wrapper_context = zmq.Context()
         self.wrapper_socket = self.wrapper_context.socket(zmq.REP)
         self.wrapper_socket.bind("ipc://" + ipc_location)
-        # self.wrapper_socket.bind("tcp://*:37705")
         self.signal_ign_sigint = None
         self.signal_ign_sigterm = None
 

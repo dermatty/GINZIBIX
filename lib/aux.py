@@ -254,6 +254,8 @@ def get_server_config(cfg):
             continue
         try:
             retention = int(cfg[snrstr]["RETENTION"])
+            if retention == -1:
+                retention = 999999
             sconf.append((server_name, server_url, user, password, port, usessl, level, connections, retention, useserver))
         except Exception:
             sconf.append((server_name, server_url, user, password, port, usessl, level, connections, 999999, useserver))
@@ -331,13 +333,13 @@ def is_port_in_use(port):
 # connects to guiconnector
 class GUI_Poller(Thread):
 
-    def __init__(self, gui, delay=0.5, host="127.0.0.1", port="36603"):
+    def __init__(self, gui, port, delay=0.5):
         Thread.__init__(self)
         self.daemon = True
         self.gui = gui
         self.context = zmq.Context()
-        self.host = host
-        self.port = port
+        self.host = "127.0.0.1"
+        self.port = str(port)
         self.lock = self.gui.lock
         self.data = None
         self.delay = float(delay)

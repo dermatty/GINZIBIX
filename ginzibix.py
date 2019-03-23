@@ -49,8 +49,9 @@ class SigHandler_Ginzibix:
 if __name__ == '__main__':
     setproctitle("gzbx." + os.path.basename(__file__))
 
-    # here search for open ports
-    # is_port_in_use(port)
+    guiport = 36703
+    while is_port_in_use(guiport):
+        guiport += 1
 
     exit_status = 3
 
@@ -103,7 +104,7 @@ if __name__ == '__main__':
 
         # start main mp
         mpp_main = None
-        mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg_file, cfg, dirs, subdirs, mp_loggerqueue, ))
+        mpp_main = mp.Process(target=lib.ginzi_main, args=(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue, ))
         mpp_main.start()
 
         # init sighandler
@@ -111,7 +112,7 @@ if __name__ == '__main__':
         signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
         signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
-        app = lib.ApplicationGui(dirs, cfg, mp_loggerqueue)
+        app = lib.ApplicationGui(dirs, cfg, guiport, mp_loggerqueue)
         exit_status = app.run(sys.argv)
 
         sh.shutdown()
