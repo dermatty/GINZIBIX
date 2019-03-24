@@ -1,6 +1,7 @@
 import gi
 import matplotlib
 import queue
+import os.path
 from threading import Thread
 import threading
 import time
@@ -74,6 +75,8 @@ FREQ_DIC = {"per second": "dlsec",
 
 UNIT_DIC = {"MBit": "mbit", "KB": "kb", "MB": "mb", "GB": "gb"}
 
+DEBUGLEVEL_DIC = {"debug": 0, "info": 1, "warning": 2, "error": 3}
+
 
 # ******************************************************************************************************
 # *** main gui itself
@@ -141,8 +144,12 @@ class ApplicationGui(Gtk.Application):
         self.server_edit_button = self.obj("server_edit")
         self.server_delete_button = self.obj("server_delete")
         self.server_apply_button = self.obj("apply_server")
+        self.restart_button = self.obj("button_restart")
 
         self.serversettingsdialog = None
+        self.generalsettingsdialog = None
+        self.gsettingstextviewdialog = None
+
         self.server_setting_box = self.obj("server_setting_box")
         self.serverdialog_server_name_entry = self.obj("server_name_entry")
         self.serverdialog_server_active = self.obj("server_active")
@@ -157,6 +164,21 @@ class ApplicationGui(Gtk.Application):
         self.serverdialog_test_button = self.obj("test_connection_button")
         self.serverdialog_test_spinner = self.obj("test_connection_spinner")
         self.serverdialog_test_label = self.obj("test_connection_label")
+
+        self.general_settings_box = self.obj("general_settings_box")
+        self.gs_pwfiledit_button = self.obj("gs_pwfiledit_button")
+        self.gs_pwfile_textviewbox = self.obj("gs_pwfile_textviewbox")
+        self.gs_pwfile_textview = self.obj("gs_pwfile_textview")
+        self.gs_filechooser_button = self.obj("gs_filechooser_button")
+        self.gs_pwfile_textbuffer = self.gs_pwfile_textview.get_buffer()
+        self.gs_getpwdir_switch = self.obj("gs_getpwdir_switch")
+        self.gs_sanprecheck_switch = self.obj("gs_sanprecheck_switch")
+        self.gs_connectionstimeout_spinbutton1 = self.obj("gs_connectionstimeout_spinbutton1")
+        self.gs_guidelay_spinbutton2 = self.obj("gs_guidelay_spinbutton2")
+        self.gs_debuglevel_combotext = self.obj("gs_debuglevel_combotext")
+
+        self.obj("filefilter1").set_name("*.txt files")
+        self.gs_filechooser_button.add_filter(self.obj("filefilter1"))
 
         self.comboboxtext = self.obj("frequencycombotext")
         self.comboboxtext.set_active(0)
@@ -662,6 +684,53 @@ class ApplicationGui(Gtk.Application):
             self.logger.warning(whoami() + str(e) + ", setting update_delay to default 0.5")
             self.update_delay = 0.5
 
+        # password file
+        try:
+            pw_file = self.cfg["OPTIONS"]["pw_file"]
+            if os.path.isfile(pw_file):
+                self.pw_file = pw_file
+            elif os.path.isfile(self.dirs["main"] + pw_file):
+                self.pw_file = self.dirs["main"] + pw_file
+            else:
+                self.pw_file = ""
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting pw_file to none")
+            self.pw_file = ""
+
+        # get_pw_direct
+        try:
+            self.get_pw_directly = self.cfg["OPTIONS"]["GET_PW_DIRECTLY"]
+            if self.get_pw_directly.lower() not in ["yes", "no"]:
+                self.get_pw_directly = "no"
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting get_pw_directly to 'no'")
+            self.get_pw_directly = "no"
+
+        # sanity pre-check
+        try:
+            self.sanity_precheck = self.cfg["OPTIONS"]["SANITY_CHECK"]
+            if self.sanity_precheck.lower() not in ["yes", "no"]:
+                self.sanity_precheck = "no"
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting sanity_precheck to 'no'")
+            self.sanity_precheck = "no"
+
+        # debug level
+        try:
+            self.debuglevel = self.cfg["OPTIONS"]["DEBUGLEVEL"]
+            if self.debuglevel.lower() not in ["debug", "info", "error", "warning"]:
+                self.debuglevel = "info"
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting debuglevel to 'info'")
+            self.debuglevel = "info"
+
+        # connection timeout
+        try:
+            self.serverconnectiontimeout = float(self.cfg["OPTIONS"]["CONNECTION_IDLE_TIMEOUT"])
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting server_connection_timeout to 15 sec.")
+            self.serverconnectiontimeout = 15.0
+
     def toggle_buttons_history(self):
         one_is_selected = False
         for ls in range(len(self.nzbhistory_liststore)):
@@ -735,6 +804,7 @@ class ApplicationGui(Gtk.Application):
         with self.lock:
             self.serverlist_liststore[path][1] = not self.serverlist_liststore[path][1]
             self.appdata.settings_changed = True
+            self.restart_button.set_label("!")
             # insert into cfg
             useserver = self.serverlist_liststore[path][1]
             servername = self.serverlist_liststore[path][0]
@@ -1036,6 +1106,98 @@ class Handler:
         self.gui.ct = ct
         ct.start()
 
+    def on_gs_pwfiledit_button_clicked(self, button):
+        if not self.gui.gsettingstextviewdialog:
+            self.gui.gsettingstextviewdialog = PWFileTextViewDialog(self.gui.window, "Edit PW file", self.gui)
+        response = self.gui.gsettingstextviewdialog.run()
+        self.gui.gsettingstextviewdialog.hide()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+        if self.gui.pw_file != "":
+            start_iter = self.gui.gs_pwfile_textbuffer.get_start_iter()
+            end_iter = self.gui.gs_pwfile_textbuffer.get_end_iter()
+            textbuffer = self.gui.gs_pwfile_textbuffer.get_text(start_iter, end_iter, True)
+            if self.gui.pw_file_text != textbuffer:
+                self.gui.pw_file_text = textbuffer
+                try:
+                    with open(self.gui.pw_file, "w") as f:
+                        f.write(self.gui.pw_file_text)
+                        f.flush()
+
+                except Exception as e:
+                    if DEBUGPRINT:
+                        print(str(e))
+                    pass
+
+    def on_gs_filechooser_button_selection_changed(self, widget):
+        pw_file = widget.get_filename()
+        if not pw_file:
+            return
+        if os.path.isfile(pw_file):
+            self.gui.pw_file = pw_file
+        elif os.path.isfile(self.gui.dirs["main"] + pw_file):
+            self.gui.pw_file = self.gui.dirs["main"] + pw_file
+        else:
+            self.gui.pw_file = ""
+            self.pw_file_text = ""
+        if self.gui.pw_file != "":
+            try:
+                with open(self.gui.pw_file, "r") as f:
+                    self.pw_file_text = f.read()
+            except Exception as e:
+                if DEBUGPRINT:
+                    print(str(e))
+                pass
+        self.gui.gs_pwfile_textbuffer.set_text(self.pw_file_text)
+
+    def on_button_settings_clicked(self, button):
+        if not self.gui.generalsettingsdialog:
+            self.gui.generalsettingsdialog = GeneralSettingsDialog(self.gui.window, "Settings", self.gui)
+        # preset values
+        self.gui.gs_filechooser_button.set_filename(self.gui.pw_file)
+        if self.gui.pw_file != "":
+            try:
+                with open(self.gui.pw_file, "r") as f:
+                    self.gui.pw_file_text = f.read()
+            except Exception as e:
+                if DEBUGPRINT:
+                    print(str(e))
+                pass
+        else:
+            self.pw_file_text = ""
+        self.gui.gs_pwfile_textbuffer.set_text(self.gui.pw_file_text)
+        if self.gui.get_pw_directly.lower() == "yes":
+            self.gui.gs_getpwdir_switch.set_active(True)
+        else:
+            self.gui.gs_getpwdir_switch.set_active(False)
+        if self.gui.sanity_precheck.lower() == "yes":
+            self.gui.gs_sanprecheck_switch.set_active(True)
+        else:
+            self.gui.gs_sanprecheck_switch.set_active(False)
+        self.gui.gs_connectionstimeout_spinbutton1.set_value(float(self.gui.serverconnectiontimeout))
+        self.gui.gs_guidelay_spinbutton2.set_value(float(self.gui.update_delay))
+        self.gui.gs_debuglevel_combotext.set_active(DEBUGLEVEL_DIC[self.gui.debuglevel])
+
+        # wait for dialog completed
+        response = self.gui.generalsettingsdialog.run()
+        self.gui.generalsettingsdialog.hide()
+        if response == Gtk.ResponseType.CANCEL:
+            return
+
+        # get & store return values
+        with self.gui.lock:
+            self.gui.cfg["OPTIONS"] = {"debuglevel": self.gui.gs_debuglevel_combotext.get_active_text(),
+                                       "sanity_check": "yes" if self.gui.gs_sanprecheck_switch.get_active() else "no",
+                                       "pw_file": self.gui.gs_filechooser_button.get_filename(),
+                                       "get_pw_directly": "yes" if self.gui.gs_getpwdir_switch.get_active() else "no",
+                                       "update_delay": self.gui.gs_guidelay_spinbutton2.get_value(),
+                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value()}
+            self.gui.restart_button.set_label("!")
+            self.gui.read_config()
+            self.gui.appdata.settings_changed = True
+                
+
+
     def on_server_edit_clicked(self, button):
         servername = self.gui.servergraph_selectedserver
         snrstr, serverconfig = get_config_for_server(servername, self.gui.cfg)
@@ -1060,7 +1222,6 @@ class Handler:
         self.gui.serverdialog_level.set_value(int(serverconfig["level"]))
         self.gui.serverdialog_connections.set_value(int(serverconfig["connections"]))
         self.gui.serverdialog_retention.set_value(int(serverconfig["retention"]))
-
         self.gui.serverdialog_test_label.set_text("")
 
         # wait for dialog completed
@@ -1083,6 +1244,7 @@ class Handler:
             self.gui.read_serverconfig()
             self.gui.update_serverlist_liststore()
             self.gui.appdata.settings_changed = True
+            self.gui.restart_button.set_label("!")
             self.gui.server_apply_button.set_sensitive(True)
 
     def on_server_delete_clicked(self, button):
@@ -1110,6 +1272,7 @@ class Handler:
             self.gui.read_serverconfig()
             self.gui.update_serverlist_liststore()
             self.gui.appdata.settings_changed = True
+            self.gui.restart_button.set_label("!")
             self.gui.server_apply_button.set_sensitive(True)
 
     def on_server_add_clicked(self, button):
@@ -1148,14 +1311,25 @@ class Handler:
             self.gui.read_serverconfig()
             self.gui.update_serverlist_liststore()
             self.gui.appdata.settings_changed = True
+            self.gui.restart_button.set_label("!")
             self.gui.server_apply_button.set_sensitive(True)
 
     def on_apply_server_clicked(self, button):
         self.gui.restartall = True
         self.gui.app.quit()
 
+    def on_button_restart_clicked(self, button):
+        self.gui.restartall = True
+        self.gui.appdata.settings_changed = True
+        self.gui.app.quit()
+
+
     def on_cumulative_cb_toggled(self, a):
         self.gui.appdata.servergraph_cumulative = not self.gui.appdata.servergraph_cumulative
+
+    def on_gs_debuglevel_combotext_changed(self, combo):
+        text = combo.get_active_text()
+        self.gui.debuglevel = text
 
     def on_unitscombotext_changed(self, combo):
         text = combo.get_active_text()
@@ -1225,9 +1399,6 @@ class Handler:
             button.set_image(image)
         self.gui.update_liststore_dldata()
         self.gui.update_liststore()
-
-    def on_button_settings_clicked(self, button):
-        print("settings clicked")
 
     def on_button_top_clicked(self, button):
         with self.gui.lock:
@@ -1419,7 +1590,33 @@ class NewsserverDialog(Gtk.Dialog):
         self.set_modal(True)
 
         box = self.get_content_area()
-        box.add(gui.server_setting_box)        
+        box.add(gui.server_setting_box)
+        self.show_all()
+
+
+class GeneralSettingsDialog(Gtk.Dialog):
+    def __init__(self, parent, title, gui):
+        Gtk.Dialog.__init__(self, title, parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                                     Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        self.set_default_size(150, 100)
+        self.set_border_width(10)
+        self.set_modal(True)
+
+        box = self.get_content_area()
+        box.add(gui.general_settings_box)
+        self.show_all()
+
+
+class PWFileTextViewDialog(Gtk.Dialog):
+    def __init__(self, parent, title, gui):
+        Gtk.Dialog.__init__(self, title, parent, 9, (Gtk.STOCK_OK, Gtk.ResponseType.OK,
+                                                     Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL))
+        self.set_default_size(150, 100)
+        self.set_border_width(10)
+        self.set_modal(True)
+
+        box = self.get_content_area()
+        box.add(gui.gs_pwfile_textviewbox)
         self.show_all()
 
 
