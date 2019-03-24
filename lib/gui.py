@@ -27,7 +27,7 @@ register_matplotlib_converters()
 gi.require_version("Gtk", "3.0")
 
 __appname__ = "ginzibix"
-__version__ = "0.01 pre-alpha"
+__version__ = "0.02 alpha"
 __author__ = "dermatty"
 
 DEBUGPRINT = True
@@ -256,20 +256,7 @@ class ApplicationGui(Gtk.Application):
         pass
 
     def on_action_about_activated(self, action, param):
-        about_dialog = Gtk.AboutDialog(transient_for=self.window, modal=True)
-        about_dialog.set_program_name(__appname__)
-        about_dialog.set_version(__version__)
-        about_dialog.set_copyright("Copyright \xa9 2018 dermatty")
-        about_dialog.set_comments("A binary newsreader for the Gnome desktop")
-        about_dialog.set_website("https://github.com/dermatty/GINZIBIX")
-        about_dialog.set_website_label('Ginzibix on GitHub')
-        try:
-            about_dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(ICONFILE, 64, 64))
-        except GLib.GError as e:
-            self.logger.error(whoami() + str(e) + ": cannot find icon file!")
-
-        about_dialog.set_license_type(Gtk.License.GPL_3_0)
-        about_dialog.present()
+        do_about_dialog(self.window)
 
     def on_action_message_activated(self, actiong, param):
         pass
@@ -1085,12 +1072,33 @@ class ConnectionTester(Thread):
 
 
 # ******************************************************************************************************
-# *** Handler for buttons
+# *** about dialog
+def do_about_dialog(window):
+    about_dialog = Gtk.AboutDialog(transient_for=window, modal=True)
+    about_dialog.set_program_name(__appname__)
+    about_dialog.set_version(__version__)
+    about_dialog.set_copyright("Copyright \xa9 2018-2019 dermatty")
+    about_dialog.set_comments("A Binary Newsreader for the Gnome Desktop")
+    about_dialog.set_website("https://github.com/dermatty/GINZIBIX")
+    about_dialog.set_website_label('Ginzibix on GitHub')
+    try:
+        about_dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(ICONFILE, 64, 64))
+    except GLib.GError as e:
+        if DEBUGPRINT:
+            print(str(e))
+    about_dialog.set_license_type(Gtk.License.GPL_3_0)
+    about_dialog.present()
 
+
+# ******************************************************************************************************
+# *** Handler for buttons
 class Handler:
 
     def __init__(self, gui):
         self.gui = gui
+
+    def on_button_about_clicked(self, button):
+        do_about_dialog(self.gui.window)
 
     def on_test_connection_button_clicked(self, button):
         self.gui.serverdialog_test_button.set_sensitive(False)

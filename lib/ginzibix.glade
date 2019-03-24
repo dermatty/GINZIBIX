@@ -417,6 +417,11 @@
     <property name="tooltip_text" translatable="yes">settings</property>
     <property name="icon_name">preferences-other</property>
   </object>
+  <object class="GtkImage" id="image4">
+    <property name="visible">True</property>
+    <property name="can_focus">False</property>
+    <property name="icon_name">dialog-information</property>
+  </object>
   <object class="GtkApplicationWindow" id="main_window">
     <property name="can_focus">False</property>
     <property name="margin_left">5</property>
@@ -1237,23 +1242,6 @@
                     <property name="position">2</property>
                   </packing>
                 </child>
-                <child>
-                  <object class="GtkBox" id="stack_about">
-                    <property name="visible">True</property>
-                    <property name="can_focus">False</property>
-                    <property name="orientation">vertical</property>
-                    <property name="spacing">4</property>
-                    <signal name="draw" handler="on_stack_settings_draw" swapped="no"/>
-                    <child>
-                      <placeholder/>
-                    </child>
-                  </object>
-                  <packing>
-                    <property name="name">stack_about</property>
-                    <property name="title" translatable="yes">ÜBER</property>
-                    <property name="position">3</property>
-                  </packing>
-                </child>
               </object>
               <packing>
                 <property name="expand">True</property>
@@ -1289,7 +1277,7 @@
         <property name="visible">True</property>
         <property name="can_focus">False</property>
         <property name="title">ginzibix</property>
-        <property name="subtitle">Binary Usenet Client for the Gnome Desktop</property>
+        <property name="subtitle">A Binary Newsreader for the Gnome Desktop</property>
         <property name="show_close_button">True</property>
         <child>
           <object class="GtkButton" id="button_restart">
@@ -1313,6 +1301,19 @@
             <property name="always_show_image">True</property>
             <signal name="clicked" handler="on_button_pause_resume_clicked" swapped="no"/>
           </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="button_about">
+            <property name="visible">True</property>
+            <property name="can_focus">True</property>
+            <property name="receives_default">True</property>
+            <property name="tooltip_text" translatable="yes">about</property>
+            <property name="image">image4</property>
+            <signal name="clicked" handler="on_button_about_clicked" swapped="no"/>
+          </object>
+          <packing>
+            <property name="pack_type">end</property>
+          </packing>
         </child>
         <child>
           <object class="GtkButton" id="button_settings">
