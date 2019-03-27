@@ -40,22 +40,24 @@ class SigHandler_Main:
 # serverstats["eweka"] = pd.Series
 def update_server_ts(server_ts, ct):
 
+    now0 = datetime.datetime.now().replace(microsecond=0)
+    if server_ts:
+        mint = min([(now0 - server_ts[server]["sec"].index[-1]).total_seconds() for server in server_ts])
+    else:
+        mint = 1
+    if mint < 1:
+        return
+
     hour_in_sec = 3600
     day_in_sec = hour_in_sec * 24
     months_in_sec = day_in_sec * 90
 
     current_stats = ct.get_downloaded_per_server()
-    now0 = datetime.datetime.now().replace(microsecond=0)
 
     for server, bdl in current_stats.items():
-        if server == "-ALL SERVERS-" and bdl == 0:
-            bdl = server_ts[server]["sec"].max() * (1024 * 1024)
         bdl = bdl / (1024 * 1024)   # in MB
         try:
-            last_datetime = server_ts[server]["sec"].index[-1]
-            if (now0 - last_datetime).total_seconds() < 1:
-                time.sleep(0.25)
-                continue
+            assert(server_ts[server]["sec"].index[-1])
         except Exception:
             server_ts[server] = {}
             now0_minus1 = now0 - datetime.timedelta(seconds=1)
@@ -230,11 +232,11 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
 
 
 def connection_thread_health(threads):
-        nothreads = len([t for t, _ in threads])
-        nodownthreads = len([t for t, _ in threads if t.connectionstate == -1])
-        if nothreads == 0:
-            return 0
-        return 1 - nodownthreads / (nothreads)
+    nothreads = len([t for t, _ in threads])
+    nodownthreads = len([t for t, _ in threads if t.connectionstate == -1])
+    if nothreads == 0:
+        return 0
+    return 1 - nodownthreads / (nothreads)
 
 
 def set_guiconnector_data(guiconnector, results, ct, dl, statusmsg, logger):

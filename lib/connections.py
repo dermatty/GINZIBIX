@@ -48,10 +48,8 @@ class ConnectionWorker(Thread):
     #                -1:  retention not sufficient
     #                -2:  server connection error
     def download_article(self, article_name, article_age):
-        sn, _ = self.connection
         bytesdownloaded = 0
         info0 = None
-        server_name, server_url, user, password, port, usessl, level, connections, retention, useserver = self.servers.get_single_server_config(sn)
         if self.mode == "sanitycheck":
             try:
                 resp, number, message_id = self.nntpobj.stat(article_name)
@@ -63,8 +61,8 @@ class ConnectionWorker(Thread):
                 self.logger.error(whoami() + str(e) + self.idn + " for article " + article_name)
                 status = -1
             return status, 0, 0
-        if retention < article_age * 0.95:
-            self.logger.warning(whoami() + "Retention on " + server_name + " not sufficient for article " + article_name)
+        if self.server_retention < article_age * 0.95:
+            self.logger.warning(whoami() + "Retention on " + self.server_name + " not sufficient for article " + article_name)
             return -1, 0, None
         try:
             resp, info = self.nntpobj.body(article_name)
@@ -126,6 +124,9 @@ class ConnectionWorker(Thread):
                 self.logger.debug(whoami() + "Server " + self.idn + " connected!")
                 self.last_timestamp = time.time()
                 self.connectionstate = 1
+                self.server_name, self.server_url, self.server_user, self.server_password, self.server_port,\
+                    self.server_usessl, self.server_level, self.server_connections, self.server_retention,\
+                    self.useserver = self.servers.get_single_server_config(self.connection[0])
                 self.wait_running(1)
                 return
             self.logger.warning(whoami() + "Could not connect to server " + self.idn + ", will retry in 5 sec.")
@@ -274,20 +275,21 @@ class ConnectionThreads:
         self.all_connections = self.servers.all_connections
 
     def get_downloaded_per_server(self):
-        result = copy.deepcopy(self.bdl_results)
-        result["-ALL SERVERS-"] = 0
+        result = {}
+        try:
+            result["-ALL SERVERS-"] = self.bdl_results["-ALL SERVERS-"]
+        except Exception:
+            result["-ALL SERVERS-"] = 0
         if not self.servers:
             return result
         for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
             if useserver:
+                bdl = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+                result["-ALL SERVERS-"] += bdl
                 try:
-                    result[servername] += sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
+                    result[servername] = self.bdl_results[servername] + bdl
                 except Exception:
-                    result[servername] = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
-                try:
-                    result["-ALL SERVERS-"] += result[servername]
-                except Exception:
-                    pass
+                    result[servername] = bdl
         return result
 
     def start_threads(self):

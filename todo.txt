@@ -1,6 +1,5 @@
-0. remove ports and host --> check in startup if ports are free; remove from
-config file
-0a. remove crit_art_health.., crit_conn_health, use_sabyenc
+0. check speed in gui -> too high
+1. rars werden nicht entpackt
 
 
 

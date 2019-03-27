@@ -253,7 +253,8 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue):
                     break
         os.chdir(cwd0)
         try:
-            inotify_simple.rm_watch(wd)
+            if wd:
+                inotify.rm_watch(wd)
         except Exception as e:
             logger.warning(whoami() + str(e))
         logger.debug(whoami() + "renamer paused")
