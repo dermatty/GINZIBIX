@@ -92,7 +92,7 @@ def check_for_rar_filetype(fname):
     try:
         with open(fname, "rb") as f:
             content = f.read()
-    except Exception as e:
+    except Exception:
         return -1
     firstcontent = content[:20]
     bstr0 = b"Rar!"
@@ -244,7 +244,7 @@ class Par2File(object):
 
     def md5_16khash(self):
         return [(p.name.decode("utf-8"), p.file_hash16k) for p in self.packets if isinstance(p, FileDescriptionPacket)]
-    
+
     def related_pars(self):
         """Returns a list of related par2 files (ones par2 will try to read
         from to find file recovery blocks).  If this par2 file was a file-like
@@ -265,7 +265,7 @@ def calc_file_md5hash(fn):
             for chunk in iter(lambda: f0.read(4096), b""):
                 hash_md5.update(chunk)
         md5 = hash_md5.digest()
-    except Exception as e:
+    except Exception:
         md5 = -1
     return md5
 
@@ -279,7 +279,7 @@ def calc_file_md5hash_16k(fn):
                 if i == 3:
                     break
         md5 = hash_md5.digest()
-    except Exception as e:
+    except Exception:
         md5 = -1
     return md5
 

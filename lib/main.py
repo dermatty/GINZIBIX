@@ -239,23 +239,6 @@ def connection_thread_health(threads):
     return 1 - nodownthreads / (nothreads)
 
 
-def set_guiconnector_data(guiconnector, results, ct, dl, statusmsg, logger):
-    try:
-        nzbname, downloaddata, return_reason, maindir = results
-        bytescount0, availmem0, avgmiblist, filetypecounter, _, article_health, overall_size, already_downloaded_size, p2,\
-            overall_size_wparvol, allfileslist = downloaddata
-        downloaddata_gc = bytescount0, availmem0, avgmiblist, filetypecounter, nzbname, article_health, overall_size, already_downloaded_size
-        # no ct.servers object if connection idle
-        if not ct.servers:
-            serverconfig = None
-        else:
-            serverconfig = ct.servers.server_config
-        guiconnector.set_data(downloaddata_gc, ct.threads, serverconfig, statusmsg, dl.serverhealth())
-    except Exception as e:
-        logger.debug(whoami() + str(e) + ": cannot interpret gui-data from downloader")
-    return article_health
-
-
 # updates file modification time of nzbfile in order to have them re-read by nzbparser
 def update_fmodtime_nzbfiles(nzbfilelist, dirs, logger):
     for nzbfile in nzbfilelist:
@@ -646,7 +629,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     if mpp_is_alive(mpp, "post"):
                         mpp["post"].join()
                         mpp["post"] = None
-                    # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "success", logger)
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded and postprocessed successfully!", "success"], {})
                     # set 'flags' for getting next nzb
                     del dl
@@ -684,7 +666,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     dl.join()
                     if mpp_is_alive(mpp, "post"):
                         mpp["post"].join()
-                    # article_health = set_guiconnector_data(guiconnector, dl.results, ct, dl, "failed", logger)
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded and/or postprocessing failed!", "error"], {})
                     mpp["post"] = None
                     # set 'flags' for getting next nzb

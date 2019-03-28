@@ -6,6 +6,7 @@ import time
 import signal
 from .passworded_rars import get_sorted_rar_list
 from .aux import PWDBSender
+from .par2lib import check_for_rar_filetype
 from .mplogging import setup_logger, whoami
 from setproctitle import setproctitle
 import sys
@@ -29,12 +30,67 @@ class SigHandler_Unrar:
         TERMINATED = True
 
 
+def check_double_packed(unpack_dir):
+    is_double_packed = False
+    for f0 in glob.glob(unpack_dir + "*"):
+        if check_for_rar_filetype(f0) == 1:
+            is_double_packed = True
+            break
+    return is_double_packed, f0
+
+
 def get_rar_files(directory):
     rarlist = []
     for rarf in glob.glob("*.rar"):
         gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
         rarlist.append((int(gg.group().split(".")[0]), rarf))
     return rarlist
+
+
+def delete_all_rar_files(unpack_dir, logger):
+    for f0 in glob.glob(unpack_dir + "*"):
+        if check_for_rar_filetype(f0) == 1:
+            try:
+                os.remove(f0)
+            except Exception:
+                break
+
+
+def process_next_unrar_child_pass(event_idle, child, logger):
+    event_idle.set()
+    str0 = ""
+    while True:
+        try:
+            a = child.read_nonblocking(timeout=120).decode("utf-8")
+            str0 += a
+        except pexpect.exceptions.EOF:
+            break
+        except Exception as e:
+            logger.warning(whoami() + str(e))
+        if str0[-6:] == "[Q]uit":
+            break
+    status = 1
+    statmsg = ""
+    if "WARNING: You need to start extraction from a previous volume" in str0:
+        child.close(force=True)
+        statmsg = "WARNING: You need to start extraction from a previous volume"
+        status = -5
+    elif "error" in str0:
+        if "packed data checksum" in str0:
+            statmsg = "packed data checksum error (= corrupt rar!)"
+            status = -1
+        elif "- checksum error" in str0:
+            statmsg = "checksum error (= rar is missing!)"
+            status = -2
+        else:
+            statmsg = "unknown error"
+            status = -3
+    else:
+        if "All OK" in str0:
+            status = 0
+            statmsg = "All OK"
+    event_idle.clear()
+    return status, statmsg, str0
 
 
 def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, event_idle, cfg):
@@ -91,44 +147,51 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
     status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
     while not TERMINATED:
         oldnextrarname = nextrarname.split("/")[-1]
-        str0 = ""
-        event_idle.set()
-        while True:
-            try:
-                a = child.read_nonblocking(timeout=120).decode("utf-8")
-                str0 += a
-            except pexpect.exceptions.EOF:
-                break
-            except Exception as e:
-                logger.warning(whoami() + str(e))
-            if str0[-6:] == "[Q]uit":
-                break
-        event_idle.clear()
-        if "WARNING: You need to start extraction from a previous volume" in str0:
-            child.close(force=True)
-            statmsg = "WARNING: You need to start extraction from a previous volume"
-            status = -5
-            break
-        if "error" in str0:
-            if "packed data checksum" in str0:
-                statmsg = "packed data checksum error (= corrupt rar!)"
-                status = -1
-            elif "- checksum error" in str0:
-                statmsg = "checksum error (= rar is missing!)"
-                status = -2
-            else:
-                statmsg = "unknown error"
-                status = -3
+        status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
+        if status < 0:
             logger.info(whoami() + nextrarname + ": " + statmsg)
             pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " failed!", "error"], {})
             break
-        else:
-            logger.info(whoami() + nextrarname + ": unrar success!")
-        if "All OK" in str0:
-            statmsg = "All OK"
-            status = 0
-            pwdb.exc("db_msg_insert", [nzbname, "unrar success for all rar files!", "info"], {})
-            break
+        logger.info(whoami() + nextrarname + ": unrar success!")
+        if status == 0:
+            pwdb.exc("db_msg_insert", [nzbname, "checking for double packed rars", "info"], {})
+            # check if double packed
+            try:
+                child.kill(signal.SIGKILL)
+            except Exception:
+                pass
+            is_double_packed, fn = check_double_packed(unpack_dir)
+            if is_double_packed:
+                pwdb.exc("db_msg_insert", [nzbname, "rars are double packed, starting unrar 2nd run", "warning"], {})
+                logger.debug(whoami() + "rars are double packed, executing " + cmd)
+                # maybe try here to start unrarer with pw??
+                cmd = "unrar x -y -o+ '" + fn + "' '" + unpack_dir + "'"
+                child = pexpect.spawn(cmd)
+                status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
+                if status < 0:
+                    logger.info(whoami() + "2nd pass: " + statmsg)
+                    pwdb.exc("db_msg_insert", [nzbname, "unrar 2nd pass failed!", "error"], {})
+                    break
+                if status == 0:
+                    statmsg = "All OK"
+                    status = 0
+                    pwdb.exc("db_msg_insert", [nzbname, "unrar success 2nd pass for all rar files!", "info"], {})
+                    logger.info(whoami() + "unrar success 2nd pass for all rar files!")
+                    logger.debug(whoami() + "deleting all rar files in unpack_dir")
+                    delete_all_rar_files(unpack_dir, logger)
+                    break
+                if status == 1:
+                    status = -3
+                    statmsg = "unknown error"
+                    logger.info(whoami() + "2nd pass: " + statmsg + " / " + str0)
+                    pwdb.exc("db_msg_insert", [nzbname, "unrar 2nd pass failed!", "error"], {})
+                    break
+            else:
+                statmsg = "All OK"
+                status = 0
+                pwdb.exc("db_msg_insert", [nzbname, "unrar success for all rar files!", "info"], {})
+                logger.info(whoami() + "unrar success for all rar files!")
+                break
         try:
             gg = re.search(r"Insert disk with ", str0, flags=re.IGNORECASE)
             gend = gg.span()[1]
@@ -155,10 +218,13 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
                         logger.warning(whoami() + str(e))
         event_idle.clear()
         if TERMINATED:
-            child.kill(signal.SIGKILL)
             break
         time.sleep(1)   # achtung hack!
         child.sendline("C")
+    try:
+        child.kill(signal.SIGKILL)
+    except Exception:
+        pass
     if TERMINATED:
         logger.info(whoami() + "exited!")
     else:

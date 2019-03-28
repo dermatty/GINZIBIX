@@ -52,7 +52,6 @@ def decode_articles(mp_work_queue0, mp_loggerqueue):
         while not TERMINATED:
             try:
                 res0 = mp_work_queue0.get_nowait()
-                logger.debug(whoami() + "received res0")
                 break
             except (queue.Empty, EOFError):
                 pass
