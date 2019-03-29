@@ -18,6 +18,7 @@ from .aux import PWDBSender, mpp_is_alive, clear_postproc_dirs, get_configured_s
 from .postprocessor import postprocess_nzb, postproc_pause, postproc_resume
 from .mplogging import setup_logger, whoami
 from .downloader import Downloader
+from .mpconnections import mpconnector
 from setproctitle import setproctitle
 from collections import deque
 import pandas as pd
@@ -199,6 +200,35 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             pipes["renamer"][0].send(("pause", None, None))
         except Exception as e:
             logger.warning(whoami() + str(e))
+    # 8b. only stop mpconnector if stopall otherwise just pause
+    if stopall:
+        try:
+            if pipes["mpconnector"]:
+                logger.debug(whoami() + "exiting mpconnector")
+                pipes["mpconnector"][0].send(("control_command", "exit"))
+                mpp["mpconnector"].join()
+                mpp["mpconnector"] = None
+                logger.info(whoami() + "mpconnector terminated!")
+            else:
+                if mpp_is_alive(mpp, "mpconnector"):
+                    mpid = mpp["mpconnector"].pid
+                    logger.debug(whoami() + "stopall: terminating mpconnector")
+                    os.kill(mpp["mpconnector"].pid, signal.SIGTERM)
+                    mpp["mpconnector"].join()
+                    mpp["mpconnector"] = None
+                    logger.info(whoami() + "mpconnector terminated!")
+                else:
+                    logger.info(whoami() + "mpconnector not running / or zombie!")
+        except Exception as e:
+            logger.debug(whoami() + str(e))
+    # just pause
+    elif pipes:
+        try:
+            pipes["mpconnector"][0].send(("control_command", "pause"))
+            logger.debug(whoami() + "pausing mpconnector / threads")
+        except Exception as e:
+            logger.warning(whoami() + str(e))
+
     # 9. stop post-proc
     try:
         if mpp_is_alive(mpp, "post"):
@@ -296,9 +326,11 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     renamer_parent_pipe, renamer_child_pipe = mp.Pipe()
     unrarer_parent_pipe, unrarer_child_pipe = mp.Pipe()
     verifier_parent_pipe, verifier_child_pipe = mp.Pipe()
+    mpconnector_parent_pipe, mpconnector_child_pipe = mp.Pipe()
     pipes = {"renamer": [renamer_parent_pipe, renamer_child_pipe],
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
-             "verifier": [verifier_parent_pipe, verifier_child_pipe]}
+             "verifier": [verifier_parent_pipe, verifier_child_pipe],
+             "mpconnector": [mpconnector_parent_pipe, mpconnector_child_pipe]}
 
     # load server ts from file
     try:
@@ -327,7 +359,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     # init sighandler
     logger.debug(whoami() + "initializing sighandler")
-    mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None, "post": None}
+    mpp = {"nzbparser": None, "decoder": None, "unrarer": None, "renamer": None, "verifier": None, "post": None,
+           "mpconnector": None}
     sh = SigHandler_Main(event_stopped, logger)
     signal.signal(signal.SIGINT, sh.sighandler)
     signal.signal(signal.SIGTERM, sh.sighandler)
@@ -343,6 +376,12 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, mp_loggerqueue, ))
     mpp_renamer.start()
     mpp["renamer"] = mpp_renamer
+
+    # start mpconnector
+    logger.info(whoami() + "starting mpconnector process ...")
+    mpp_connector = mp.Process(target=mpconnector, args=(mpconnector_child_pipe, cfg, server_ts, mp_loggerqueue, ))
+    mpp_connector.start()
+    mpp["mpconnector"] = mpp_connector
 
     dl = None
     nzbname = None

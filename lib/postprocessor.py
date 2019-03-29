@@ -113,6 +113,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
 
     # clear pipes
     try:
+        pipes["mpconnector"][0].send(("control_command", "clearqueues"))
         for key, item in pipes.items():
             if pipes[key][0].poll():
                 pipes[key][0].recv()

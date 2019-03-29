@@ -284,6 +284,7 @@ class Downloader(Thread):
         self.resultqueue.clear()
         # clear pipes
         try:
+            self.pipes["mpconnector"][0].send(("control_command", "clearqueues"))
             for key, item in self.pipes.items():
                 if self.pipes[key][0].poll():
                     self.pipes[key][0].recv()
