@@ -389,8 +389,10 @@ class ConnectionThreads:
             return 0
         return 1 - nodownthreads / (nothreads)
 
-    def get_servers(self):
-        return self.servers
+    def get_server_config(self):
+        if not self.servers:
+            return None
+        return self.servers.server_config
 
 
 def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
@@ -408,7 +410,7 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     ct = ConnectionThreads(cfg, thr_articlequeue, thr_resultqueue, server_ts, logger)
 
     cmdlist = ["start", "stop", "pause", "resume", "reset_timestamps", "reset_timestamps_bdl",
-               "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_servers",
+               "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_server_config",
                "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers"]
 
     cmdtypelist = ["push_articlequeue", "pull_resultqueue", "control_command"]
@@ -448,8 +450,8 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
             elif cmd == "connection_thread_health":
                 result = ct.connection_thread_health()
                 child_pipe.send(result)
-            elif cmd == "get_servers":
-                result = ct.get_servers()
+            elif cmd == "get_server_config":
+                result = ct.get_server_config()
                 child_pipe.send(result)
             elif cmd == "set_tmode_sanitycheck":
                 for t, _ in ct.threads:

@@ -210,6 +210,8 @@ class Downloader(Thread):
                             bytescount0 += art_bytescount
                             self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name,
                                                       level_servers))
+                            #self.pipes["mpconnector"][0].send(("push_articlequeue", (filename, age, filetype, nr_articles, art_nr, art_name,
+                            #                                                         level_servers), None))
                         article_count += 1
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
@@ -232,6 +234,11 @@ class Downloader(Thread):
         updatedlist = []
         while True:
             try:
+                # self.pipes["mpconnector"][0].send(("pull_resultqueue", None, None))
+                # resultarticle = self.pipes["mpconnector"][0].recv()
+                # if resultarticle == -1:
+                #    break
+
                 resultarticle = self.resultqueue.popleft()
                 filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
                 updatedlist.append(art_name)

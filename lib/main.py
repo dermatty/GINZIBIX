@@ -442,7 +442,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 try:
                     if DEBUGPRINT:
                         print(">>>> #0 main:", time.time(), msg)
-                    pipes["mpconnector"][0].send(("control_command", "get_servers", None))
+                    pipes["mpconnector"][0].send(("control_command", "get_server_config", None))
                     mpservers = pipes["mpconnector"][0].recv()
                     if not ct.servers:
                         serverconfig = None
