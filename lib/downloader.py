@@ -298,6 +298,7 @@ class Downloader(Thread):
     # do sanitycheck on nzb (excluding articles for par2vols)
     def do_sanity_check(self, allfileslist, files, infolist, bytescount0, filetypecounter):
         self.logger.info(whoami() + "performing sanity check")
+        self.pipes["mpconnector"][0].send(("control_command", "set_tmode_sanitycheck", None))
         for t, _ in self.ct.threads:
             t.mode = "sanitycheck"
         sanity_injects = ["rar", "sfv", "nfo", "etc", "par2"]
@@ -326,6 +327,7 @@ class Downloader(Thread):
         else:
             a_health = nr_ok_articles / (nr_articles)
         self.logger.info(whoami() + "article health: {0:.4f}".format(a_health * 100) + "%")
+        self.pipes["mpconnector"][0].send(("control_command", "set_tmode_download", None))
         for t, _ in self.ct.threads:
             t.mode = "download"
         return a_health
@@ -380,6 +382,7 @@ class Downloader(Thread):
         bytescount0 = 0
         article_health = 1
 
+        self.pipes["mpconnector"][0].send(("control_command", "reset_timestamps", None))
         self.ct.reset_timestamps()
 
         startstatus = self.pwdb.exc("db_nzb_getstatus", [nzbname], {})
@@ -442,8 +445,10 @@ class Downloader(Thread):
                     self.logger.info(whoami() + "queuing par2vols")
                     inject_set_sanity = ["par2vol"]
                     self.ct.pause_threads()
+                    self.pipes["mpconnector"][0].send(("control_command", "pause", None))
                     self.clear_queues_and_pipes()
                     time.sleep(0.5)
+                    self.pipes["mpconnector"][0].send(("control_command", "resume", None))
                     self.ct.resume_threads()
                 else:
                     self.pwdb.exc("db_msg_insert", [nzbname, "Sanity is 100%, all OK!", "info"], {})
@@ -467,6 +472,7 @@ class Downloader(Thread):
 
         # reset bytesdownloaded
         self.ct.reset_timestamps()
+        self.pipes["mpconnector"][0].send(("control_command", "reset_timestamps", None))
 
         # download loop until articles downloaded
         oldrarcounter = 0
@@ -795,6 +801,8 @@ class Downloader(Thread):
                                   self.allfileslist)), return_reason, self.main_dir
 
     def get_level_servers(self, retention):
+        self.pipes["mpconnector"][0].send(("control_command", "get_level_servers", retention))
+        le_serv1 = self.pipes["mpconnector"][0].recv()
         le_serv0 = []
         for level, serverlist in self.ct.level_servers.items():
             level_servers = serverlist

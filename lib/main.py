@@ -39,7 +39,7 @@ class SigHandler_Main:
 
 
 # serverstats["eweka"] = pd.Series
-def update_server_ts(server_ts, ct):
+def update_server_ts(server_ts, ct, pipes):
 
     now0 = datetime.datetime.now().replace(microsecond=0)
     if server_ts:
@@ -54,6 +54,8 @@ def update_server_ts(server_ts, ct):
     months_in_sec = day_in_sec * 90
 
     current_stats = ct.get_downloaded_per_server()
+    pipes["mpconnector"][0].send(("control_command", "get_downloaded_per_server", None))
+    cts = pipes["mpconnector"][0].recv()
 
     for server, bdl in current_stats.items():
         bdl = bdl / (1024 * 1024)   # in MB
@@ -205,7 +207,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
         try:
             if pipes["mpconnector"]:
                 logger.debug(whoami() + "exiting mpconnector")
-                pipes["mpconnector"][0].send(("control_command", "exit"))
+                pipes["mpconnector"][0].send(("control_command", "exit", None))
                 mpp["mpconnector"].join()
                 mpp["mpconnector"] = None
                 logger.info(whoami() + "mpconnector terminated!")
@@ -224,7 +226,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     # just pause
     elif pipes:
         try:
-            pipes["mpconnector"][0].send(("control_command", "pause"))
+            pipes["mpconnector"][0].send(("control_command", "pause", None))
             logger.debug(whoami() + "pausing mpconnector / threads")
         except Exception as e:
             logger.warning(whoami() + str(e))
@@ -256,6 +258,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     if stopall:
         logger.debug(whoami() + "checking termination of connection threads")
         ct.stop_threads()
+        pipes["mpconnector"][0].send(("control_command", "stop", None))
 
     logger.info(whoami() + "clearing finished")
     return
@@ -411,6 +414,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     statusmsg = "failed"
                 # send data to gui
                 connection_health = connection_thread_health(ct.threads)
+                pipes["mpconnector"][0].send(("control_command", "connection_thread_health", None))
+                cth = pipes["mpconnector"][0].recv()
             else:
                 article_health = 0
                 connection_health = 0
@@ -437,12 +442,14 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 try:
                     if DEBUGPRINT:
                         print(">>>> #0 main:", time.time(), msg)
+                    pipes["mpconnector"][0].send(("control_command", "get_servers", None))
+                    mpservers = pipes["mpconnector"][0].recv()
                     if not ct.servers:
                         serverconfig = None
                     else:
                         serverconfig = ct.servers.server_config
                     try:
-                        update_server_ts(server_ts, ct)
+                        update_server_ts(server_ts, ct, pipes)
                     except Exception as e:
                         logger.warning(whoami() + str(e))
                     full_data_for_gui = pwdb.exc("get_all_data_for_gui", [], {})
@@ -509,6 +516,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         paused = True
                         logger.info(whoami() + "download paused for NZB " + nzbname)
                         ct.pause_threads()
+                        pipes["mpconnector"][0].send(("control_command", "pause", None))
                         if dl:
                             dl.pause()
                         postproc_pause()
@@ -522,6 +530,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         logger.info(whoami() + "download resumed for NZB " + nzbname)
                         paused = False
                         ct.resume_threads()
+                        pipes["mpconnector"][0].send(("control_command", "resume", None))
                         if dl:
                             dl.resume()
                         postproc_resume()
@@ -645,12 +654,14 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 nzbname = make_allfilelist_wait(pwdb, dirs, logger, -1)
                 if nzbname:
                     ct.reset_timestamps_bdl()
+                    pipes["mpconnector"][0].send(("control_command", "reset_timestamps_bdl", None))
                     logger.info(whoami() + "got next NZB: " + str(nzbname))
                     dl = Downloader(cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
                                     renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger)
                     # if status postprocessing, don't start threads!
                     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) in [0, 1, 2]:
                         if not paused:
+                            pipes["mpconnector"][0].send(("control_command", "resume", None))
                             ct.resume_threads()
                         if paused:
                             dl.pause()
@@ -661,6 +672,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 if stat0 == 4:
                     logger.info(whoami() + "postprocessor success for NZB " + nzbname)
                     ct.pause_threads()
+                    pipes["mpconnector"][0].send(("control_command", "pause", None))
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
                     
                     dl.stop()
@@ -688,6 +700,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 elif stat0 == -2:
                     logger.info(whoami() + "download failed for NZB " + nzbname)
                     ct.pause_threads()
+                    pipes["mpconnector"][0].send(("control_command", "pause", None))
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
                     dl.stop()
                     dl.join()
@@ -699,6 +712,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 # if postproc failed
                 elif stat0 == -4:
                     logger.error(whoami() + "postprocessor failed for NZB " + nzbname)
+                    pipes["mpconnector"][0].send(("control_command", "pause", None))
                     ct.pause_threads()
                     clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, logger, stopall=False)
                     dl.stop()
@@ -719,6 +733,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
             pass
     # shutdown
     logger.info(whoami() + "closeall: starting shutdown sequence")
+    pipes["mpconnector"][0].send(("control_command", "pause", None))
     ct.pause_threads()
     logger.debug(whoami() + "closeall: connection threads paused")
     if dl:

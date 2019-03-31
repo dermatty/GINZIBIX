@@ -382,6 +382,16 @@ class ConnectionThreads:
         self.resultqueue.clear()
         pass
 
+    def connection_thread_health(self):
+        nothreads = len([t for t, _ in self.threads])
+        nodownthreads = len([t for t, _ in self.threads if t.connectionstate == -1])
+        if nothreads == 0:
+            return 0
+        return 1 - nodownthreads / (nothreads)
+
+    def get_servers(self):
+        return self.servers
+
 
 def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     setproctitle("gzbx." + os.path.basename(__file__))
@@ -398,13 +408,14 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     ct = ConnectionThreads(cfg, thr_articlequeue, thr_resultqueue, server_ts, logger)
 
     cmdlist = ["start", "stop", "pause", "resume", "reset_timestamps", "reset_timestamps_bdl",
-               "get_downloaded_per_server", "exit", "clearqueues"]
+               "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_servers",
+               "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers"]
 
     cmdtypelist = ["push_articlequeue", "pull_resultqueue", "control_command"]
     while not TERMINATED:
 
         try:
-            cmdtype, cmd = child_pipe.recv()
+            cmdtype, cmd, param = child_pipe.recv()
             if cmdtype not in cmdtypelist:
                 continue
         except Exception as e:
@@ -434,6 +445,30 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
             elif cmd == "get_downloaded_per_server":
                 result = ct.get_downloaded_per_server()
                 child_pipe.send(result)
+            elif cmd == "connection_thread_health":
+                result = ct.connection_thread_health()
+                child_pipe.send(result)
+            elif cmd == "get_servers":
+                result = ct.get_servers()
+                child_pipe.send(result)
+            elif cmd == "set_tmode_sanitycheck":
+                for t, _ in ct.threads:
+                    t.mode = "sanitycheck"
+            elif cmd == "set_tmode_download":
+                for t, _ in ct.threads:
+                    t.mode = "download"
+            elif cmd == "get_level_servers":
+                le_serv0 = []
+                retention = param
+                for level, serverlist in ct.level_servers.items():
+                    level_servers = serverlist
+                    le_dic = {}
+                    for le in level_servers:
+                        _, _, _, _, _, _, _, _, age, _ = ct.servers.get_single_server_config(le)
+                        le_dic[le] = age
+                    les = [le for le in level_servers if le_dic[le] > retention * 0.9]
+                    le_serv0.append(les)
+                    child_pipe.send(le_serv0)
             elif cmd == "exit":
                 ct.stop_threads()
                 break
