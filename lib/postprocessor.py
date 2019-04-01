@@ -10,7 +10,7 @@ import re
 import glob
 import shutil
 import sys
-from .aux import PWDBSender, mpp_is_alive, mpp_join, clear_postproc_dirs
+from .aux import PWDBSender, mpp_is_alive, mpp_join, clear_postproc_dirs, do_mpconnections
 from .mplogging import setup_logger, whoami
 from setproctitle import setproctitle
 
@@ -86,6 +86,12 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
 
+    # connections in main thread or as mp?
+    try:
+        CONNECTIONS_AS_MP = True if cfg["OPTIONS"]["CONNECTIONS_AS_MP"].lower() == "yes" else False
+    except Exception as e:
+        logger.warning(whoami() + str(e) + ", setting connections_as_mp to False")
+
     nzbdirname = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
     incompletedir = dirs["incomplete"] + nzbdirname
     if not os.path.isdir(incompletedir):
@@ -112,8 +118,9 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     resultqueue.clear()
 
     # clear pipes
+    if CONNECTIONS_AS_MP:
+        do_mpconnections(pipes, "clearqueues", None)
     try:
-        pipes["mpconnector"][0].send(("control_command", "clearqueues"))
         for key, item in pipes.items():
             if pipes[key][0].poll():
                 pipes[key][0].recv()

@@ -16,6 +16,20 @@ from .mplogging import whoami
 gi.require_version('Gtk', '3.0')
 
 
+def do_mpconnections(pipes, cmd, param):
+    res = None
+    try:
+        pipes["mpconnector"][0].send((cmd, param))
+        if pipes["mpconnector"][0].poll(timeout=3):
+            res = pipes["mpconnector"][0].recv()
+            return res
+        else:
+            return None
+    except Exception as e:
+        print(str(e))
+        return None
+
+
 def clear_postproc_dirs(nzbname, dirs):
     # clear verified_rardir, unpackdir
     nzbdirname = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"

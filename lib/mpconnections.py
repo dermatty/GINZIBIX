@@ -411,29 +411,38 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
 
     cmdlist = ["start", "stop", "pause", "resume", "reset_timestamps", "reset_timestamps_bdl",
                "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_server_config",
-               "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers"]
+               "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers", "clear_articlequeue",
+               "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue"]
 
-    cmdtypelist = ["push_articlequeue", "pull_resultqueue", "control_command"]
     while not TERMINATED:
 
         try:
-            cmdtype, cmd, param = child_pipe.recv()
-            if cmdtype not in cmdtypelist:
-                continue
+            cmd, param = child_pipe.recv()
         except Exception as e:
             logger.warning(whoami() + str(e))
 
-        if cmdtype == "push_articlequeue":
-            thr_articlequeue.append(cmd)
-        elif cmdtype == "pull_resultqueue":
-            try:
-                resultarticle = thr_resultqueue.popleft()
-            except Exception:
-                resultarticle = -1
-            child_pipe.send(resultarticle)
-        elif cmdtype == "control_command" and cmd in cmdlist:
-            if cmd == "start":
+        if cmd in cmdlist:
+            result = True
+            if cmd == "push_articlequeue":
+                try:
+                    thr_articlequeue.append(param)
+                except Exception:
+                    result = None
+            elif cmd == "pull_resultqueue":
+                try:
+                    result = thr_resultqueue.popleft()
+                except Exception:
+                    result = None
+            elif cmd == "start":
                 ct.start_threads()
+            elif cmd == "queues_empty":
+                result = (len(ct.articlequeue) == 0) and (len(ct.resultqueue) == 0)
+            elif cmd == "len_articlequeue":
+                result = len(ct.articlequeue)
+            elif cmd == "clear_articlequeue":
+                ct.articlequeue.clear()
+            elif cmd == "clear_resultqueue":
+                ct.resultqueue.clear()
             elif cmd == "stop":
                 ct.stop_threads()
             elif cmd == "resume":
@@ -446,13 +455,10 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                 ct.reset_timestamps_bdl()
             elif cmd == "get_downloaded_per_server":
                 result = ct.get_downloaded_per_server()
-                child_pipe.send(result)
             elif cmd == "connection_thread_health":
                 result = ct.connection_thread_health()
-                child_pipe.send(result)
             elif cmd == "get_server_config":
                 result = ct.get_server_config()
-                child_pipe.send(result)
             elif cmd == "set_tmode_sanitycheck":
                 for t, _ in ct.threads:
                     t.mode = "sanitycheck"
@@ -470,13 +476,16 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                         le_dic[le] = age
                     les = [le for le in level_servers if le_dic[le] > retention * 0.9]
                     le_serv0.append(les)
-                    child_pipe.send(le_serv0)
+                result = le_serv0
             elif cmd == "exit":
                 ct.stop_threads()
+                child_pipe.send(result)
                 break
             elif cmd == "clearqueues":
                 ct.clear_thr_queues()
-
+            child_pipe.send(result)
+        else:
+            child_pipe.send(None)
     logger.info(whoami() + "exited!")
     sys.exit()
 

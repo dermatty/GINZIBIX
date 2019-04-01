@@ -7,7 +7,7 @@ import time
 import threading
 import multiprocessing as mp
 from threading import Thread
-from .aux import PWDBSender, mpp_is_alive
+from .aux import PWDBSender, mpp_is_alive, do_mpconnections
 from .mplogging import whoami
 from .par_verifier import par_verifier
 from .par2lib import Par2File
@@ -25,6 +25,7 @@ empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
 CRIT_ART_HEALTH_W_PAR = 0.98
 CRIT_ART_HEALTH_WO_PAR = 0.998
 CRIT_CONN_HEALTH = 0.7
+CONNECTIONS_AS_MP = False
 
 
 # Handles download of a NZB file
@@ -66,6 +67,13 @@ class Downloader(Thread):
         self.crit_conn_health = CRIT_CONN_HEALTH
         self.crit_art_health_w_par = CRIT_ART_HEALTH_W_PAR
         self.crit_art_health_wo_par = CRIT_ART_HEALTH_WO_PAR
+
+        global CONNECTIONS_AS_MP
+        # connections in main thread or as mp?
+        try:
+            CONNECTIONS_AS_MP = True if self.cfg["OPTIONS"]["CONNECTIONS_AS_MP"].lower() == "yes" else False
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting connections_as_mp to False")
 
         if self.pw_file:
             try:
@@ -179,7 +187,6 @@ class Downloader(Thread):
         infolist = infolist0
         bytescount0 = bytescount0_0
         article_count = 0
-        articlelist = []
         for f in ftypes:
             for j, file_articles in enumerate(reversed(filelist)):
                 # iterate over all articles in file
@@ -208,17 +215,22 @@ class Downloader(Thread):
                             art_downloaded = False
                         if not art_downloaded:
                             bytescount0 += art_bytescount
-                            self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name,
-                                                      level_servers))
-                            #self.pipes["mpconnector"][0].send(("push_articlequeue", (filename, age, filetype, nr_articles, art_nr, art_name,
-                            #                                                         level_servers), None))
+                            if CONNECTIONS_AS_MP:
+                                do_mpconnections(self.pipes, "push_articlequeue", (filename, age, filetype, nr_articles,
+                                                                                   art_nr, art_name, level_servers))
+                            else:
+                                self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                                                          level_servers))
                         article_count += 1
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 
     def all_queues_are_empty(self):
-        articlequeue_empty = len(self.articlequeue) == 0
-        resultqueue_empty = len(self.resultqueue) == 0
+        if CONNECTIONS_AS_MP:
+            articlequeue_empty = resultqueue_empty = do_mpconnections(self.pipes, "queues_empty", None)
+        else:
+            articlequeue_empty = len(self.articlequeue) == 0
+            resultqueue_empty = len(self.resultqueue) == 0
         mpworkqueue_empty = self.mp_work_queue.qsize() == 0
         return (articlequeue_empty and resultqueue_empty and mpworkqueue_empty)
 
@@ -234,12 +246,12 @@ class Downloader(Thread):
         updatedlist = []
         while True:
             try:
-                # self.pipes["mpconnector"][0].send(("pull_resultqueue", None, None))
-                # resultarticle = self.pipes["mpconnector"][0].recv()
-                # if resultarticle == -1:
-                #    break
-
-                resultarticle = self.resultqueue.popleft()
+                if CONNECTIONS_AS_MP:
+                    resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
+                    if not resultarticle:
+                        break
+                else:
+                    resultarticle = self.resultqueue.popleft()
                 filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
                 updatedlist.append(art_name)
                 if inf0 == 0:
@@ -285,13 +297,16 @@ class Downloader(Thread):
         self.logger.debug(whoami() + "starting clearing queues & pipes")
         # clear articlequeue
         self.articlequeue.clear()
+        if CONNECTIONS_AS_MP:
+            return do_mpconnections(self.pipes, "clear_articlequeue", None)
         if onlyarticlequeue:
             return True
         # clear resultqueue
         self.resultqueue.clear()
-        # clear pipes
+        if CONNECTIONS_AS_MP:
+            return do_mpconnections(self.pipes, "clear_resultqueue", None)
+
         try:
-            self.pipes["mpconnector"][0].send(("control_command", "clearqueues"))
             for key, item in self.pipes.items():
                 if self.pipes[key][0].poll():
                     self.pipes[key][0].recv()
@@ -305,20 +320,31 @@ class Downloader(Thread):
     # do sanitycheck on nzb (excluding articles for par2vols)
     def do_sanity_check(self, allfileslist, files, infolist, bytescount0, filetypecounter):
         self.logger.info(whoami() + "performing sanity check")
-        self.pipes["mpconnector"][0].send(("control_command", "set_tmode_sanitycheck", None))
-        for t, _ in self.ct.threads:
-            t.mode = "sanitycheck"
+        if CONNECTIONS_AS_MP:
+            do_mpconnections(self.pipes, "set_tmode_sanitycheck", None)
+        else:
+            for t, _ in self.ct.threads:
+                t.mode = "sanitycheck"
         sanity_injects = ["rar", "sfv", "nfo", "etc", "par2"]
         files, infolist, bytescount0, article_count = self.inject_articles(sanity_injects, allfileslist, files, infolist, bytescount0, filetypecounter)
-        artsize0 = len(self.articlequeue)
+        if CONNECTIONS_AS_MP:
+            artsize0 = do_mpconnections(self.pipes, "len_articlequeue", None)
+        else:
+            artsize0 = len(self.articlequeue)
         self.logger.info(whoami() + "Checking sanity on " + str(artsize0) + " articles")
         self.articlequeue.clear()
+        if CONNECTIONS_AS_MP:
+            do_mpconnections(self.pipes, "clear_articlequeue", None)
         nr_articles = 0
         nr_ok_articles = 0
         while True:
             try:
-                resultarticle = self.resultqueue.popleft()    #get_nowait()
-                # self.resultqueue.task_done()
+                if CONNECTIONS_AS_MP:
+                    resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
+                    if not resultarticle:
+                        break
+                else:
+                    resultarticle = self.resultqueue.popleft()
                 nr_articles += 1
                 _, _, _, _, _, artname, _, status, _ = resultarticle
                 if status != "failed":
@@ -328,19 +354,19 @@ class Downloader(Thread):
                     self.logger.debug(whoami() + "cannot download " + artname)
             except (queue.Empty, EOFError, IndexError):
                 break
-        # self.resultqueue.join()
         if nr_articles == 0:
             a_health = 0
         else:
             a_health = nr_ok_articles / (nr_articles)
         self.logger.info(whoami() + "article health: {0:.4f}".format(a_health * 100) + "%")
-        self.pipes["mpconnector"][0].send(("control_command", "set_tmode_download", None))
-        for t, _ in self.ct.threads:
-            t.mode = "download"
+        if CONNECTIONS_AS_MP:
+            do_mpconnections(self.pipes, "set_tmode_download", None)
+        else:
+            for t, _ in self.ct.threads:
+                t.mode = "download"
         return a_health
 
     # main download routine
-    # def download(self, nzbname, allfileslist, filetypecounter, servers_shut_down):
     def run(self):
 
         # this is necessary: if not-yet-started downloader is stopped & joined externally,
@@ -389,8 +415,10 @@ class Downloader(Thread):
         bytescount0 = 0
         article_health = 1
 
-        self.pipes["mpconnector"][0].send(("control_command", "reset_timestamps", None))
-        self.ct.reset_timestamps()
+        if CONNECTIONS_AS_MP:
+            do_mpconnections(self.pipes, "reset_timestamps", None)
+        else:
+            self.ct.reset_timestamps()
 
         startstatus = self.pwdb.exc("db_nzb_getstatus", [nzbname], {})
         self.logger.debug(whoami() + "nzb has status " + str(startstatus))
@@ -451,12 +479,16 @@ class Downloader(Thread):
                     self.overall_size = self.overall_size_wparvol
                     self.logger.info(whoami() + "queuing par2vols")
                     inject_set_sanity = ["par2vol"]
-                    self.ct.pause_threads()
-                    self.pipes["mpconnector"][0].send(("control_command", "pause", None))
+                    if CONNECTIONS_AS_MP:
+                        do_mpconnections(self.pipes, "pause", None)
+                    else:
+                        self.ct.pause_threads()
                     self.clear_queues_and_pipes()
                     time.sleep(0.5)
-                    self.pipes["mpconnector"][0].send(("control_command", "resume", None))
-                    self.ct.resume_threads()
+                    if CONNECTIONS_AS_MP:
+                        do_mpconnections(self.pipes, "resume", None)
+                    else:
+                        self.ct.resume_threads()
                 else:
                     self.pwdb.exc("db_msg_insert", [nzbname, "Sanity is 100%, all OK!", "info"], {})
 
@@ -478,8 +510,10 @@ class Downloader(Thread):
                 article_count += article_count0
 
         # reset bytesdownloaded
-        self.ct.reset_timestamps()
-        self.pipes["mpconnector"][0].send(("control_command", "reset_timestamps", None))
+        if CONNECTIONS_AS_MP:
+            do_mpconnections(self.pipes, "reset_timestamps", None)
+        else:
+            self.ct.reset_timestamps()
 
         # download loop until articles downloaded
         oldrarcounter = 0
@@ -808,8 +842,9 @@ class Downloader(Thread):
                                   self.allfileslist)), return_reason, self.main_dir
 
     def get_level_servers(self, retention):
-        self.pipes["mpconnector"][0].send(("control_command", "get_level_servers", retention))
-        le_serv1 = self.pipes["mpconnector"][0].recv()
+        if CONNECTIONS_AS_MP:
+            result = do_mpconnections(self.pipes, "get_level_servers", retention)
+            return result
         le_serv0 = []
         for level, serverlist in self.ct.level_servers.items():
             level_servers = serverlist
