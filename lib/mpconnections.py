@@ -43,7 +43,7 @@ class ConnectionWorker(Thread):
         self.last_timestamp = 0
         self.mode = "download"
         self.download_done = True
-        self.bandwidth_bytes = 0
+        # self.bandwidth_bytes = 0
         self.last_downloaded_ts = None
         self.paused = False
         self.tt_pause_started = None
@@ -123,7 +123,7 @@ class ConnectionWorker(Thread):
         except Exception as e:
             status = 0
             self.logger.warning(whoami() + str(e) + ": " + article_name + " on " + self.idn)
-        self.bandwidth_bytes += bytesdownloaded
+        # self.bandwidth_bytes += bytesdownloaded
         return status, bytesdownloaded, info0
 
     def wait_running(self, sec):
@@ -374,7 +374,7 @@ class ConnectionThreads:
             for t, _ in self.threads:
                 t.bytesdownloaded = 0
                 t.last_timestamp = 0
-                t.bandwidth_bytes = 0
+                # t.bandwidth_bytes = 0
                 t.bandwidth_lasttt = 0
 
     def clear_thr_queues(self):
@@ -409,10 +409,10 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     thr_resultqueue = deque()
     ct = ConnectionThreads(cfg, thr_articlequeue, thr_resultqueue, server_ts, logger)
 
-    cmdlist = ["start", "stop", "pause", "resume", "reset_timestamps", "reset_timestamps_bdl",
+    cmdlist = ("start", "stop", "pause", "resume", "reset_timestamps", "reset_timestamps_bdl",
                "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_server_config",
                "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers", "clear_articlequeue",
-               "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue"]
+               "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue")
 
     while not TERMINATED:
 

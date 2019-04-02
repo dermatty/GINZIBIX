@@ -59,8 +59,6 @@ def update_server_ts(server_ts, ct, pipes):
     else:
         current_stats = ct.get_downloaded_per_server()
 
-    
-
     for server, bdl in current_stats.items():
         bdl = bdl / (1024 * 1024)   # in MB
         try:
@@ -206,35 +204,6 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             pipes["renamer"][0].send(("pause", None, None))
         except Exception as e:
             logger.warning(whoami() + str(e))
-    # 8b. only stop mpconnector if stopall otherwise just pause
-    if stopall and CONNECTIONS_AS_MP:
-        try:
-            if pipes["mpconnector"]:
-                logger.debug(whoami() + "exiting mpconnector")
-                do_mpconnections(pipes, "exit", None)
-                mpp["mpconnector"].join()
-                mpp["mpconnector"] = None
-                logger.info(whoami() + "mpconnector terminated!")
-            else:
-                if mpp_is_alive(mpp, "mpconnector"):
-                    mpid = mpp["mpconnector"].pid
-                    logger.debug(whoami() + "stopall: terminating mpconnector")
-                    os.kill(mpp["mpconnector"].pid, signal.SIGTERM)
-                    mpp["mpconnector"].join()
-                    mpp["mpconnector"] = None
-                    logger.info(whoami() + "mpconnector terminated!")
-                else:
-                    logger.info(whoami() + "mpconnector not running / or zombie!")
-        except Exception as e:
-            logger.debug(whoami() + str(e))
-    # just pause
-    elif pipes and CONNECTIONS_AS_MP:
-        try:
-            do_mpconnections(pipes, "pause", None)
-            logger.debug(whoami() + "pausing mpconnector / threads")
-        except Exception as e:
-            logger.warning(whoami() + str(e))
-
     # 9. stop post-proc
     try:
         if mpp_is_alive(mpp, "post"):
@@ -265,6 +234,34 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             ct.stop_threads()
         else:
             do_mpconnections(pipes, "stop", None)
+    # 12. only stop mpconnector if stopall otherwise just pause
+    if stopall and CONNECTIONS_AS_MP:
+        try:
+            if pipes["mpconnector"]:
+                logger.debug(whoami() + "exiting mpconnector")
+                do_mpconnections(pipes, "exit", None)
+                mpp["mpconnector"].join()
+                mpp["mpconnector"] = None
+                logger.info(whoami() + "mpconnector terminated!")
+            else:
+                if mpp_is_alive(mpp, "mpconnector"):
+                    mpid = mpp["mpconnector"].pid
+                    logger.debug(whoami() + "stopall: terminating mpconnector")
+                    os.kill(mpp["mpconnector"].pid, signal.SIGTERM)
+                    mpp["mpconnector"].join()
+                    mpp["mpconnector"] = None
+                    logger.info(whoami() + "mpconnector terminated!")
+                else:
+                    logger.info(whoami() + "mpconnector not running / or zombie!")
+        except Exception as e:
+            logger.debug(whoami() + str(e))
+    # just pause
+    elif pipes and CONNECTIONS_AS_MP:
+        try:
+            do_mpconnections(pipes, "pause", None)
+            logger.debug(whoami() + "pausing mpconnector / threads")
+        except Exception as e:
+            logger.warning(whoami() + str(e))
 
     logger.info(whoami() + "clearing finished")
     return
@@ -321,6 +318,12 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     pwdb = PWDBSender()
 
+    # connections in main thread or as mp?
+    try:
+        CONNECTIONS_AS_MP = True if cfg["OPTIONS"]["CONNECTIONS_AS_MP"].lower() == "yes" else False
+    except Exception as e:
+        logger.warning(whoami() + str(e) + ", setting connections_as_mp to False")
+
     # multiprocessing events
     mp_events = {}
     mp_events["unrarer"] = mp.Event()
@@ -329,8 +332,12 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     # threading events
     event_stopped = threading.Event()
 
-    articlequeue = deque()
-    resultqueue = deque()
+    if not CONNECTIONS_AS_MP:
+        articlequeue = deque()
+        resultqueue = deque()
+    else:
+        articlequeue = None
+        resultqueue = None
     mp_work_queue = mp.Queue()
     renamer_result_queue = mp.Queue()
 
@@ -354,12 +361,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     config_servers.append("-ALL SERVERS-")
     server_ts = {key: server_ts0[key] for key in server_ts0 if key in config_servers}
     del server_ts0
-
-    # connections in main thread or as mp?
-    try:
-        CONNECTIONS_AS_MP = True if cfg["OPTIONS"]["CONNECTIONS_AS_MP"].lower() == "yes" else False
-    except Exception as e:
-        logger.warning(whoami() + str(e) + ", setting connections_as_mp to False")
 
     if not CONNECTIONS_AS_MP:
         ct = ConnectionThreads(cfg, articlequeue, resultqueue, server_ts, logger)

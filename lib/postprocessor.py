@@ -111,11 +111,10 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
 
     pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
     logger.debug(whoami() + "starting clearing queues & pipes")
-    # clear articlequeue
-    articlequeue.clear()
 
-    # clear resultqueue
-    resultqueue.clear()
+    if not CONNECTIONS_AS_MP:
+        articlequeue.clear()
+        resultqueue.clear()
 
     # clear pipes
     if CONNECTIONS_AS_MP:

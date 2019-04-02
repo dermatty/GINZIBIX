@@ -295,17 +295,16 @@ class Downloader(Thread):
 
     def clear_queues_and_pipes(self, onlyarticlequeue=False):
         self.logger.debug(whoami() + "starting clearing queues & pipes")
-        # clear articlequeue
-        self.articlequeue.clear()
         if CONNECTIONS_AS_MP:
             return do_mpconnections(self.pipes, "clear_articlequeue", None)
+        else:
+            self.articlequeue.clear()
         if onlyarticlequeue:
             return True
-        # clear resultqueue
-        self.resultqueue.clear()
         if CONNECTIONS_AS_MP:
             return do_mpconnections(self.pipes, "clear_resultqueue", None)
-
+        else:
+            self.resultqueue.clear()
         try:
             for key, item in self.pipes.items():
                 if self.pipes[key][0].poll():
