@@ -334,6 +334,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     mp_work_queue = mp.Queue()
     renamer_result_queue = mp.Queue()
 
+    mpconnector_lock = threading.Lock()
+
     renamer_parent_pipe, renamer_child_pipe = mp.Pipe()
     unrarer_parent_pipe, unrarer_child_pipe = mp.Pipe()
     verifier_parent_pipe, verifier_child_pipe = mp.Pipe()
@@ -341,7 +343,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     pipes = {"renamer": [renamer_parent_pipe, renamer_child_pipe],
              "unrarer": [unrarer_parent_pipe, unrarer_child_pipe],
              "verifier": [verifier_parent_pipe, verifier_child_pipe],
-             "mpconnector": [mpconnector_parent_pipe, mpconnector_child_pipe]}
+             "mpconnector": [mpconnector_parent_pipe, mpconnector_child_pipe, mpconnector_lock]}
 
     # load server ts from file
     try:

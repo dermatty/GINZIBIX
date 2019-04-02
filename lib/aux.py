@@ -18,16 +18,17 @@ gi.require_version('Gtk', '3.0')
 
 def do_mpconnections(pipes, cmd, param):
     res = None
+    pipes["mpconnector"][2].acquire()
     try:
         pipes["mpconnector"][0].send((cmd, param))
         if pipes["mpconnector"][0].poll(timeout=3):
             res = pipes["mpconnector"][0].recv()
-            return res
         else:
-            return None
-    except Exception as e:
-        print(str(e))
-        return None
+            res = None
+    except Exception:
+        res = None
+    pipes["mpconnector"][2].release()
+    return res
 
 
 def clear_postproc_dirs(nzbname, dirs):
