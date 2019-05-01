@@ -197,7 +197,7 @@ class ApplicationGui(Gtk.Application):
         self.max_width = screen.get_width()
         self.max_height = screen.get_height()
         self.n_monitors = screen.get_n_monitors()
-        self.window.set_size_request(int(self.max_width/(2 * self.n_monitors)), self.max_height)
+        #self.window.set_size_request(int(self.max_width/(2 * self.n_monitors)), self.max_height)
 
         # setup servergraph w/ pyplot
         self.servergraph_figure = Figure(figsize=(5, 4), dpi=100)
@@ -215,6 +215,7 @@ class ApplicationGui(Gtk.Application):
         self.setup_frame_nzblist()
         self.setup_frame_logs()
         self.setup_frame_nzbhistory()
+        self.setup_history_logs()
         self.setup_frame_serverlist()
 
         self.gridbuttonlist = [self.obj("button_top"), self.obj("button_up"), self.obj("button_down"),
@@ -319,6 +320,29 @@ class ApplicationGui(Gtk.Application):
         self.treeview_loglist.append_column(column_log2)
 
         self.obj("scrolled_window_logs").add(self.treeview_loglist)
+
+    # liststore/treeview for logs in stack HISTORY
+    def setup_history_logs(self):
+        self.historylogs_liststore = Gtk.ListStore(str, str, str, str, str)
+        self.treeview_historyloglist = Gtk.TreeView(model=self.historylogs_liststore)
+
+        renderer_log4 = Gtk.CellRendererText()
+        column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
+        column_log4.set_min_width(80)
+        self.treeview_historyloglist.append_column(column_log4)
+
+        renderer_log3 = Gtk.CellRendererText()
+        column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
+        column_log3.set_min_width(80)
+        self.treeview_historyloglist.append_column(column_log3)
+
+        renderer_log2 = Gtk.CellRendererText()
+        column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
+        column_log2.set_expand(True)
+        column_log2.set_min_width(520)
+        self.treeview_historyloglist.append_column(column_log2)
+
+        self.obj("scrolled_window_nzbhistorylogs").add(self.treeview_historyloglist)
 
     # liststore/treeview for nzbhistory
     def setup_frame_nzbhistory(self):
@@ -1330,7 +1354,6 @@ class Handler:
         self.gui.restartall = True
         self.gui.appdata.settings_changed = True
         self.gui.app.quit()
-
 
     def on_cumulative_cb_toggled(self, a):
         self.gui.appdata.servergraph_cumulative = not self.gui.appdata.servergraph_cumulative

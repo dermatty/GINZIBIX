@@ -250,9 +250,13 @@ class Downloader(Thread):
                     resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
                     if not resultarticle:
                         break
+                    try:
+                        filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
+                    except Exception:
+                        break
                 else:
                     resultarticle = self.resultqueue.popleft()
-                filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
+                    filename, age, filetype, nr_articles, art_nr, art_name, download_server, inf0, add_bytes = resultarticle
                 updatedlist.append(art_name)
                 if inf0 == 0:
                     continue
