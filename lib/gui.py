@@ -326,8 +326,12 @@ class ApplicationGui(Gtk.Application):
 
     # liststore/treeview for logs in stack HISTORY
     def setup_history_logs(self):
-        self.historylogs_liststore = Gtk.ListStore(str, str, str, str, str)
+        self.historylogs_liststore = Gtk.ListStore(str, str, str, str, str, str)
         self.treeview_historyloglist = Gtk.TreeView(model=self.historylogs_liststore)
+
+        renderer_log0 = Gtk.CellRendererText()
+        column_log0 = Gtk.TreeViewColumn("NZB Name", renderer_log0, text=5, background=3, foreground=4)
+        self.treeview_historyloglist.append_column(column_log0)
 
         renderer_log4 = Gtk.CellRendererText()
         column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
@@ -919,7 +923,7 @@ class ApplicationGui(Gtk.Application):
 
             for msg0, ts0, level0 in loglist:
                 log_as_list = []
-                # msg, level, tt, bg, fg
+                # msg, level, tt, bg, fg, nzbname
                 log_as_list.append(get_cut_msg(msg0, MAX_MSG_LEN))
                 log_as_list.append(level0)
                 if level0 == 0:
@@ -943,6 +947,7 @@ class ApplicationGui(Gtk.Application):
                     bg = "white"
                 log_as_list.append(bg)
                 log_as_list.append(fg)
+                log_as_list.append(nzbname)
                 self.historylogs_liststore.append(log_as_list)
 
     def update_liststore(self, only_eta=False):

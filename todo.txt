@@ -1,10 +1,5 @@
-0. check speed in gui -> too high
-1. rars werden nicht entpackt
 
-
-
-1. if gui exited during unrar -> main does not exit!
-
+make gui.py integrate pwdb -> avoid overhead when using main.py for getting data from pwdb
 
 ---------------------------------------------------------------------
 

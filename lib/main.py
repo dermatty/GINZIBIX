@@ -416,10 +416,12 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     dl_running = True
     applied_datarec = None
 
-    # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
+    # reload nzb lists for gui
+    pwdb.exc("store_sorted_nzbs", [], {})
 
     DEBUGPRINT = False
 
+    # main looooooooooooooooooooooooooooooooooooooooooooooooooooop
     try:
         while not event_stopped.is_set():
             # set connection health
