@@ -11,7 +11,7 @@ import nntplib
 import ssl
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib, Pango
 from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color,\
-    get_server_config, get_config_for_server, get_free_server_cfg
+    get_server_config, get_config_for_server, get_free_server_cfg, PWDBSender
 from .mplogging import whoami, setup_logger
 from matplotlib.backends.backend_gtk3agg import (
     FigureCanvasGTK3Agg as FigureCanvas)
@@ -94,6 +94,9 @@ class ApplicationGui(Gtk.Application):
         self.settings_servers = None
         self.port = guiport
         self.host = "127.0.0.1"
+
+        # PWDBSender works only of on localhost
+        self.pwdb = PWDBSender()
 
         # data
         self.logger = setup_logger(mp_loggerqueue, __file__)
@@ -801,6 +804,7 @@ class ApplicationGui(Gtk.Application):
             newnzb[0] = self.nzbhistory_liststore[path][0]
             self.appdata.nzbs_history[i] = tuple(newnzb)
             self.toggle_buttons_history()
+            self.update_nzbhistory_logstore()
 
     def on_inverted_toggled(self, widget, path):
         with self.lock:
@@ -899,6 +903,47 @@ class ApplicationGui(Gtk.Application):
             nzb_as_list[1] = get_cut_nzbname(nzb_as_list[1], MAX_NZB_LEN)
             nzb_as_list[2], nzb_as_list[-1] = get_status_name_and_color(nzb[2])
             self.nzbhistory_liststore.append(nzb_as_list)
+
+    def update_nzbhistory_logstore(self):
+        # only show msgs for current nzb
+        self.historylogs_liststore.clear()
+        for i, nzb in enumerate(self.appdata.nzbs_history):
+            nzb_as_list = list(nzb)
+            if not nzb_as_list[0]:
+                continue
+            nzbname = nzb_as_list[1]
+
+            loglist = self.pwdb.exc("db_msg_get", [nzbname], {})
+            if not loglist:
+                continue
+
+            for msg0, ts0, level0 in loglist:
+                log_as_list = []
+                # msg, level, tt, bg, fg
+                log_as_list.append(get_cut_msg(msg0, MAX_MSG_LEN))
+                log_as_list.append(level0)
+                if level0 == 0:
+                    log_as_list.append("")
+                else:
+                    log_as_list.append(str(datetime.datetime.fromtimestamp(ts0).strftime('%Y-%m-%d %H:%M:%S')))
+                fg = "black"
+                if log_as_list[1] == "info":
+                    bg = "royal Blue"
+                    fg = "white"
+                elif log_as_list[1] == "warning":
+                    bg = "orange"
+                    fg = "white"
+                elif log_as_list[1] == "error":
+                    bg = "red"
+                    fg = "white"
+                elif log_as_list[1] == "success":
+                    bg = "green"
+                    fg = "white"
+                else:
+                    bg = "white"
+                log_as_list.append(bg)
+                log_as_list.append(fg)
+                self.historylogs_liststore.append(log_as_list)
 
     def update_liststore(self, only_eta=False):
         # n_name, n_perc, n_dl, n_size, etastr, str(n_perc) + "%", selected, n_status))
