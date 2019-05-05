@@ -47,10 +47,6 @@ MENU_XML = """
   <menu id="app-menu">
     <section>
       <item>
-        <attribute name="action">app.settings</attribute>
-        <attribute name="label" translatable="yes">_Settings</attribute>
-      </item>
-      <item>
         <attribute name="action">app.about</attribute>
         <attribute name="label" translatable="yes">_About</attribute>
       </item>
@@ -213,7 +209,6 @@ class ApplicationGui(Gtk.Application):
         self.add_simple_action("about", self.on_action_about_activated)
         self.add_simple_action("message", self.on_action_message_activated)
         self.add_simple_action("quit", self.on_action_quit_activated)
-        self.add_simple_action("settings", self.on_action_settings_activated)
 
         # set liststores / treeviews
         self.setup_frame_nzblist()
@@ -256,9 +251,6 @@ class ApplicationGui(Gtk.Application):
         action = Gio.SimpleAction.new(name)
         action.connect("activate", callback)
         self.app.add_action(action)
-
-    def on_action_settings_activated(self, action, param):
-        pass
 
     def on_action_about_activated(self, action, param):
         do_about_dialog(self.window)
@@ -743,6 +735,15 @@ class ApplicationGui(Gtk.Application):
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ", setting debuglevel to 'info'")
             self.debuglevel = "info"
+
+        # debug level
+        try:
+            self.connectionsasmp = self.cfg["OPTIONS"]["CONNECTIONS_AS_MP"]
+            if self.connectionsasmp.lower() not in ["yes", "no"]:
+                self.connectionsasmp = "yes"
+        except Exception as e:
+            self.logger.warning(whoami() + str(e) + ", setting connections_as_mp to 'yes'")
+            self.connectionsasmp = "yes"
 
         # connection timeout
         try:
@@ -1275,12 +1276,11 @@ class Handler:
                                        "pw_file": self.gui.gs_filechooser_button.get_filename(),
                                        "get_pw_directly": "yes" if self.gui.gs_getpwdir_switch.get_active() else "no",
                                        "update_delay": self.gui.gs_guidelay_spinbutton2.get_value(),
-                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value()}
+                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value(),
+                                       "connections_as_mp": self.gui.connectionsasmp}
             self.gui.restart_button.set_label("!")
             self.gui.read_config()
             self.gui.appdata.settings_changed = True
-                
-
 
     def on_server_edit_clicked(self, button):
         servername = self.gui.servergraph_selectedserver

@@ -404,7 +404,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     # move content of unpack dir to complete
     logger.debug(whoami() + "moving unpack_dir to complete: " + unpack_dir)
     for f00 in glob.glob(unpack_dir + "*"):
-        logger.debug(whoami() + "u1npack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
+        logger.debug(whoami() + "unpack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
         d0 = f00.split("/")[-1]
         logger.debug(whoami() + "Does " + complete_dir + d0 + " already exist?")
         if os.path.isfile(complete_dir + d0):
@@ -421,6 +421,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         if not os.path.isdir(f00):
             try:
                 shutil.move(f00, complete_dir)
+                logger.debug(whoami() + ": moved " + f00 + " to " + complete_dir)
             except Exception as e:
                 pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                 logger.warning(whoami() + str(e) + ": cannot move unrared file to complete dir!")
@@ -428,19 +429,24 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             if os.path.isdir(complete_dir + d0):
                 try:
                     shutil.rmtree(complete_dir + d0)
+                    logger.debug(whoami() + ": removed tree " + complete_dir + d0)
                 except Exception as e:
                     pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                     logger.warning(whoami() + str(e) + ": cannot remove unrared dir in complete!")
             try:
+                logger.debug(whoami() + "copying tree " + f00 + " to " + complete_dir + d0)
                 shutil.copytree(f00, complete_dir + d0)
+                logger.debug(whoami() + "copied tree " + f00 + " to " + complete_dir + d0)
             except Exception as e:
                 pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
                 logger.warning(whoami() + str(e) + ": cannot move non-rar/non-par2 file!")
     # remove unpack_dir
+    logger.debug(whoami() + ": removing unpacl_dir, verified_rardir and incomplete_dir")
     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) != -4:
         try:
             shutil.rmtree(unpack_dir)
             shutil.rmtree(verifiedrar_dir)
+            logger.debug(whoami() + ": removed " + unpack_dir + verifiedrar_dir)
         except Exception as e:
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
             logger.warning(whoami() + str(e) + ": cannot remove unpack_dir / verifiedrar_dir")
@@ -448,6 +454,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) != -4:
         try:
             shutil.rmtree(main_dir)
+            logger.debug(whoami() + ": removed " + main_dir)
         except Exception as e:
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
             logger.warning(whoami() + str(e) + ": cannot remove incomplete_dir!")

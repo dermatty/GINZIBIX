@@ -117,9 +117,6 @@ def decompose_nzb(nzb, logger):
                 else:
                     # account for articles spread over multiple "files" in nzb
                     nr_add = 0
-                    print(hn)
-                    print(filedic[hn])
-                    print("-" * 80)
                     for fn_new, nr_new, bc_new in filelist:
                         is_double = False
                         for j, old_f0 in enumerate(filedic[hn]):
