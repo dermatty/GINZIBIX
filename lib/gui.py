@@ -38,7 +38,8 @@ GLADEFILE = "lib/ginzibix.glade"
 GIBDIVISOR = (1024 * 1024 * 1024)
 CLOSEALL_TIMEOUT = 8
 MAX_NZB_LEN = 50
-MAX_MSG_LEN = 120
+MAX_MSG_LEN = 60
+MAX_INT_LEN = 16
 
 MENU_XML = """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -308,18 +309,18 @@ class ApplicationGui(Gtk.Application):
 
         renderer_log4 = Gtk.CellRendererText()
         column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
-        column_log4.set_min_width(80)
+        #column_log4.set_min_width(80)
         self.treeview_loglist.append_column(column_log4)
 
         renderer_log3 = Gtk.CellRendererText()
         column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
-        column_log3.set_min_width(80)
+        #column_log3.set_min_width(80)
         self.treeview_loglist.append_column(column_log3)
 
-        renderer_log2 = Gtk.CellRendererText()
+        renderer_log2 = Gtk.CellRendererText(width_chars=MAX_MSG_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
         column_log2.set_expand(True)
-        column_log2.set_min_width(520)
+        #column_log2.set_min_width(520)
         self.treeview_loglist.append_column(column_log2)
 
         self.obj("scrolled_window_logs").add(self.treeview_loglist)
@@ -329,24 +330,25 @@ class ApplicationGui(Gtk.Application):
         self.historylogs_liststore = Gtk.ListStore(str, str, str, str, str, str)
         self.treeview_historyloglist = Gtk.TreeView(model=self.historylogs_liststore)
 
-        renderer_log0 = Gtk.CellRendererText()
+        renderer_log0 = Gtk.CellRendererText(width_chars=MAX_NZB_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_log0 = Gtk.TreeViewColumn("NZB Name", renderer_log0, text=5, background=3, foreground=4)
+        column_log0.set_expand(True)
         self.treeview_historyloglist.append_column(column_log0)
 
         renderer_log4 = Gtk.CellRendererText()
         column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
-        column_log4.set_min_width(80)
+        #column_log4.set_min_width(80)
         self.treeview_historyloglist.append_column(column_log4)
 
         renderer_log3 = Gtk.CellRendererText()
         column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
-        column_log3.set_min_width(80)
+        #column_log3.set_min_width(80)
         self.treeview_historyloglist.append_column(column_log3)
 
-        renderer_log2 = Gtk.CellRendererText()
+        renderer_log2 = Gtk.CellRendererText(width_chars=MAX_MSG_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
         column_log2.set_expand(True)
-        column_log2.set_min_width(520)
+        #column_log2.set_min_width(520)
         self.treeview_historyloglist.append_column(column_log2)
 
         self.obj("scrolled_window_nzbhistorylogs").add(self.treeview_historyloglist)
@@ -366,22 +368,22 @@ class ApplicationGui(Gtk.Application):
         historyrenderer_toggle.connect("toggled", self.on_inverted_toggled_nzbhistory)
         self.treeview_history.append_column(historycolumn_toggle)
         # 1st column: NZB name
-        historyrenderer_text0 = Gtk.CellRendererText()
+        historyrenderer_text0 = Gtk.CellRendererText(width_chars=MAX_NZB_LEN, ellipsize=Pango.EllipsizeMode.END)
         historycolumn_text0 = Gtk.TreeViewColumn("NZB name", historyrenderer_text0, text=1)
         historycolumn_text0.set_expand(True)
-        historycolumn_text0.set_min_width(320)
+        # historycolumn_text0.set_min_width(320)
         self.treeview_history.append_column(historycolumn_text0)
         # 2nd column status
         historyrenderer_text1 = Gtk.CellRendererText()
         historycolumn_text1 = Gtk.TreeViewColumn("Status", historyrenderer_text1, text=2, background=6)
-        historycolumn_text1.set_min_width(80)
+        # historycolumn_text1.set_min_width(80)
         self.treeview_history.append_column(historycolumn_text1)
         # 4th overall GiB
         historyrenderer_text2 = Gtk.CellRendererText()
         historycolumn_text2 = Gtk.TreeViewColumn("Size", historyrenderer_text2, text=3)
         historycolumn_text2.set_cell_data_func(historyrenderer_text2, lambda col, cell, model, iter, unused:
                                                cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
-        historycolumn_text2.set_min_width(80)
+        # historycolumn_text2.set_min_width(80)
         self.treeview_history.append_column(historycolumn_text2)
         # 5th downloaded in %
         historyrenderer_text3 = Gtk.CellRendererText()
@@ -407,10 +409,10 @@ class ApplicationGui(Gtk.Application):
         renderer_toggle.connect("toggled", self.on_inverted_toggled)
         self.treeview_nzblist.append_column(column_toggle)
         # 1st column: NZB name
-        renderer_text0 = Gtk.CellRendererText()
+        renderer_text0 = Gtk.CellRendererText(width_chars=MAX_NZB_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
         column_text0.set_expand(True)
-        column_text0.set_min_width(320)
+        # column_text0.set_min_width(320)
         self.treeview_nzblist.append_column(column_text0)
         # 2nd: progressbar
         renderer_progress = Gtk.CellRendererProgress()
@@ -419,27 +421,27 @@ class ApplicationGui(Gtk.Application):
         column_progress.set_expand(True)
         self.treeview_nzblist.append_column(column_progress)
         # 3rd downloaded GiN
-        renderer_text1 = Gtk.CellRendererText()
+        renderer_text1 = Gtk.CellRendererText(width_chars=MAX_INT_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_text1 = Gtk.TreeViewColumn("Downloaded", renderer_text1, text=2)
         column_text1.set_cell_data_func(renderer_text1, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 2)[0]) + " GiB"))
         self.treeview_nzblist.append_column(column_text1)
         # 4th overall GiB
-        renderer_text2 = Gtk.CellRendererText()
+        renderer_text2 = Gtk.CellRendererText(width_chars=MAX_INT_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_text2 = Gtk.TreeViewColumn("Overall", renderer_text2, text=3)
         column_text2.set_cell_data_func(renderer_text2, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
-        column_text2.set_min_width(80)
+        # column_text2.set_min_width(80)
         self.treeview_nzblist.append_column(column_text2)
         # 5th Eta
-        renderer_text3 = Gtk.CellRendererText()
+        renderer_text3 = Gtk.CellRendererText(width_chars=MAX_INT_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_text3 = Gtk.TreeViewColumn("Eta", renderer_text3, text=4)
-        column_text3.set_min_width(80)
+        # column_text3.set_min_width(80)
         self.treeview_nzblist.append_column(column_text3)
         # 7th status
         renderer_text7 = Gtk.CellRendererText()
         column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
-        column_text7.set_min_width(80)
+        # column_text7.set_min_width(80)
         self.treeview_nzblist.append_column(column_text7)
         self.obj("scrolled_window_nzblist").add(self.treeview_nzblist)
 
@@ -864,7 +866,7 @@ class ApplicationGui(Gtk.Application):
         for msg0, ts0, level0 in loglist:
             log_as_list = []
             # msg, level, tt, bg, fg
-            log_as_list.append(get_cut_msg(msg0, MAX_MSG_LEN))
+            log_as_list.append(msg0)
             log_as_list.append(level0)
             if level0 == 0:
                 log_as_list.append("")
@@ -904,7 +906,7 @@ class ApplicationGui(Gtk.Application):
         self.nzbhistory_liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs_history):
             nzb_as_list = list(nzb)
-            nzb_as_list[1] = get_cut_nzbname(nzb_as_list[1], MAX_NZB_LEN)
+            nzb_as_list[1] = nzb_as_list[1]
             nzb_as_list[2], nzb_as_list[-1] = get_status_name_and_color(nzb[2])
             self.nzbhistory_liststore.append(nzb_as_list)
 
@@ -924,7 +926,7 @@ class ApplicationGui(Gtk.Application):
             for msg0, ts0, level0 in loglist:
                 log_as_list = []
                 # msg, level, tt, bg, fg, nzbname
-                log_as_list.append(get_cut_msg(msg0, MAX_MSG_LEN))
+                log_as_list.append(msg0)
                 log_as_list.append(level0)
                 if level0 == 0:
                     log_as_list.append("")
@@ -984,7 +986,7 @@ class ApplicationGui(Gtk.Application):
         self.nzblist_liststore.clear()
         for i, nzb in enumerate(self.appdata.nzbs):
             nzb_as_list = list(nzb)
-            nzb_as_list[0] = get_cut_nzbname(nzb_as_list[0], MAX_NZB_LEN)
+            nzb_as_list[0] = nzb_as_list[0]
             n_status = nzb_as_list[7]
             if n_status == 0:
                 n_status_s = "preprocessing"

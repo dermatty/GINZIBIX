@@ -215,6 +215,9 @@ class PWDB():
             return func(self, *args, **kwargs)
         return wrapper
 
+    def get_db_timestamp(self):
+        return self.db_timestamp
+
     def do_loop(self):
         self.wrapper_socket.setsockopt(zmq.RCVTIMEO, 1000)
         while not TERMINATED:
@@ -265,6 +268,7 @@ class PWDB():
             pass
 
     # ---- self.MSG --------
+    @set_db_timestamp
     def db_msg_insert(self, nzbname0, msg0, level0, maxitems=5000):
         try:
             new_msg = self.MSG.create(nzbname=nzbname0, timestamp=time.time(), message=msg0, level=level0)
@@ -303,6 +307,7 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return None
 
+    @set_db_timestamp
     def db_msg_removeall(self, nzbname0):
         try:
             query = self.MSG.delete().where(self.MSG.nzbname == nzbname0)
@@ -422,6 +427,7 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return False
 
+    @set_db_timestamp
     def db_nzb_update_loadpar2vols(self, name0, lp2):
         query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
         query.execute()
@@ -486,6 +492,7 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return [], []
 
+    @set_db_timestamp
     def db_nzb_set_password(self, nzbname, pw):
         query = self.NZB.update(password=pw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
         query.execute()
@@ -873,10 +880,12 @@ class PWDB():
         self.SQLITE_MAX_VARIABLE_NUMBER = chunksize
 
     # ---- self.DB --------
+    @set_db_timestamp
     def db_close(self):
         self.db_file.close()
         self.db.close()
 
+    @set_db_timestamp
     def db_drop(self):
         self.db.drop_tables(self.tablelist)
 
@@ -940,6 +949,7 @@ class PWDB():
         return first_has_changed, moved_nzbs
 
     # ---- set prio of nzb to second in list, nzb must not be in state [1 .. 3] yet! ----
+    @set_db_timestamp
     def nzb_prio_insert_second(self, nzbname, newstatus):
         try:
             old_nzb_list = [n.name for n in self.NZB.select().where(self.NZB.status.between(1, 3)).order_by(self.NZB.priority)]
@@ -1050,7 +1060,8 @@ class PWDB():
                 file_already_exists = True
                 break
         return dir0 + file0.orig_name, file_already_exists
-
+    
+    @set_db_timestamp
     def nzb_reset(self, nzbname, incompletedir, nzbdir):
         # delete nzb + files + articles in db
         self.db_nzb_delete(nzbname)
@@ -1080,6 +1091,7 @@ class PWDB():
             return 0
         return sum([self.db_file_get_downloadedsize(f) for f in files]) / gbdivisor
 
+    @set_db_timestamp
     def create_allfile_list_via_name(self, nzbname, dir0):
         try:
             nzb = self.NZB.get(self.NZB.name == nzbname)
@@ -1088,6 +1100,7 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return None, None
 
+    @set_db_timestamp
     def create_allfile_list(self, nzb, dir0):
         nzbname = nzb.name
         gbdivisor = (1024 * 1024 * 1024)
@@ -1302,7 +1315,7 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
     pwwt.do_loop()
 
     try:
-        pwwt.db.backup(pwwt.db_file)
+        # pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:

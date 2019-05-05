@@ -31,10 +31,11 @@ CONNECTIONS_AS_MP = False
 # Handles download of a NZB file
 class Downloader(Thread):
     def __init__(self, cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
-                 renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger):
+                 renamer_result_queue, mp_events, nzbname, mp_loggerqueue, filewrite_lock, logger):
         Thread.__init__(self)
         self.daemon = True
         self.lock = threading.Lock()
+        self.filewrite_lock = filewrite_lock
         self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.p2 = (None, ) * 5
         self.mp_loggerqueue = mp_loggerqueue
         self.nzbname = nzbname
@@ -187,6 +188,7 @@ class Downloader(Thread):
         infolist = infolist0
         bytescount0 = bytescount0_0
         article_count = 0
+        entire_artqueue = []
         for f in ftypes:
             for j, file_articles in enumerate(reversed(filelist)):
                 # iterate over all articles in file
@@ -200,6 +202,9 @@ class Downloader(Thread):
                 if filetype == f and filestatus in [0, 1]:
                     level_servers = self.get_level_servers(age)
                     files[filename] = (nr_articles, age, filetype, False, True)
+                    #if filename.endswith("part076.rar"):
+                    #    print(nr_articles, len(file_articles))
+                    #    print(file_articles)
                     try:
                         infolist[filename]
                     except Exception:
@@ -216,12 +221,14 @@ class Downloader(Thread):
                         if not art_downloaded:
                             bytescount0 += art_bytescount
                             if CONNECTIONS_AS_MP:
-                                do_mpconnections(self.pipes, "push_articlequeue", (filename, age, filetype, nr_articles,
-                                                                                   art_nr, art_name, level_servers))
+                                entire_artqueue.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                                                        level_servers))
                             else:
                                 self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name,
                                                           level_servers))
                         article_count += 1
+        if entire_artqueue:
+            do_mpconnections(self.pipes, "push_entire_articlequeue", entire_artqueue)
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return files, infolist, bytescount0, article_count
 
@@ -244,10 +251,20 @@ class Downloader(Thread):
         failed = 0
         # articles_processed = 0
         updatedlist = []
+        if CONNECTIONS_AS_MP:
+            resultlist = do_mpconnections(self.pipes, "pull_entire_resultqueue", None)
+            ri = 0
+            len_resultlist = 0
+            if resultlist:
+                len_resultlist = len(resultlist)
         while True:
             try:
                 if CONNECTIONS_AS_MP:
-                    resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
+                    if ri >= len_resultlist:
+                        break
+                    # resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None) 
+                    resultarticle = resultlist[ri]
+                    ri += 1
                     if not resultarticle:
                         break
                     try:
@@ -279,7 +296,8 @@ class Downloader(Thread):
                 self.allbytesdownloaded0 += bytesdownloaded
                 # check if file is completed and put to mp_queue/decode in case
                 (f_nr_articles, f_age, f_filetype, f_done, f_failed) = files[filename]
-                if not f_done and len([inf for inf in infolist[filename] if inf]) == f_nr_articles:
+                len_articles_done = len([inf for inf in infolist[filename] if inf])
+                if not f_done and len_articles_done == f_nr_articles:
                     failed0 = False
                     if b"name=ginzi.txt" in infolist[filename][0][0]:
                         failed0 = True
@@ -497,7 +515,7 @@ class Downloader(Thread):
 
             # start decoder mpp
             self.logger.debug(whoami() + "starting decoder process ...")
-            self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, ))
+            self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, self.filewrite_lock, ))
             self.mpp_decoder.start()
             self.mpp["decoder"] = self.mpp_decoder
 
@@ -567,7 +585,7 @@ class Downloader(Thread):
                 self.mpp["unrarer"] = self.mpp_unrarer
             if self.mpp["decoder"] and not mpp_is_alive(self.mpp, "decoder"):
                 self.logger.debug(whoami() + "restarting decoder process ...")
-                self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, ))
+                self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, self.filewrite_lock, ))
                 self.mpp_decoder.start()
                 self.mpp["decoder"] = self.mpp_decoder
             # verifier is checked anyway below

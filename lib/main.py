@@ -341,7 +341,9 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     mp_work_queue = mp.Queue()
     renamer_result_queue = mp.Queue()
 
+    # filewrite_lock = mp.Lock()
     mpconnector_lock = threading.Lock()
+    filewrite_lock = mp.Lock()
 
     renamer_parent_pipe, renamer_child_pipe = mp.Pipe()
     unrarer_parent_pipe, unrarer_child_pipe = mp.Pipe()
@@ -396,7 +398,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     # start renamer
     logger.info(whoami() + "starting renamer process ...")
-    mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, mp_loggerqueue, ))
+    mpp_renamer = mp.Process(target=renamer, args=(renamer_child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock, ))
     mpp_renamer.start()
     mpp["renamer"] = mpp_renamer
 
@@ -688,7 +690,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         do_mpconnections(pipes, "reset_timestamps_bdl", None)
                     logger.info(whoami() + "got next NZB: " + str(nzbname))
                     dl = Downloader(cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
-                                    renamer_result_queue, mp_events, nzbname, mp_loggerqueue, logger)
+                                    renamer_result_queue, mp_events, nzbname, mp_loggerqueue, filewrite_lock, logger)
                     # if status postprocessing, don't start threads!
                     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) in [0, 1, 2]:
                         if not paused:

@@ -25,29 +25,31 @@ class SigHandler_Renamer:
         # sys.exit()
 
 
-def get_not_yet_renamed_files(source_dir):
+def get_not_yet_renamed_files(source_dir, filewrite_lock):
     nrf = []
-    for fn in glob.glob(source_dir + "*"):
-        fn0 = fn.split("/")[-1]
-        if not fn0.endswith(".renamed"):
-            nrf.append((fn0, calc_file_md5hash_16k(fn0)))
+    with filewrite_lock:
+        for fn in glob.glob(source_dir + "*"):
+            fn0 = fn.split("/")[-1]
+            if not fn0.endswith(".renamed"):
+                nrf.append((fn0, calc_file_md5hash_16k(fn0)))
     return nrf
 
 
-def scan_renamed_dir(renamed_dir, p2obj, logger):
+def scan_renamed_dir(renamed_dir, p2obj, filewrite_lock, logger):
     # get all files in renamed
-    rn = []
-    p2obj0 = p2obj
-    p2basename0 = None
-    for fn in glob.glob(renamed_dir + "*"):
-        fn0 = fn.split("/")[-1]
-        if not p2obj0:
-            ptype0 = check_for_par_filetype(fn)
-            if ptype0 == 1:
-                p2obj0 = Par2File(fn)
-                p2basename0 = fn.split(".par2")[0]
-                logger.debug(whoami() + "Found .par2 in _renamed0: " + fn0)
-        rn.append(fn0)
+    with filewrite_lock:
+        rn = []
+        p2obj0 = p2obj
+        p2basename0 = None
+        for fn in glob.glob(renamed_dir + "*"):
+            fn0 = fn.split("/")[-1]
+            if not p2obj0:
+                ptype0 = check_for_par_filetype(fn)
+                if ptype0 == 1:
+                    p2obj0 = Par2File(fn)
+                    p2basename0 = fn.split(".par2")[0]
+                    logger.debug(whoami() + "Found .par2 in _renamed0: " + fn0)
+            rn.append(fn0)
     return rn, p2obj0, p2basename0
 
 
@@ -64,7 +66,7 @@ def scan_for_par2(notrenamedfiles, logger):
     return p2obj0, p2basename0
 
 
-def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, renamer_result_queue):
+def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, renamer_result_queue, filewrite_lock):
     # search for not yet renamed par2/vol files
     p2obj0 = p2obj
     p2basename0 = p2basename
@@ -86,14 +88,16 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
             # oldft = pwdb.db_file_get_orig_filetype(pname)
             oldft = pwdb.exc("db_file_get_orig_filetype", [pname], {})
             if ptype == "par2":
-                shutil.copyfile(source_dir + pname, dest_dir + pname)
+                with filewrite_lock:
+                    shutil.copyfile(source_dir + pname, dest_dir + pname)
                 pwdb.exc("db_file_set_renamed_name", [pname, pname], {})
                 # pwdb.db_file_set_renamed_name(pname, pname)
                 # pwdb.db_file_set_file_type(pname, "par2")
                 pwdb.exc("db_file_set_file_type", [pname, "par2"], {})
                 renamer_result_queue.put((pname, dest_dir + pname, "par2", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
-                os.remove(source_dir + pname)
+                with filewrite_lock:
+                    os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
             elif ptype == "par2vol" and p2basename0:
                 # todo: if not p2basename ??
@@ -101,19 +105,22 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
                 volpart2 = randint(1, 99)
                 pname2 = p2basename0 + ".vol" + str(volpart1).zfill(3) + "+" + str(volpart2).zfill(3) + ".PAR2"
                 # shutil.copyfile(source_dir + pname, dest_dir + p2basename0 + pname2)
-                shutil.copyfile(source_dir + pname, dest_dir + pname2)
+                with filewrite_lock:
+                    shutil.copyfile(source_dir + pname, dest_dir + pname2)
                 # pwdb.db_file_set_renamed_name(pname, pname2)
                 pwdb.exc("db_file_set_renamed_name", [pname, pname2], {})
                 # pwdb.db_file_set_file_type(pname, "par2vol")
                 pwdb.exc("db_file_set_file_type", [pname, "par2vol"], {})
                 renamer_result_queue.put((pname2, dest_dir + pname2, "par2vol", pname, oldft))
                 # os.rename(source_dir + pname, source_dir + pname + ".renamed")
-                os.remove(source_dir + pname)
+                with filewrite_lock:
+                    os.remove(source_dir + pname)
                 notrenamedfiles.remove(pp)
     return p2obj0, p2basename0
 
 
-def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue, logger):
+def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue, filewrite_lock,
+                                         logger):
     if p2obj:
         rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
         notrenamedfiles0 = notrenamedfiles[:]
@@ -124,11 +131,12 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                 r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
                 if not r_name:
                     continue
-                # logger.debug(whoami() + ">>>>>" + r_name + ">>>>>" + a_name)
                 if r_name != a_name:
-                    shutil.copyfile(source_dir + a_name, dest_dir + r_name)
+                    with filewrite_lock:
+                        shutil.copyfile(source_dir + a_name, dest_dir + r_name)
                 else:
-                    shutil.copyfile(source_dir + a_name, dest_dir + a_name)
+                    with filewrite_lock:
+                        shutil.copyfile(source_dir + a_name, dest_dir + a_name)
                     r_name = a_name
                 # oldft = pwdb.db_file_get_orig_filetype(a_name)
                 oldft = pwdb.exc("db_file_get_orig_filetype", [a_name], {})
@@ -137,14 +145,16 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
                 pwdb.exc("db_file_set_file_type", [a_name, "rar"], {})
                 renamer_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
                 # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
-                os.remove(source_dir + a_name)
+                with filewrite_lock:
+                    os.remove(source_dir + a_name)
                 notrenamedfiles.remove(pp)
             except IndexError:
                 pass
             except Exception as e:
                 logger.warning(whoami() + str(e))
     for a_name, a_md5 in notrenamedfiles:
-        shutil.copyfile(source_dir + a_name, dest_dir + a_name)
+        with filewrite_lock:
+            shutil.copyfile(source_dir + a_name, dest_dir + a_name)
         ft = get_file_type(a_name)
         # pwdb.db_file_set_renamed_name(a_name, a_name)
         pwdb.exc("db_file_set_renamed_name", [a_name, a_name], {})
@@ -152,28 +162,30 @@ def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, des
         pwdb.exc("db_file_set_file_type", [a_name, ft], {})
         renamer_result_queue.put((a_name, dest_dir + a_name, ft, a_name, ft))
         # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
-        os.remove(source_dir + a_name)
+        with filewrite_lock:
+            os.remove(source_dir + a_name)
 
 
-def get_inotify_events(inotify):
+def get_inotify_events(inotify, filewrite_lock):
     events = []
-    for event in inotify.read(timeout=0.3):
-        is_created_file = False
-        str0 = event.name
-        flgs0 = []
-        for flg in inotify_simple.flags.from_mask(event.mask):
-            if "flags.CREATE" in str(flg) and "flags.ISDIR" not in str(flg):
-                flgs0.append(str(flg))
-                is_created_file = True
-        if not is_created_file:
-            continue
-        else:
-            events.append((str0, flgs0))
+    with filewrite_lock:
+        for event in inotify.read(timeout=0.3):
+            is_created_file = False
+            str0 = event.name
+            flgs0 = []
+            for flg in inotify_simple.flags.from_mask(event.mask):
+                if "flags.CREATE" in str(flg) and "flags.ISDIR" not in str(flg):
+                    flgs0.append(str(flg))
+                    is_created_file = True
+            if not is_created_file:
+                continue
+            else:
+                events.append((str0, flgs0))
     return events
 
 
 # renamer with inotify
-def renamer(child_pipe, renamer_result_queue, mp_loggerqueue):
+def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
     setproctitle("gzbx." + os.path.basename(__file__))
 
     logger = setup_logger(mp_loggerqueue, __file__)
@@ -227,15 +239,15 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue):
         isfirstrun = True
 
         while not TERMINATED:
-            events = get_inotify_events(inotify)
+            events = get_inotify_events(inotify, filewrite_lock)
             if isfirstrun or events:  # and events not in eventslist):
                 logger.debug(whoami() + "Events: " + str(events))
                 # get all files not yet .renamed
                 logger.debug(whoami() + "reading not yet downloaded files in _downloaded0")
-                notrenamedfiles = get_not_yet_renamed_files(source_dir)
+                notrenamedfiles = get_not_yet_renamed_files(source_dir, filewrite_lock)
                 # get all renames filed & trying to get .par2 file
                 logger.debug(whoami() + "Reading files in _renamed0 & trying to get .par2 file")
-                renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj, logger)
+                renamedfiles, p2obj, p2basename = scan_renamed_dir(dest_dir, p2obj, filewrite_lock, logger)
                 # if no par2 in _renamed, check _downloaded0
                 if not p2obj:
                     logger.debug(whoami() + "No p2obj yet found, looking in _downloaded0")
@@ -243,9 +255,11 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue):
                     if p2obj:
                         logger.debug(whoami() + "p2obj found: " + p2basename)
                 # rename par2 and move them
-                p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb, renamer_result_queue)
+                p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb,
+                                                         renamer_result_queue, filewrite_lock)
                 # rename & move rar + remaining files
-                rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue, logger)
+                rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue,
+                                                     filewrite_lock, logger)
                 isfirstrun = False
             if child_pipe.poll():
                 command, _, _ = child_pipe.recv()

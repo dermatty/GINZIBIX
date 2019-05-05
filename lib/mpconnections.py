@@ -412,7 +412,8 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     cmdlist = ("start", "stop", "pause", "resume", "reset_timestamps", "reset_timestamps_bdl",
                "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_server_config",
                "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers", "clear_articlequeue",
-               "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue")
+               "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue",
+               "push_entire_articlequeue", "pull_entire_resultqueue")
 
     while not TERMINATED:
 
@@ -426,6 +427,19 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
             if cmd == "push_articlequeue":
                 try:
                     thr_articlequeue.append(param)
+                except Exception:
+                    result = None
+            elif cmd == "push_entire_articlequeue":
+                try:
+                    for article0 in param:
+                        thr_articlequeue.append(article0)
+                except Exception:
+                    result = None
+            elif cmd == "pull_entire_resultqueue":
+                result = []
+                try:
+                    while thr_resultqueue:
+                        result.append(thr_resultqueue.popleft())
                 except Exception:
                     result = None
             elif cmd == "pull_resultqueue":

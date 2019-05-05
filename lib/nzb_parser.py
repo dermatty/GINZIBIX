@@ -53,6 +53,7 @@ def decompose_nzb(nzb, logger):
     nzbroot = tree.getroot()
     filedic = {}
     bytescount0 = 0
+    hnlist = []
     for r in nzbroot:
         headers = r.attrib
         try:
@@ -81,7 +82,7 @@ def decompose_nzb(nzb, logger):
                         try:
                             hn = gg.group()
                             break
-                        except Exception as e:
+                        except Exception:
                             pass
                     if not hn:
                         hn = subjectyenc[0]
@@ -95,7 +96,8 @@ def decompose_nzb(nzb, logger):
             filelist = []
             segfound = True
             filelist_numbers = []
-            for i, r0 in enumerate(s):
+            i = 0
+            for r0 in s:
                 if r0.tag[-5:] == "group":
                     segfound = False
                     continue
@@ -104,12 +106,36 @@ def decompose_nzb(nzb, logger):
                 bytescount = int(r0.attrib["bytes"])
                 if int(nr0) not in filelist_numbers:
                     bytescount0 += bytescount
-                filelist_numbers.append(int(nr0))
-                filelist.append((filename, int(nr0), bytescount))
-            i += 1
+                    filelist_numbers.append(int(nr0))
+                    filelist.append((filename, int(nr0), bytescount))
+                    i += 1
             if segfound:
-                filelist.insert(0, (age, i))
-                filedic[hn] = filelist
+                if hn not in hnlist:
+                    filelist.insert(0, (age, i))
+                    filedic[hn] = filelist
+                    hnlist.append(hn)
+                else:
+                    # account for articles spread over multiple "files" in nzb
+                    nr_add = 0
+                    print(hn)
+                    print(filedic[hn])
+                    print("-" * 80)
+                    for fn_new, nr_new, bc_new in filelist:
+                        is_double = False
+                        for j, old_f0 in enumerate(filedic[hn]):
+                            if j == 0:
+                                continue
+                            fn1, nr1, bc1 = old_f0
+                            if nr1 == nr_new:
+                                is_double = True
+                                break
+                        if not is_double:
+                            filedic[hn].append((fn_new, nr_new, bc_new))
+                            nr_add += 1
+                    if nr_add > 0:
+                        age_old, i_old = filedic[hn][0]
+                        filedic[hn][0] = (age_old, i_old + nr_add)
+                    
     filedic_new = {}
     # sort to avoid random downloading
     if filedic:
@@ -178,6 +204,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                     # update size
                     # rename nzb here to ....processed
                     filedic, bytescount = decompose_nzb(nzb, logger)
+                    
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
                         pwdb.exc("db_nzb_update_status", [nzb0, -1], {})   # status "cannot queue / -1"

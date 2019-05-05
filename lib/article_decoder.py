@@ -34,7 +34,7 @@ class SigHandler_Decoder:
         TERMINATED = True
 
 
-def decode_articles(mp_work_queue0, mp_loggerqueue):
+def decode_articles(mp_work_queue0, mp_loggerqueue, filewrite_lock):
     setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.info(whoami() + "starting article decoder process")
@@ -96,12 +96,13 @@ def decode_articles(mp_work_queue0, mp_loggerqueue):
             i += 1
         logger.debug(whoami() + "decoding for " + filename + ": success!")
         try:
-            if not os.path.isdir(save_dir):
-                os.makedirs(save_dir)
-            with open(full_filename, "wb") as f0:
-                f0.write(bytesfinal)
-                f0.flush()
-                f0.close()
+            with filewrite_lock:
+                if not os.path.isdir(save_dir):
+                    os.makedirs(save_dir)
+                with open(full_filename, "wb") as f0:
+                    f0.write(bytesfinal)
+                    f0.flush()
+                    f0.close()
         except Exception as e:
             statusmsg = "file_error"
             logger.error(whoami() + str(e) + " in file " + filename)
