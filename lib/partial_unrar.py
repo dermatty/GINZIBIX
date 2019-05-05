@@ -94,6 +94,7 @@ def process_next_unrar_child_pass(event_idle, child, logger):
 
 
 def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, event_idle, cfg):
+
     setproctitle("gzbx." + os.path.basename(__file__))
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")

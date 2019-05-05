@@ -202,9 +202,6 @@ class Downloader(Thread):
                 if filetype == f and filestatus in [0, 1]:
                     level_servers = self.get_level_servers(age)
                     files[filename] = (nr_articles, age, filetype, False, True)
-                    #if filename.endswith("part076.rar"):
-                    #    print(nr_articles, len(file_articles))
-                    #    print(file_articles)
                     try:
                         infolist[filename]
                     except Exception:
@@ -416,6 +413,9 @@ class Downloader(Thread):
             fn = self.dirs["incomplete"] + nzbdir + "infl_" + nzbname + ".gzbx"
             with open(fn, "rb") as fp:
                 infolist = pickle.load(fp)
+            self.allbytesdownloaded0 = int(self.already_downloaded_size * (1024 * 1024 * 1024))
+            # force recheck of password in order to restart unrarer
+            self.pwdb.exc("db_nzb_set_ispw_checked", [nzbname, False], {})
         except Exception as e:
             self.logger.warning(whoami() + str(e) + ": cannot load infolist from file")
             infolist = {}
@@ -545,8 +545,6 @@ class Downloader(Thread):
         article_failed = 0
 
         while self.stopped_counter < stopped_max_counter:
-
-            # print(time.time(), "#1")
 
             # if terminated: ensure that all tasks are processed
             if self.event_stopped.wait(0.25):

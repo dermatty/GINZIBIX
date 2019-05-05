@@ -1,5 +1,3 @@
-copy files in postprocessor takes so long!!!!!
-
 if apply in news-server -> download of current nzb is stuck (already exists in db!)
 make gui.py integrate pwdb -> avoid overhead when using main.py for getting data from pwdb
 test wenn server connection error!

@@ -36,16 +36,25 @@ class SigHandler_Ginzibix:
             if self.mpp_main.pid:
                 try:
                     # os.kill(self.mpp_main.pid, signal.SIGTERM)
-                    self.mpp_main.join()
+                    self.mpp_main.join(timeout=5)
+                    os.kill(self.mpp_main.pid, signal.SIGTERM)
                 except Exception as e:
                     logger.warning(lib.whoami() + str(e))
         self.pwdb.exc("set_exit_goodbye_from_main", [], {})
-        self.mpp_wrapper.join()
+        try:
+            self.mpp_wrapper.join(timeout=5)
+            os.kill(self.mpp_wrapper.pid, signal.SIGTERM)
+        except Exception as e:
+            logger.warning(lib.whoami() + str(e))
         lib.stop_logging_listener(self.mp_loggerqueue, self.mp_loglistener)
+        try:
+            self.mp_loglistener.join(timeout=5)
+            os.kill(self.mp_loglistener.pid, signal.SIGTERM)
+        except Exception as e:
+            logger.warning(lib.whoami() + str(e))
 
 
 # -------------------- main --------------------
-
 if __name__ == '__main__':
     setproctitle("gzbx." + os.path.basename(__file__))
 
@@ -118,5 +127,4 @@ if __name__ == '__main__':
         sh.shutdown()
 
     sys.exit()
-
 

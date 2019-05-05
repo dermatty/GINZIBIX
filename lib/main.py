@@ -755,7 +755,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         do_mpconnections(pipes, "pause", None)
                     else:
                         ct.pause_threads()
-                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, logger, stopall=False)
+                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
                     dl.stop()
                     dl.join()
                     if mpp_is_alive(mpp, "post"):

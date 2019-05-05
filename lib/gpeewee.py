@@ -52,8 +52,9 @@ class PWDB():
             self.db_file_exists = True
         else:
             self.db_file_exists = False
-        self.db_timestamp = datetime.datetime.now()
+
         self.old_ts_makeallfilelist = datetime.datetime.now()
+        self.db_timestamp = datetime.datetime.now()
 
         try:
             self.db_file = CSqliteExtDatabase(self.db_file_name)
@@ -1315,7 +1316,7 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
     pwwt.do_loop()
 
     try:
-        # pwwt.db.backup(pwwt.db_file)
+        pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:
