@@ -1,5 +1,4 @@
-if apply in news-server -> download of current nzb is stuck (already exists in db!)
-make gui.py integrate pwdb -> avoid overhead when using main.py for getting data from pwdb
+test connection not working bulknews
 test wenn server connection error!
 
 ---------------------------------------------------------------------

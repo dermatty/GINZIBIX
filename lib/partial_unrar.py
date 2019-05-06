@@ -139,22 +139,13 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
         cmd = "unrar x -y -o+ -p" + password + " '" + directory + nextrarname + "' '" + unpack_dir + "'"
         logger.debug(whoami() + "rar archive is passworded, executing " + cmd)
         pwdb.exc("db_msg_insert", [nzbname, "unraring pw protected rar archive", "info"], {})
-    else:
-        cmd = "unrar x -y -o+ -vp '" + directory + nextrarname + "' '" + unpack_dir + "'"
-        logger.debug(whoami() + "rar archive is NOT passworded, executing " + cmd)
-        pwdb.exc("db_msg_insert", [nzbname, "unraring rar archive", "info"], {})
-
-    child = pexpect.spawn(cmd)
-    status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
-    while not TERMINATED:
-        oldnextrarname = nextrarname.split("/")[-1]
+        status = 1
+        child = pexpect.spawn(cmd)
         status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
         if status < 0:
             logger.info(whoami() + nextrarname + ": " + statmsg)
-            pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " failed!", "error"], {})
-            break
-        logger.info(whoami() + nextrarname + ": unrar success!")
-        if status == 0:
+            pwdb.exc("db_msg_insert", [nzbname, "unrar " + nextrarname + " failed!", "error"], {})
+        else:
             pwdb.exc("db_msg_insert", [nzbname, "checking for double packed rars", "info"], {})
             # check if double packed
             try:
@@ -172,56 +163,107 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
                 if status < 0:
                     logger.info(whoami() + "2nd pass: " + statmsg)
                     pwdb.exc("db_msg_insert", [nzbname, "unrar 2nd pass failed!", "error"], {})
-                    break
-                if status == 0:
+                elif status == 0:
                     statmsg = "All OK"
                     status = 0
                     pwdb.exc("db_msg_insert", [nzbname, "unrar success 2nd pass for all rar files!", "info"], {})
                     logger.info(whoami() + "unrar success 2nd pass for all rar files!")
                     logger.debug(whoami() + "deleting all rar files in unpack_dir")
                     delete_all_rar_files(unpack_dir, logger)
-                    break
-                if status == 1:
+                elif status == 1:
                     status = -3
                     statmsg = "unknown error"
                     logger.info(whoami() + "2nd pass: " + statmsg + " / " + str0)
                     pwdb.exc("db_msg_insert", [nzbname, "unrar 2nd pass failed!", "error"], {})
-                    break
             else:
                 statmsg = "All OK"
                 status = 0
                 pwdb.exc("db_msg_insert", [nzbname, "unrar success for all rar files!", "info"], {})
                 logger.info(whoami() + "unrar success for all rar files!")
+    else:
+        cmd = "unrar x -y -o+ -vp '" + directory + nextrarname + "' '" + unpack_dir + "'"
+        logger.debug(whoami() + "rar archive is NOT passworded, executing " + cmd)
+        pwdb.exc("db_msg_insert", [nzbname, "unraring rar archive", "info"], {})
+
+        child = pexpect.spawn(cmd)
+        status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
+        while not TERMINATED:
+            oldnextrarname = nextrarname.split("/")[-1]
+            status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
+            if status < 0:
+                logger.info(whoami() + nextrarname + ": " + statmsg)
+                pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " failed!", "error"], {})
                 break
-        try:
-            gg = re.search(r"Insert disk with ", str0, flags=re.IGNORECASE)
-            gend = gg.span()[1]
-            nextrarname = str0[gend:-19]
-        except Exception as e:
-            logger.warning(whoami() + str(e) + ", unknown error")
-            statmsg = "unknown error in re evalution"
-            status = -4
-            pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " failed!", "error"], {})
-            break
-        pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " success!", "info"], {})
-        logger.debug(whoami() + "Waiting for next rar: " + nextrarname)
-        gotnextrar = False
-        # todo: hier deadlock/unendliches Warten im Postprocess vermeiden, wenn rar nicht auftaucht!
-        event_idle.set()
-        while not gotnextrar and not TERMINATED:
-            time.sleep(1)
-            for f0 in glob.glob(directory + "*"):
-                if nextrarname == f0:
-                    try:
-                        gotnextrar = True
+            logger.info(whoami() + nextrarname + ": unrar success!")
+            if status == 0:
+                pwdb.exc("db_msg_insert", [nzbname, "checking for double packed rars", "info"], {})
+                # check if double packed
+                try:
+                    child.kill(signal.SIGKILL)
+                except Exception:
+                    pass
+                is_double_packed, fn = check_double_packed(unpack_dir)
+                if is_double_packed:
+                    pwdb.exc("db_msg_insert", [nzbname, "rars are double packed, starting unrar 2nd run", "warning"], {})
+                    cmd = "unrar x -y -o+ -vp '" + fn + "' '" + unpack_dir + "'"
+                    logger.debug(whoami() + "rars are double packed, executing " + cmd)
+                    # unrar without pausing! 
+                    child = pexpect.spawn(cmd)
+                    status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
+                    if status < 0:
+                        logger.info(whoami() + "2nd pass: " + statmsg)
+                        pwdb.exc("db_msg_insert", [nzbname, "unrar 2nd pass failed!", "error"], {})
                         break
-                    except Exception as e:
-                        logger.warning(whoami() + str(e))
-        event_idle.clear()
-        if TERMINATED:
-            break
-        time.sleep(1)   # achtung hack!
-        child.sendline("C")
+                    if status == 0:
+                        statmsg = "All OK"
+                        status = 0
+                        pwdb.exc("db_msg_insert", [nzbname, "unrar success 2nd pass for all rar files!", "info"], {})
+                        logger.info(whoami() + "unrar success 2nd pass for all rar files!")
+                        logger.debug(whoami() + "deleting all rar files in unpack_dir")
+                        delete_all_rar_files(unpack_dir, logger)
+                        break
+                    if status == 1:
+                        status = -3
+                        statmsg = "unknown error"
+                        logger.info(whoami() + "2nd pass: " + statmsg + " / " + str0)
+                        pwdb.exc("db_msg_insert", [nzbname, "unrar 2nd pass failed!", "error"], {})
+                        break
+                else:
+                    statmsg = "All OK"
+                    status = 0
+                    pwdb.exc("db_msg_insert", [nzbname, "unrar success for all rar files!", "info"], {})
+                    logger.info(whoami() + "unrar success for all rar files!")
+                    break
+            try:
+                gg = re.search(r"Insert disk with ", str0, flags=re.IGNORECASE)
+                gend = gg.span()[1]
+                nextrarname = str0[gend:-19]
+            except Exception as e:
+                logger.warning(whoami() + str(e) + ", unknown error")
+                statmsg = "unknown error in re evalution"
+                status = -4
+                pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " failed!", "error"], {})
+                break
+            pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " success!", "info"], {})
+            logger.debug(whoami() + "Waiting for next rar: " + nextrarname)
+            gotnextrar = False
+            # todo: hier deadlock/unendliches Warten im Postprocess vermeiden, wenn rar nicht auftaucht!
+            event_idle.set()
+            while not gotnextrar and not TERMINATED:
+                time.sleep(1)
+                for f0 in glob.glob(directory + "*"):
+                    if nextrarname == f0:
+                        try:
+                            gotnextrar = True
+                            break
+                        except Exception as e:
+                            logger.warning(whoami() + str(e))
+            event_idle.clear()
+            if TERMINATED:
+                break
+            time.sleep(1)   # achtung hack!
+            child.sendline("C")
+
     try:
         child.kill(signal.SIGKILL)
     except Exception:

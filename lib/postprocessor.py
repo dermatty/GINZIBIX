@@ -309,6 +309,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                         break
                     else:
                         logger.debug(whoami() + "Unrarer not idle, waiting before terminating")
+                        stop_wait(nzbname, dirs, pwdb)
                         time.sleep(0.5)
                         continue
                 else:

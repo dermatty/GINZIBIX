@@ -803,6 +803,15 @@ class ApplicationGui(Gtk.Application):
         selected_list = [ro[1] for ro in self.nzbhistory_liststore if ro[0]]
         return selected_list
 
+    def unselect_selected_from_history_and_update(self, selected_nzbs):
+        for i, nzb in enumerate(self.appdata.nzbs_history):
+            nzb_as_list = list(nzb)
+            nzbname = nzb_as_list[1]
+            if nzbname in selected_nzbs:
+                _, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, n_col = self.appdata.nzbs_history[i]
+                self.appdata.nzbs_history[i] = (False, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, n_col)
+        self.update_nzbhistory_logstore()
+
     def on_inverted_toggled_nzbhistory(self, widget, path):
         with self.lock:
             self.nzbhistory_liststore[path][0] = not self.nzbhistory_liststore[path][0]
@@ -1623,6 +1632,7 @@ class Handler:
         with self.gui.lock:
             selected_nzbs = self.gui.get_selected_from_history()
             self.gui.set_historybuttons_insensitive()
+            self.gui.unselect_selected_from_history_and_update(selected_nzbs)
             self.gui.guiqueue.put(("reprocess_from_last", selected_nzbs))
 
     def on_button_hist_delete_clicked(self, button):
@@ -1634,6 +1644,7 @@ class Handler:
         with self.gui.lock:
             selected_nzbs = self.gui.get_selected_from_history()
             self.gui.set_historybuttons_insensitive()
+            self.gui.unselect_selected_from_history_and_update(selected_nzbs)
             self.gui.guiqueue.put(("deleted_from_history", selected_nzbs))
 
     # button: reprocess from start
@@ -1641,6 +1652,7 @@ class Handler:
         with self.gui.lock:
             selected_nzbs = self.gui.get_selected_from_history()
             self.gui.set_historybuttons_insensitive()
+            self.gui.unselect_selected_from_history_and_update(selected_nzbs)
             self.gui.guiqueue.put(("reprocess_from_start", selected_nzbs))
 
     def on_win_destroy(self, *args):
