@@ -317,7 +317,6 @@ class ConnectionThreads:
                     result[servername] = self.bdl_results[servername] + bdl
                 except Exception:
                     result[servername] = bdl
-        return result
 
     def start_threads(self):
         if not self.threads:
@@ -382,7 +381,7 @@ class ConnectionThreads:
     def reset_timestamps_bdl(self):
         if self.threads:
             for t, _ in self.threads:
-                t.bytesdownloaded = 0
+                # t.bytesdownloaded = 0
                 t.last_timestamp = 0
                 # t.bandwidth_bytes = 0
                 t.bandwidth_lasttt = 0

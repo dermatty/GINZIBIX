@@ -446,7 +446,7 @@ class ApplicationGui(Gtk.Application):
             "Download - hours": "dlh",
             "Download - days": "dld"}'''
         for a in self.annotations:
-                a.remove()
+            a.remove()
         self.annotations[:] = []
         for i, s0 in enumerate(self.appdata.active_servers):
             # for i, s in enumerate(self.appdata.server_ts_diff):
@@ -489,9 +489,9 @@ class ApplicationGui(Gtk.Application):
             lines0.set_ydata(ydata)
             ax0.relim()
             ax0.autoscale_view()
-            for i, j in zip(xdata, ydata):
-                self.annotations.append(ax0.annotate("%s" % j, xy=(i, j), xytext=(-1, 6), xycoords="data", textcoords="offset points",
-                                                     fontsize=8))
+            # only annotate last data point to the right
+            self.annotations.append(ax0.annotate("%s" % ydata[-1], xy=(xdata[-1], ydata[-1]), xytext=(6, -3), xycoords="data",
+                                                 textcoords="offset points", fontsize=10))
         self.servergraph_figure.canvas.draw()
         self.servergraph_figure.canvas.flush_events()
 
