@@ -142,9 +142,19 @@ def make_allfilelist_wait(pwdb, dirs, logger, timeout0):
 
 def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False, onlyarticlequeue=True):
     # 1. join & clear all queues
-    if dl:
+    if CONNECTIONS_AS_MP:
+        do_mpconnections(pipes, "clear_articlequeue", None)
+        if onlyarticlequeue:
+            logger.info(whoami() + "articlequeue cleared!")
+        else:
+            do_mpconnections(pipes, "clear_resultqueue", None)
+            logger.info(whoami() + "articlequeue & resultqueue cleared!")
+    elif dl:
         dl.clear_queues_and_pipes(onlyarticlequeue)
-        logger.info(whoami() + "articlequeue cleared!")
+        if onlyarticlequeue:
+            logger.info(whoami() + "articlequeue cleared!")
+        else:
+            logger.info(whoami() + "articlequeue & resultqueue cleared!")
     # 2. stop article_decoder
     try:
         if mpp_is_alive(mpp, "decoder"):
@@ -238,7 +248,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     if stopall and CONNECTIONS_AS_MP:
         try:
             if pipes["mpconnector"]:
-                logger.debug(whoami() + "exiting mpconnector")
+                logger.debug(whoami() + "starting shutdown of mpconnector")
                 do_mpconnections(pipes, "exit", None)
                 mpp["mpconnector"].join()
                 mpp["mpconnector"] = None
@@ -740,7 +750,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         ct.pause_threads()
                     else:
                         do_mpconnections(pipes, "pause", None)
-                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger,
+                                   stopall=False, onlyarticlequeue=False)
                     dl.stop()
                     dl.join()
                     # set 'flags' for getting next nzb
@@ -755,7 +766,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         do_mpconnections(pipes, "pause", None)
                     else:
                         ct.pause_threads()
-                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=False)
+                    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger,
+                                   stopall=False, onlyarticlequeue=False)
                     dl.stop()
                     dl.join()
                     if mpp_is_alive(mpp, "post"):
@@ -783,7 +795,11 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
         dl.stop()
         dl.join()
     logger.debug(whoami() + "closeall: downloader joined")
-    clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger, stopall=True, onlyarticlequeue=False)
+    try:
+        clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, dirs, pipes, mpp, ct, logger,
+                       stopall=True, onlyarticlequeue=False)
+    except Exception as e:
+        logger.error(whoami() + str(e) + ": closeall error!")
     dl = None
     logger.debug(whoami() + "closeall: closing gtkgui-socket")
     try:

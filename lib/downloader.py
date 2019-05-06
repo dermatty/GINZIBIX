@@ -253,7 +253,10 @@ class Downloader(Thread):
             ri = 0
             len_resultlist = 0
             if resultlist:
-                len_resultlist = len(resultlist)
+                try:
+                    len_resultlist = len(resultlist)
+                except Exception:
+                    pass
         while True:
             try:
                 if CONNECTIONS_AS_MP:
@@ -321,6 +324,7 @@ class Downloader(Thread):
         if onlyarticlequeue:
             return True
         if CONNECTIONS_AS_MP:
+            print("clear resultqueue")
             return do_mpconnections(self.pipes, "clear_resultqueue", None)
         else:
             self.resultqueue.clear()

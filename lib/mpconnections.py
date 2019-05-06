@@ -118,10 +118,16 @@ class ConnectionWorker(Thread):
             status = -2
             self.logger.warning(whoami() + "socket.timeout on " + self.idn)
         except AttributeError as e:
-            status = 0
+            status = -2
+            self.logger.warning(whoami() + str(e) + ": " + article_name + " on " + self.idn)
+        except BrokenPipeError as e:
+            status = -2
             self.logger.warning(whoami() + str(e) + ": " + article_name + " on " + self.idn)
         except Exception as e:
-            status = 0
+            if "write to closed file" in str(e):
+                status = -2
+            else:
+                status = 0
             self.logger.warning(whoami() + str(e) + ": " + article_name + " on " + self.idn)
         # self.bandwidth_bytes += bytesdownloaded
         return status, bytesdownloaded, info0
@@ -136,6 +142,10 @@ class ConnectionWorker(Thread):
         idx = 0
         self.logger.debug(whoami() + "Server " + self.idn + " connecting ...")
         while idx < 5 and self.running:
+            try:
+                self.servers.close_connection(self.name, self.conn_nr)
+            except Exception as e:
+                self.logger.warning(whoami() + str(e) + ": cannot close " + self.idn)
             self.nntpobj = self.servers.open_connection(self.name, self.conn_nr)
             if self.nntpobj:
                 self.logger.debug(whoami() + "Server " + self.idn + " connected!")

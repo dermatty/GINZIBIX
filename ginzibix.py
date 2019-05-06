@@ -30,28 +30,42 @@ class SigHandler_Ginzibix:
     def sighandler_ginzibix(self, a, b):
         self.shutdown()
 
-    def shutdown(self):
+    def shutdown(self, exit_status):
         # wait until main is joined
+        if exit_status == 3:
+            trstr = "RESTART - "
+        else:
+            trstr = "SHUTDOWN - "
         if self.mpp_main:
             if self.mpp_main.pid:
+                print(trstr + "joining main!")
                 try:
                     # os.kill(self.mpp_main.pid, signal.SIGTERM)
-                    self.mpp_main.join(timeout=5)
-                    os.kill(self.mpp_main.pid, signal.SIGTERM)
-                except Exception as e:
-                    logger.warning(lib.whoami() + str(e))
-        self.pwdb.exc("set_exit_goodbye_from_main", [], {})
+                    self.mpp_main.join()
+                    # os.kill(self.mpp_main.pid, signal.SIGTERM)
+                except Exception:
+                    pass
+        try:
+            self.pwdb.exc("set_exit_goodbye_from_main", [], {})
+        except Exception:
+            pass
+        print(trstr + "joining mpp_wrapper")
         try:
             self.mpp_wrapper.join(timeout=5)
-            os.kill(self.mpp_wrapper.pid, signal.SIGTERM)
+            if self.mpp_wrapper.is_alive():
+                print(trstr + "killing mpp_wrapper")
+                os.kill(self.mpp_wrapper.pid, signal.SIGTERM)
         except Exception as e:
             logger.warning(lib.whoami() + str(e))
+        print(trstr + "killing loglistener")
         lib.stop_logging_listener(self.mp_loggerqueue, self.mp_loglistener)
         try:
-            self.mp_loglistener.join(timeout=5)
-            os.kill(self.mp_loglistener.pid, signal.SIGTERM)
+            if self.mp_loglistener.is_alive():
+                os.kill(self.mp_loglistener.pid, signal.SIGTERM)
+                self.mp_loglistener.join(timeout=5)
         except Exception as e:
             logger.warning(lib.whoami() + str(e))
+        print(trstr + "finally done!")
 
 
 # -------------------- main --------------------
@@ -124,7 +138,8 @@ if __name__ == '__main__':
         app = lib.ApplicationGui(dirs, cfg, guiport, mp_loggerqueue)
         exit_status = app.run(sys.argv)
 
-        sh.shutdown()
+        sh.shutdown(exit_status)
 
+    print("ginzibix exits!")
     sys.exit()
 

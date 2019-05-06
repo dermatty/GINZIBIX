@@ -436,6 +436,7 @@ class GUI_Poller(Thread):
                     elif elem_type == "closeall":
                         with self.lock:
                             self.appdata.closeall = False
+                            self.logger.debug(whoami() + "received main closeall confirm, shutting down guipoller")
                     elif elem_type in ["order_changed", "interrupted"]:
                         GLib.idle_add(self.toggle_buttons)
                         self.logger.debug(whoami() + "order changed/interrupted ok!")

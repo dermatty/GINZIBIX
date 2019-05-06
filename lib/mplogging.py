@@ -60,8 +60,7 @@ def start_logging_listener(filename, maxlevel=logging.DEBUG):
 
 def stop_logging_listener(queue, listener):
     queue.put(None)
-    listener.join()
-
+    listener.join(timeout=2)
 
 if __name__ == '__main__':
     setproctitle("gzbx." + os.path.basename(__file__))

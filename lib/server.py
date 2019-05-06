@@ -94,12 +94,12 @@ class Servers():
             if sn == server_name0 and cn == conn_nr:
                 if nobj:
                     try:
-                        nobj.quit()
                         self.logger.warning(whoami() + "Closed connection #" + str(cn) + " on " + sn)
                         self.all_connections[idx] = (sn, cn, rt, None)
+                        nobj.quit()
                         res = True
                     except Exception as e:
-                        self.logger.error(whoami() + "Server " + server_name0 + " connect error: " + str(e))
+                        self.logger.error(whoami() + "Server " + server_name0 + " close error: " + str(e))
                         res = False
                     break
         return res

@@ -1,4 +1,3 @@
-test connection not working bulknews
 test wenn server connection error!
 
 ---------------------------------------------------------------------

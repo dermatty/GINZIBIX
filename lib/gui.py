@@ -239,9 +239,11 @@ class ApplicationGui(Gtk.Application):
         else:
             closeval = None
         self.guiqueue.put(("closeall", closeval))
-        t0 = time.time()
-        while self.appdata.closeall and time.time() - t0 < CLOSEALL_TIMEOUT:
+        while self.appdata.closeall:
             time.sleep(0.1)
+        #t0 = time.time()
+        #while self.appdata.closeall and time.time() - t0 < CLOSEALL_TIMEOUT:
+        #    time.sleep(0.1)
         self.guipoller.stop()
 
     # ----------------------------------------------------------------------------------------------------
@@ -1123,7 +1125,7 @@ class ConnectionTester(Thread):
             try:
                 nntpobj = nntplib.NNTP(self.url, user=self.user, password=self.passw, port=self.port, readermode=True, timeout=5)
                 nntpobj.getwelcome()
-                nntpobj.list()
+                # nntpobj.list()
                 nntpobj.quit()
             except Exception as e:
                 error0 = str(e)
