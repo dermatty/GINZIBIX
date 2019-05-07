@@ -872,7 +872,8 @@ class ApplicationGui(Gtk.Application):
         if not self.appdata.nzbname:
             return
         try:
-            loglist = self.appdata.fulldata[self.appdata.nzbname]["msg"][:]
+            loglist = self.pwdb.exc("db_msg_get", [self.appdata.nzbname], {})
+            # loglist = self.appdata.fulldata[self.appdata.nzbname]["msg"][:]
         except Exception:
             return
         for msg0, ts0, level0 in loglist:

@@ -1,10 +1,6 @@
-cannot read pw file:
-	postprocessor - INFO - Trying to get password from file for NZB OKj6iF0yNS.nzb
-	2019-05-06 23:03:14,220 - postprocessor - DEBUG - Cannot get pw from nzb string
-	2019-05-06 23:03:14,221 - postprocessor - WARNING - expected str, bytes or os.PathLike object, not NoneType: cannot open/read pw file
-	2019-05-06 23:03:14,221 - postprocessor - ERROR - Cannot find password for NZB OKj6iF0yNS.nzbin postprocess, exiting ...
- 
-	--> line numbers (whoami) also in postproc
+db_msg_insert -> messages not shown in gui (wahrsch. weil all_data_for_gui nicht upgedatet wird) -> direkt 
+pwdb in gui.py abfragen???
+
 
 missing articles? better checks:
 	if parvols: enough parvols to repair

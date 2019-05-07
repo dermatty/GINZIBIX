@@ -18,6 +18,9 @@ from setproctitle import setproctitle
 
 TERMINATED = False
 
+# saves current nzb peewee object -> massive speed gain!
+CURRENT_NZB = None
+
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
 else:
@@ -233,7 +236,9 @@ class PWDB():
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
+            t00 = time.time()
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
+            print(time.time() - t00, funcstr)
             try:
                 self.wrapper_socket.send_pyobj(ret)
             except Exception as e:
@@ -245,7 +250,7 @@ class PWDB():
 
     def get_all_data_for_gui(self):
         nzb_data = {}
-        all_sorted_nzbs, _ = self.db_nzb_getall_sorted()
+        all_sorted_nzbs = self.db_nzb_getall_sorted_onlydl()
         nzb_data["all#"] = []
         for nzbdata in all_sorted_nzbs:
             n_name, n_prio, n_timestamp, n_status, n_size, n_dlsize = nzbdata
@@ -372,7 +377,10 @@ class PWDB():
 
     def db_nzb_get_allfile_list(self, nzbname):
         try:
-            nzb = self.NZB.get(self.NZB.name == nzbname)
+            if CURRENT_NZB:
+                nzb = CURRENT_NZB
+            else:
+                nzb = self.NZB.get(self.NZB.name == nzbname)
         except Exception as e:
             self.logger.debug(whoami() + str(e))
             return None
@@ -406,7 +414,10 @@ class PWDB():
     @set_db_timestamp
     def db_nzb_delete(self, nzbname):
         try:
-            nzb0 = self.NZB.get(self.NZB.name == nzbname)
+            if CURRENT_NZB:
+                nzb0 = CURRENT_NZB
+            else:
+                nzb0 = self.NZB.get(self.NZB.name == nzbname)
             files = self.FILE.select().where(self.FILE.nzb == nzb0)
             for f0 in files:
                 query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry == f0)
@@ -427,6 +438,18 @@ class PWDB():
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return False
+
+    @set_db_timestamp
+    def db_nzb_set_current_nzbobj(self, nzbname):
+        global CURRENT_NZB
+        if not nzbname:
+            CURRENT_NZB = None
+        else:
+            try:
+                CURRENT_NZB = self.NZB.get(self.NZB.name == nzbname)
+            except Exception as e:
+                self.logger.debug(whoami() + str(e))
+                CURRENT_NZB = None
 
     @set_db_timestamp
     def db_nzb_update_loadpar2vols(self, name0, lp2):
@@ -478,6 +501,17 @@ class PWDB():
             nzbs.append((n.name, n.priority, n.timestamp, n.status))
         return nzbs
 
+    def db_nzb_getall_sorted_onlydl(self):
+        try:
+            query = self.NZB.select().order_by(+self.NZB.priority)
+            nzblist = [(n.name, n.priority, n.timestamp, n.status, self.db_nzb_getsize(n.name, checkpar2volsloaded=True),
+                        self.db_nzb_get_downloadedsize(n.name))
+                       for n in query if n.status in [1, 2, 3]]
+            return nzblist
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return []
+
     def db_nzb_getall_sorted(self):
         try:
             query = self.NZB.select().order_by(+self.NZB.priority)
@@ -500,8 +534,11 @@ class PWDB():
 
     def db_nzb_get_password(self, nzbname):
         try:
-            query = self.NZB.get(self.NZB.name == nzbname)
-            return query.password
+            if CURRENT_NZB:
+                return CURRENT_NZB.password
+            else:
+                query = self.NZB.get(self.NZB.name == nzbname)
+                return query.password
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -516,8 +553,11 @@ class PWDB():
 
     def db_nzb_get_ispw(self, nzbname):
         try:
-            query = self.NZB.get(self.NZB.name == nzbname)
-            return query.is_pw
+            if CURRENT_NZB:
+                return CURRENT_NZB.is_pw
+            else:
+                query = self.NZB.get(self.NZB.name == nzbname)
+                return query.is_pw
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -532,8 +572,11 @@ class PWDB():
 
     def db_nzb_get_ispw_checked(self, nzbname):
         try:
-            query = self.NZB.get(self.NZB.name == nzbname)
-            return query.is_pw_checked
+            if CURRENT_NZB:
+                return CURRENT_NZB.is_pw_checked
+            else:
+                query = self.NZB.get(self.NZB.name == nzbname)
+                return query.is_pw_checked
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -557,8 +600,11 @@ class PWDB():
 
     def db_nzb_getstatus(self, nzbname):
         try:
-            query = self.NZB.get(self.NZB.name == nzbname)
-            return query.status
+            if CURRENT_NZB:
+                return CURRENT_NZB.status
+            else:
+                query = self.NZB.get(self.NZB.name == nzbname)
+                return query.status
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -573,8 +619,11 @@ class PWDB():
 
     def db_nzb_get_verifystatus(self, nzbname):
         try:
-            query = self.NZB.get(self.NZB.name == nzbname)
-            return query.verify_status
+            if CURRENT_NZB:
+                return CURRENT_NZB.verify_status
+            else:
+                query = self.NZB.get(self.NZB.name == nzbname)
+                return query.verify_status
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -677,7 +726,8 @@ class PWDB():
 
     def db_only_verified_rars(self, nzbname):
         try:
-            rarfiles = [rf for rf in self.NZB.get(self.NZB.name == nzbname).files if rf.ftype == "rar"]
+            nzbfiles = self.NZB.get(self.NZB.name == nzbname).files
+            rarfiles = [rf for rf in nzbfiles if rf.ftype == "rar"]
             rarl = [(r.parverify_state, r.orig_name) for r in rarfiles]
             rarstates = [r.parverify_state for r in rarfiles]
             if (0 not in rarstates):

@@ -429,6 +429,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     dl = None
     nzbname = None
+    pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
     paused = False
     article_health = 0
     connection_health = 0
@@ -437,6 +438,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     applied_datarec = None
 
     # reload nzb lists for gui
+    last_full_data_for_gui = time.time()
+    last_store_sorted = time.time()
     pwdb.exc("store_sorted_nzbs", [], {})
 
     DEBUGPRINT = False
@@ -497,7 +500,10 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         update_server_ts(server_ts, ct, pipes)
                     except Exception as e:
                         logger.warning(whoami() + str(e))
-                    full_data_for_gui = pwdb.exc("get_all_data_for_gui", [], {})
+                    # this hack reduces load in gpeewee
+                    if last_full_data_for_gui < last_store_sorted:
+                        full_data_for_gui = pwdb.exc("get_all_data_for_gui", [], {})
+                        last_full_data_for_gui = time.time()
                     sorted_nzbs, sorted_nzbshistory = pwdb.exc("get_stored_sorted_nzbs", [], {})
                     if dl:
                         dl_results = dl.results
@@ -620,6 +626,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                             else:
                                 logger.debug(whoami() + reprocessed_nzb + ": status " + str(reproc_stat0) + ", no action!")
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
                     socket.send_pyobj(("REPROCESS_FROM_START_OK", None))
                 except Exception as e:
                     logger.error(whoami() + str(e))
@@ -628,6 +635,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     for removed_nzb in datarec:
                         pwdb.exc("db_nzb_delete", [removed_nzb], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
                     if msg == "DELETED_FROM_HISTORY":
                         remove_nzbdirs(datarec, dirs, pwdb, logger)
                         socket.send_pyobj(("DELETED_FROM_HISTORY_OK", None))
@@ -653,12 +661,14 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                             dl.join()
                         first_has_changed, moved_nzbs = pwdb.exc("move_nzb_list", [datarec], {"move_and_resetprios": True})
                         nzbname = None
+                        pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                         if dl:
                             del dl
                             dl = None
                     else:    # if current nzb didnt change just update, but do not restart
                         first_has_changed, moved_nzbs = pwdb.exc("move_nzb_list", [datarec], {"move_and_resetprios": True})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
                     socket.send_pyobj(("SET_INTERRUPT_OK", None))
                 except Exception as e:
                     logger.error(whoami() + str(e))
@@ -678,6 +688,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [datarec], {"delete_and_resetprios": True})
                         remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
                         nzbname = None
+                        pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                         if dl:
                             del dl
                             dl = None
@@ -685,6 +696,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         first_has_changed, deleted_nzbs = pwdb.exc("reorder_nzb_list", [datarec], {"delete_and_resetprios": True})
                         remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger)
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
                     # release gtkgui from block
                     socket.send_pyobj(("SET_DELETE_REORDER_OK", None))
                 except Exception as e:
@@ -702,13 +714,15 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
             if not dl:
                 nzbname = make_allfilelist_wait(pwdb, dirs, logger, -1)
                 if nzbname:
+                    pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     if not CONNECTIONS_AS_MP:
                         ct.reset_timestamps_bdl()
                     else:
                         do_mpconnections(pipes, "reset_timestamps_bdl", None)
                     logger.info(whoami() + "got next NZB: " + str(nzbname))
                     dl = Downloader(cfg, dirs, ct, mp_work_queue, articlequeue, resultqueue, mpp, pipes,
-                                    renamer_result_queue, mp_events, nzbname, mp_loggerqueue, filewrite_lock, logger)
+                                    renamer_result_queue, mp_events, nzbname, mp_loggerqueue, filewrite_lock,
+                                    logger)
                     # if status postprocessing, don't start threads!
                     if pwdb.exc("db_nzb_getstatus", [nzbname], {}) in [0, 1, 2]:
                         if not paused:
@@ -740,7 +754,9 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     del dl
                     dl = None
                     nzbname = None
+                    pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
                 # if download ok -> postprocess
                 elif stat0 == 3 and not mpp_is_alive(mpp, "post"):
                     article_health = 0
@@ -766,7 +782,9 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     del dl
                     dl = None
                     nzbname = None
+                    pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
                 # if postproc failed
                 elif stat0 == -4:
                     logger.error(whoami() + "postprocessor failed for NZB " + nzbname)
@@ -786,7 +804,9 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     del dl
                     dl = None
                     nzbname = None
+                    pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    last_store_sorted = time.time()
     except Exception as e:
         if DEBUGPRINT:
             print(str(e))
@@ -809,6 +829,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     except Exception as e:
         logger.error(whoami() + str(e) + ": closeall error!")
     dl = None
+    nzbname = None
+    pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
     logger.debug(whoami() + "closeall: closing gtkgui-socket")
     try:
         socket.close()
