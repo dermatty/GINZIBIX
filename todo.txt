@@ -1,4 +1,18 @@
-test wenn server connection error!
+cannot read pw file:
+	postprocessor - INFO - Trying to get password from file for NZB OKj6iF0yNS.nzb
+	2019-05-06 23:03:14,220 - postprocessor - DEBUG - Cannot get pw from nzb string
+	2019-05-06 23:03:14,221 - postprocessor - WARNING - expected str, bytes or os.PathLike object, not NoneType: cannot open/read pw file
+	2019-05-06 23:03:14,221 - postprocessor - ERROR - Cannot find password for NZB OKj6iF0yNS.nzbin postprocess, exiting ...
+ 
+	--> line numbers (whoami) also in postproc
+
+missing articles? better checks:
+	if parvols: enough parvols to repair
+	no parvols: sofort abbrechen
+
+speed/mbit in gui too high - re-check/better logging - with 2 level 1 servers -> seems to double
+
+check 2 pw files hintereinander!!!
 
 ---------------------------------------------------------------------
 

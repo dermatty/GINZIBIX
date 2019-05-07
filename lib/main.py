@@ -59,6 +59,9 @@ def update_server_ts(server_ts, ct, pipes):
     else:
         current_stats = ct.get_downloaded_per_server()
 
+    if not current_stats:
+        return
+
     for server, bdl in current_stats.items():
         bdl = bdl / (1024 * 1024)   # in MB
         try:
@@ -175,7 +178,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             break
     logger.info(whoami() + "mp_work_queue cleared!")
     try:
-        if mpp_is_alive(mpp, "unrarer"):
+        if mpp_is_alive(mpp, "unrarer") or mpp["unrarer"]:
             mpid = mpp["unrarer"].pid
             logger.debug("terminating unrarer")
             os.kill(mpid, signal.SIGTERM)
@@ -183,10 +186,11 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             mpp["unrarer"] = None
             logger.info(whoami() + "unrarer terminated!")
     except Exception as e:
+        mpp["unrarer"] = None
         logger.debug(whoami() + str(e))
     # 7. stop rar_verifier
     try:
-        if mpp_is_alive(mpp, "verifier"):
+        if mpp_is_alive(mpp, "verifier") or mpp["verifier"]:
             mpid = mpp["verifier"].pid
             logger.debug(whoami() + "terminating par_verifier")
             os.kill(mpp["verifier"].pid, signal.SIGTERM)
@@ -194,11 +198,12 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             mpp["verifier"] = None
             logger.info(whoami() + "verifier terminated!")
     except Exception as e:
+        mpp["verifier"] = None
         logger.debug(whoami() + str(e))
     # 8. stop renamer only if stopall otherwise just pause
     if stopall:
         try:
-            if mpp_is_alive(mpp, "renamer"):
+            if mpp_is_alive(mpp, "renamer") or mpp["renamer"]:
                 mpid = mpp["renamer"].pid
                 logger.debug(whoami() + "stopall: terminating renamer")
                 os.kill(mpp["renamer"].pid, signal.SIGTERM)
@@ -206,6 +211,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
                 mpp["renamer"] = None
                 logger.info(whoami() + "renamer terminated!")
         except Exception as e:
+            mpp["renamer"] = None
             logger.debug(whoami() + str(e))
     # just pause
     elif pipes:
@@ -216,7 +222,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             logger.warning(whoami() + str(e))
     # 9. stop post-proc
     try:
-        if mpp_is_alive(mpp, "post"):
+        if mpp_is_alive(mpp, "post") or mpp["post"]:
             mpid = mpp["post"].pid
             logger.debug(whoami() + "terminating postprocesspr")
             os.kill(mpid, signal.SIGTERM)
@@ -224,11 +230,12 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             mpp["post"] = None
             logger.info(whoami() + "postprocessor terminated!")
     except Exception as e:
+        mpp["post"] = None
         logger.debug(whoami() + str(e))
     # 10. stop nzbparser
     if stopall:
         try:
-            if mpp_is_alive(mpp, "nzbparser"):
+            if mpp_is_alive(mpp, "nzbparser") or mpp["nzbparser"]:
                 mpid = mpp["nzbparser"].pid
                 logger.debug(whoami() + "terminating nzb_parser")
                 os.kill(mpp["nzbparser"].pid, signal.SIGTERM)
@@ -236,6 +243,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
                 mpp["nzbparser"] = None
                 logger.info(whoami() + "postprocessor terminated!")
         except Exception as e:
+            mpp["nzbparser"] = None
             logger.debug(whoami() + str(e))
     # 11. threads + servers
     if stopall:

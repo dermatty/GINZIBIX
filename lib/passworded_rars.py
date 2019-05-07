@@ -100,6 +100,8 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     rarname = rarname0.split("/")[-1]
     nzbname = nzbname0.split(".nzb")[0]
 
+    logger.debug(whoami() + "trying to get password")
+
     if get_pw_direct:
         gg = re.search(r"}}.nzb$", nzbname0, flags=re.IGNORECASE)
         if gg:
@@ -107,8 +109,8 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
                 PW = nzbname0[:gg.start()].split("{{")[-1]
                 return PW    # to do: check password
             except Exception as e:
-                logger.debug(str(e) + ": cannot get pw from nzb string")
-        logger.debug("Cannot get pw from nzb string")
+                logger.debug(whoami() + str(e) + ": cannot get pw from nzb string")
+        logger.debug(whoami() + "cannot get pw from nzb string")
 
     # PW file format:
     #  a)  pw
@@ -116,11 +118,17 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     #      pw
     #  b)  filename1 <:::> pw1
     #      filename2 <:::> pw2
+
+    if not pw_file:
+        return None
+
+    logger.debug(whoami() + "reading passwords in " + pw_file)
+
     try:
         with open(pw_file, "r") as f0:
             pw_list = f0.readlines()
     except Exception as e:
-        logger.warning(str(e) + ": cannot open/read pw file")
+        logger.warning(whoami() + str(e) + ": cannot open/read pw file")
         return None
 
     cwd0 = os.getcwd()

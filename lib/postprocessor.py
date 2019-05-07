@@ -240,17 +240,17 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         except Exception as e:
             logger.warning(whoami() + str(e))
         if pwdb.exc("db_nzb_get_password", [nzbname], {}) == "N/A":
-            logger.info("Trying to get password from file for NZB " + nzbname)
+            logger.info(whoami() + "Trying to get password from file for NZB " + nzbname)
             pwdb.exc("db_msg_insert", [nzbname, "trying to get password", "info"], {})
             pw = get_password(verifiedrar_dir, pw_file, nzbname, logger, get_pw_direct=get_pw_direct0)
             if pw:
-                logger.info("Found password " + pw + " for NZB " + nzbname)
+                logger.info(whoami() + "Found password " + pw + " for NZB " + nzbname)
                 pwdb.exc("db_msg_insert", [nzbname, "found password " + pw, "info"], {})
                 pwdb.exc("db_nzb_set_password", [nzbname, pw], {})
         else:
             pw = pwdb.exc("db_nzb_get_password", [nzbname], {})
         if not pw:
-            logger.error("Cannot find password for NZB " + nzbname + "in postprocess, exiting ...")
+            logger.error(whoami() + "Cannot find password for NZB " + nzbname + "in postprocess, exiting ...")
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
             mpp["unrarer"] = None
             # sighandler.mpp = mpp

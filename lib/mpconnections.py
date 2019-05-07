@@ -317,6 +317,7 @@ class ConnectionThreads:
                     result[servername] = self.bdl_results[servername] + bdl
                 except Exception:
                     result[servername] = bdl
+        return result
 
     def start_threads(self):
         if not self.threads:

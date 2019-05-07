@@ -30,7 +30,7 @@ class SigHandler_Ginzibix:
     def sighandler_ginzibix(self, a, b):
         self.shutdown()
 
-    def shutdown(self, exit_status):
+    def shutdown(self, exit_status=3):
         # wait until main is joined
         if exit_status == 3:
             trstr = "RESTART - "
@@ -138,7 +138,7 @@ if __name__ == '__main__':
         app = lib.ApplicationGui(dirs, cfg, guiport, mp_loggerqueue)
         exit_status = app.run(sys.argv)
 
-        sh.shutdown(exit_status)
+        sh.shutdown(exit_status=exit_status)
 
     print("ginzibix exits!")
     sys.exit()
