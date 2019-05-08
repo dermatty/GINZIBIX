@@ -146,6 +146,8 @@ class ApplicationGui(Gtk.Application):
         self.server_apply_button = self.obj("apply_server")
         self.restart_button = self.obj("button_restart")
 
+        self.last_update_for_gui = datetime.datetime.now()
+
         self.serversettingsdialog = None
         self.generalsettingsdialog = None
         self.gsettingstextviewdialog = None
@@ -498,8 +500,18 @@ class ApplicationGui(Gtk.Application):
     # ----------------------------------------------------------------------------------------------------
     # all the gui update functions
 
+    def update_logs_and_lists(self):
+        if self.last_update_for_gui > self.pwdb.exc("db_msg_get_last_update", [], {}):
+            return
+        nzbname = self.pwdb.exc("db_nzb_get_current_nzbname", [], {})
+        if nzbname or (not nzbname and self.appdata.nzbname):
+            self.appdata.nzbname = nzbname
+            download_logs = self.pwdb.exc("db_msg_get", [self.appdata.nzbname], {})
+            self.update_logstore(download_logs)
+        self.last_update_for_gui = datetime.datetime.now()
+
     def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, sortednzblist0,
-                          sortednzbhistorylist0, article_health, connection_health, dlconfig, fulldata,
+                          sortednzbhistorylist0, article_health, connection_health, dlconfig,
                           gb_downloaded, server_ts):
 
         # check if connection_tester has completed -> if yes, join tester thread, stop spinner etc.
@@ -535,15 +547,6 @@ class ApplicationGui(Gtk.Application):
         # ### stack "SERVERGRAPHS" ###
         if self.activestack == "servergraphs":
             self.update_servergraph()
-
-        # fulldata: contains messages
-        if fulldata and self.appdata.fulldata != fulldata:
-            self.appdata.fulldata = fulldata
-            try:
-                self.appdata.nzbname = fulldata["all#"][0]
-            except Exception:
-                self.appdata.nzbname = None
-            self.update_logstore()
 
         # ### stack "HISTORY" ###
         if self.activestack == "history":
@@ -866,17 +869,13 @@ class ApplicationGui(Gtk.Application):
             self.server_delete_button.set_sensitive(False)
             self.server_edit_button.set_sensitive(False)
 
-    def update_logstore(self):
+    def update_logstore(self, loglist):
         # only show msgs for current nzb
         self.logs_liststore.clear()
         if not self.appdata.nzbname:
             return
-        try:
-            loglist = self.pwdb.exc("db_msg_get", [self.appdata.nzbname], {})
-            # loglist = self.appdata.fulldata[self.appdata.nzbname]["msg"][:]
-        except Exception:
-            return
-        for msg0, ts0, level0 in loglist:
+        for ll in loglist:
+            (msg0, ts0, level0) = ll
             log_as_list = []
             # msg, level, tt, bg, fg
             log_as_list.append(msg0)
@@ -1722,6 +1721,7 @@ class AppData:
     def __init__(self, lock):
         self.lock = lock
         self.mbitsec = 0
+        self.nzbname = None
         self.nzbs = []
         self.overall_size = 0
         self.gbdown = 0
@@ -1736,11 +1736,9 @@ class AppData:
         self.logdata = None
         self.article_health = 0
         self.connection_health = 0
-        self.fulldata = None
         self.closeall = False
         self.nzbs_history = []
-        self.nzbs_history = []
-        # self.nzbs_history = [(False, "Test.nzb", 3, 1.5, 1.4, 0.9, "white")]
+        self.download_logs = []
         self.overall_eta = 0
         self.server_ts_diff = {}
         self.server_ts = {}

@@ -18,9 +18,6 @@ from setproctitle import setproctitle
 
 TERMINATED = False
 
-# saves current nzb peewee object -> massive speed gain!
-CURRENT_NZB = None
-
 if __name__ == "__main__":
     from par2lib import calc_file_md5hash, Par2File
 else:
@@ -71,6 +68,8 @@ class PWDB():
         self.wrapper_socket.bind("ipc://" + ipc_location)
         self.signal_ign_sigint = None
         self.signal_ign_sigterm = None
+
+        self.current_nzb = None
 
         class BaseModel(Model):
             class Meta:
@@ -236,9 +235,9 @@ class PWDB():
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
-            t00 = time.time()
+            #t00 = time.time()
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
-            print(time.time() - t00, funcstr)
+            #print(time.time() - t00, funcstr)
             try:
                 self.wrapper_socket.send_pyobj(ret)
             except Exception as e:
@@ -322,6 +321,21 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
 
     # ---- self.NZB --------
+    def db_nzb_get_nzbobj(self, nzbname):
+        if self.current_nzb:
+            return self.current_nzb
+        try:
+            nzb = self.NZB.get(self.NZB.name == nzbname)
+            return nzb
+        except Exception:
+            return None
+
+    def db_nzb_get_current_nzbname(self):
+        try:
+            return self.current_nzb.name
+        except Exception:
+            return None
+
     def db_nzb_are_all_nzb_idle(self):
         try:
             if self.NZB.select().where(self.NZB.status.between(1, 3)).count() == 0:
@@ -344,12 +358,14 @@ class PWDB():
             # set unrar_status to 0 (idle)
             # set verify_status to 0 (idle)
             # set nzb status to 3 (downloaded/postprocessing)
-            query = self.NZB.update(unrar_status=0, verify_status=0, status=3, date_updated=datetime.datetime.now())\
-                            .where(self.NZB.name == nzbname)
-            query.execute()
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            nzb.unrar_status = 0
+            nzb.verify_status = 0
+            nzb.status = 3
+            nzb.date_updated = datetime.datetime.now()
+            nzb.save()
             # for all rarfiles, set parverify_state to 0
-            nzb0 = self.NZB.get(self.NZB.name == nzbname)
-            query = self.FILE.update(parverify_state=0).where((self.FILE.nzb == nzb0) & (self.FILE.ftype == "rar"))
+            query = self.FILE.update(parverify_state=0).where((self.FILE.nzb == nzb) & (self.FILE.ftype == "rar"))
             query.execute()
             return True
         except Exception as e:
@@ -361,26 +377,22 @@ class PWDB():
         if not nzbname:
             return False
         try:
-            query = self.NZB.update(allfilelist_dill=allfilelist, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
-            query = self.NZB.update(filetypecounter_dill=filetypecounter, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            nzb.allfilelist_dill = allfilelist
+            nzb.filetypecounter_dill = filetypecounter
+            nzb.date_updated = datetime.datetime.now()
             already_downloaded_size = self.calc_already_downloaded_size(nzbname)
             allfilesizes0 = (overall_size, overall_size_wparvol, already_downloaded_size)
-            query = self.NZB.update(allfilesizes_dill=allfilesizes0, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
-            query = self.NZB.update(p2_dill=p2, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
+            nzb.allfilesizes_dill = allfilesizes0
+            nzb.p2_dill = p2
+            nzb.save()
         except Exception as e:
             self.logger.debug(whoami() + str(e))
             return False
 
     def db_nzb_get_allfile_list(self, nzbname):
         try:
-            if CURRENT_NZB:
-                nzb = CURRENT_NZB
-            else:
-                nzb = self.NZB.get(self.NZB.name == nzbname)
+            nzb = self.db_nzb_get_nzbobj(nzbname)
         except Exception as e:
             self.logger.debug(whoami() + str(e))
             return None
@@ -414,10 +426,7 @@ class PWDB():
     @set_db_timestamp
     def db_nzb_delete(self, nzbname):
         try:
-            if CURRENT_NZB:
-                nzb0 = CURRENT_NZB
-            else:
-                nzb0 = self.NZB.get(self.NZB.name == nzbname)
+            nzb0 = self.db_nzb_get_nzbobj(nzbname)
             files = self.FILE.select().where(self.FILE.nzb == nzb0)
             for f0 in files:
                 query_articles = self.ARTICLE.delete().where(self.ARTICLE.fileentry == f0)
@@ -431,35 +440,36 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             return False
 
-    def db_nzb_loadpar2vols(self, name):
+    def db_nzb_loadpar2vols(self, nzbname):
         try:
-            nzb0 = self.NZB.get(self.NZB.name == name)
-            return nzb0.loadpar2vols
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.loadpar2vols
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return False
 
     @set_db_timestamp
     def db_nzb_set_current_nzbobj(self, nzbname):
-        global CURRENT_NZB
         if not nzbname:
-            CURRENT_NZB = None
+            self.current_nzb = None
         else:
             try:
-                CURRENT_NZB = self.NZB.get(self.NZB.name == nzbname)
+                self.current_nzb = self.NZB.get(self.NZB.name == nzbname)
             except Exception as e:
                 self.logger.debug(whoami() + str(e))
-                CURRENT_NZB = None
+                self.current_nzb = None
 
     @set_db_timestamp
-    def db_nzb_update_loadpar2vols(self, name0, lp2):
-        query = self.NZB.update(loadpar2vols=lp2, date_updated=datetime.datetime.now()).where(self.NZB.name == name0)
-        query.execute()
+    def db_nzb_update_loadpar2vols(self, nzbname, lp2):
+        nzb = self.db_nzb_get_nzbobj(nzbname)
+        nzb.loadpar2vols = lp2
+        nzb.date_updated = datetime.datetime.now()
+        nzb.save()
 
     def db_nzb_getsize(self, name, checkpar2volsloaded=False):
         # if checkpar2volsloaded: if par2vols are loaded -> returns size incl. par2vols else without
         try:
-            nzb0 = self.NZB.get(self.NZB.name == name)
+            nzb0 = self.db_nzb_get_nzbobj(name)
             overallsize = sum([self.db_file_getsize(a.orig_name) for a in nzb0.files])
             if checkpar2volsloaded and nzb0.loadpar2vols:
                 return overallsize
@@ -471,9 +481,9 @@ class PWDB():
         except Exception as e:
             self.logger.debug(whoami() + str(e))
 
-    def db_nzb_get_downloadedsize(self, name):
+    def db_nzb_get_downloadedsize(self, nzbname):
         try:
-            nzb0 = self.NZB.get(self.NZB.name == name)
+            nzb0 = self.db_nzb_get_nzbobj(nzbname)
             if nzb0.status not in [0, 1]:
                 size = sum([self.db_file_get_downloadedsize(nzbfile) for nzbfile in nzb0.files])
             else:
@@ -529,16 +539,15 @@ class PWDB():
 
     @set_db_timestamp
     def db_nzb_set_password(self, nzbname, pw):
-        query = self.NZB.update(password=pw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
+        nzb = self.db_nzb_get_nzbobj(nzbname)
+        nzb.password = pw
+        nzb.date_updated = datetime.datetime.now()
+        nzb.save()
 
     def db_nzb_get_password(self, nzbname):
         try:
-            if CURRENT_NZB:
-                return CURRENT_NZB.password
-            else:
-                query = self.NZB.get(self.NZB.name == nzbname)
-                return query.password
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.password
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -546,84 +555,82 @@ class PWDB():
     @set_db_timestamp
     def db_nzb_set_ispw(self, nzbname, ispw):
         try:
-            query = self.NZB.update(is_pw=ispw, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            nzb.is_pw = ispw
+            nzb.date_updated = datetime.datetime.now()
+            nzb.save()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
 
     def db_nzb_get_ispw(self, nzbname):
         try:
-            if CURRENT_NZB:
-                return CURRENT_NZB.is_pw
-            else:
-                query = self.NZB.get(self.NZB.name == nzbname)
-                return query.is_pw
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.is_pw
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-            return None
+            return False
 
     @set_db_timestamp
     def db_nzb_set_ispw_checked(self, nzbname, ispw_checked):
         try:
-            query = self.NZB.update(is_pw_checked=ispw_checked, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            nzb.is_pw_checked = ispw_checked
+            nzb.date_updated = datetime.datetime.now()
+            nzb.save()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
 
     def db_nzb_get_ispw_checked(self, nzbname):
         try:
-            if CURRENT_NZB:
-                return CURRENT_NZB.is_pw_checked
-            else:
-                query = self.NZB.get(self.NZB.name == nzbname)
-                return query.is_pw_checked
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.is_pw_checked
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
 
     @set_db_timestamp
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
-        query = self.NZB.update(unrar_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
+        nzb = self.db_nzb_get_nzbobj(nzbname)
+        nzb.unrar_status = newstatus
+        nzb.date_updated = datetime.datetime.now()
+        nzb.save()
 
     def db_nzb_update_verify_status(self, nzbname, newstatus):
-        query = self.NZB.update(verify_status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-        query.execute()
+        nzb = self.db_nzb_get_nzbobj(nzbname)
+        nzb.verify_status = newstatus
+        nzb.date_updated = datetime.datetime.now()
+        nzb.save()
 
     @set_db_timestamp
     def db_nzb_update_status(self, nzbname, newstatus):
         try:
-            query = self.NZB.update(status=newstatus, date_updated=datetime.datetime.now()).where(self.NZB.name == nzbname)
-            query.execute()
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            nzb.status = newstatus
+            nzb.date_updated = datetime.datetime.now()
+            nzb.save()
         except Exception as e:
             self.logger.warning(whoami() + str(e))
 
     def db_nzb_getstatus(self, nzbname):
         try:
-            if CURRENT_NZB:
-                return CURRENT_NZB.status
-            else:
-                query = self.NZB.get(self.NZB.name == nzbname)
-                return query.status
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.status
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_get_unrarstatus(self, nzbname):
         try:
-            query = self.NZB.get(self.NZB.name == nzbname)
-            return query.unrar_status
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.unrar_status
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
 
     def db_nzb_get_verifystatus(self, nzbname):
         try:
-            if CURRENT_NZB:
-                return CURRENT_NZB.verify_status
-            else:
-                query = self.NZB.get(self.NZB.name == nzbname)
-                return query.verify_status
+            nzb = self.db_nzb_get_nzbobj(nzbname)
+            return nzb.verify_status
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -1254,10 +1261,7 @@ class PWDB():
             return None
         try:
             nzb = self.NZB.select().where(self.NZB.status.between(1, 3)).order_by(self.NZB.priority)[0]
-            #nzb = self.NZB.select().where((self.NZB.status == 1) | (self.NZB.status == 2)
-            #                              | (self.NZB.status == 3)).order_by(self.NZB.priority)[0]
-
-        except Exception as e:
+        except Exception:
             return None
         self.old_ts_makeallfilelist = datetime.datetime.now()
         self.logger.info(whoami() + "analyzing NZB: " + nzb.name + " with status: " + str(nzb.status))

@@ -511,5 +511,4 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
         else:
             child_pipe.send(None)
     logger.info(whoami() + "exited!")
-    sys.exit()
 

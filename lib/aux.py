@@ -378,6 +378,8 @@ class GUI_Poller(Thread):
         dl_running = True
         while not self.event_stopped.wait(self.delay):
             # some button pressed, of which main.py should be informed?
+            self.gui.update_logs_and_lists()
+
             try:
                 queue_elem = self.guiqueue.get_nowait()
                 self.guiqueue.task_done()
@@ -453,11 +455,11 @@ class GUI_Poller(Thread):
                         continue
                     elif datatype == "DL_DATA":
                         data, server_config, dl_running, nzb_status_string, sortednzblist, sortednzbhistorylist,  \
-                            article_health, connection_health, dlconfig, full_data, gb_downloaded, server_ts = datarec
+                            article_health, connection_health, dlconfig, gb_downloaded, server_ts = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, dl_running, nzb_status_string,
                                           sortednzblist, sortednzbhistorylist, article_health, connection_health,
-                                          dlconfig, full_data, gb_downloaded, server_ts)
+                                          dlconfig, gb_downloaded, server_ts)
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))
