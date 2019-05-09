@@ -498,7 +498,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         update_server_ts(server_ts, ct, pipes)
                     except Exception as e:
                         logger.warning(whoami() + str(e))
-                    sorted_nzbs, sorted_nzbshistory = pwdb.exc("get_stored_sorted_nzbs", [], {})
+                    sorted_nzbs = pwdb.exc("get_stored_sorted_nzbs", [], {})
                     if dl:
                         dl_results = dl.results
                     else:
@@ -519,12 +519,12 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         if DEBUGPRINT:
                             print(">>>> #4 main:", time.time(), msg)
                         getdata = downloaddata_gc, serverconfig, dl_running, statusmsg,\
-                            sorted_nzbs, sorted_nzbshistory, article_health, connection_health, dl.serverhealth(),\
+                            sorted_nzbs, article_health, connection_health, dl.serverhealth(),\
                             gb_downloaded, server_ts
                     else:
                         downloaddata_gc = None, None, None, None, None, None, None, None
                         getdata = downloaddata_gc, serverconfig, dl_running, statusmsg, \
-                            sorted_nzbs, sorted_nzbshistory, 0, 0, None, 0, server_ts
+                            sorted_nzbs, 0, 0, None, 0, server_ts
                         # if one element in getdata != None - send:
                     if getdata.count(None) != len(getdata) or downloaddata_gc.count(None) != len(downloaddata_gc):
                         sendtuple = ("DL_DATA", getdata)

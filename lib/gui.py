@@ -9,6 +9,9 @@ import datetime
 import pandas as pd
 import nntplib
 import ssl
+
+gi.require_version("Gtk", "3.0")
+
 from gi.repository import Gtk, Gio, GdkPixbuf, GLib, Pango
 from .aux import get_cut_nzbname, get_cut_msg, get_bg_color, GUI_Poller, get_status_name_and_color,\
     get_server_config, get_config_for_server, get_free_server_cfg, PWDBSender
@@ -23,8 +26,6 @@ matplotlib.rcParams['toolbar'] = 'None'
 matplotlib.use('GTK3Agg')
 register_matplotlib_converters()
 
-
-gi.require_version("Gtk", "3.0")
 
 __appname__ = "ginzibix"
 __version__ = "0.02 alpha"
@@ -228,6 +229,8 @@ class ApplicationGui(Gtk.Application):
 
         self.guipoller = GUI_Poller(self, self.port, delay=self.update_delay)
         self.guipoller.start()
+
+        self.activestack = "downloading"
 
         # call main thread from here!!
 
@@ -539,8 +542,7 @@ class ApplicationGui(Gtk.Application):
 
 
     def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, sortednzblist0,
-                          sortednzbhistorylist0, article_health, connection_health, dlconfig,
-                          gb_downloaded, server_ts):
+                          article_health, connection_health, dlconfig, gb_downloaded, server_ts):
 
         # check if connection_tester has completed -> if yes, join tester thread, stop spinner etc.
         # !! can only be called from a Glib.idle_add !!
@@ -913,7 +915,13 @@ class ApplicationGui(Gtk.Application):
         if loglistlist:
             # this avoids flickerung, however scroll_to_cell lags!
             for ll in reversed(loglistlist):
-                treeiter = self.logs_liststore.get_iter_first()
+                try:
+                    treeiter = self.logs_liststore.get_iter_first()
+                except Exception:
+                    treeiter = None
+                if not treeiter:
+                    self.logs_liststore.append(ll)
+                    continue
                 (msg0, level0, ts0, bg0, fg0) = ll
                 found = False
                 while treeiter is not None:
@@ -924,7 +932,13 @@ class ApplicationGui(Gtk.Application):
                     treeiter = self.logs_liststore.iter_next(treeiter)
                 if not found:
                     self.logs_liststore.prepend(ll)
-            self.treeview_loglist.scroll_to_cell(Gtk.TreePath(0), None)
+            try:
+                treeiter = self.logs_liststore.get_iter_first()
+                if treeiter:
+                    self.treeview_loglist.scroll_to_cell(Gtk.TreePath(0), None)
+            except Exception:
+                pass
+            
 
     def update_serverlist_liststore(self, init=False):
         self.serverlist_liststore.clear()
@@ -1504,7 +1518,7 @@ class Handler:
 
     def on_button_pause_resume_clicked(self, button):
         with self.gui.lock:
-            self.gui.appdata.dl_running = not self.gui.appdata.dl_running
+            self.gui.appdata.dl_running = not self.gui.appdata.dl_runningactivestack
         self.gui.guiqueue.put(("dl_running", self.gui.appdata.dl_running))
         if self.gui.appdata.dl_running:
             icon = Gio.ThemedIcon(name="media-playback-pause")

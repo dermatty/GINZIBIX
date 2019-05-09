@@ -1,6 +1,7 @@
 #!/home/stephan/.virtualenvs/gzbx/bin/python
 
 import configparser
+import datetime
 import signal
 import multiprocessing as mp
 import logging
@@ -33,9 +34,9 @@ class SigHandler_Ginzibix:
     def shutdown(self, exit_status=3):
         # wait until main is joined
         if exit_status == 3:
-            trstr = "RESTART - "
+            trstr = str(datetime.datetime.now()) + ": RESTART - "
         else:
-            trstr = "SHUTDOWN - "
+            trstr = str(datetime.datetime.now()) + ": SHUTDOWN - "
         if self.mpp_main:
             if self.mpp_main.pid:
                 print(trstr + "joining main!")
