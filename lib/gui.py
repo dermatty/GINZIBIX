@@ -301,22 +301,20 @@ class ApplicationGui(Gtk.Application):
     # liststore/treeview for logs in stack DOWNLOADING
     def setup_frame_logs(self):
         self.logs_liststore = Gtk.ListStore(str, str, str, str, str)
+        self.logs_liststore.clear()
         self.treeview_loglist = Gtk.TreeView(model=self.logs_liststore)
 
         renderer_log4 = Gtk.CellRendererText()
         column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
-        #column_log4.set_min_width(80)
         self.treeview_loglist.append_column(column_log4)
 
         renderer_log3 = Gtk.CellRendererText()
         column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
-        #column_log3.set_min_width(80)
         self.treeview_loglist.append_column(column_log3)
 
         renderer_log2 = Gtk.CellRendererText(width_chars=MAX_MSG_LEN, ellipsize=Pango.EllipsizeMode.END)
         column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
         column_log2.set_expand(True)
-        #column_log2.set_min_width(520)
         self.treeview_loglist.append_column(column_log2)
 
         self.obj("scrolled_window_logs").add(self.treeview_loglist)
@@ -871,9 +869,10 @@ class ApplicationGui(Gtk.Application):
 
     def update_logstore(self, loglist):
         # only show msgs for current nzb
-        self.logs_liststore.clear()
         if not self.appdata.nzbname:
+            self.logs_liststore.clear()
             return
+        loglistlist = []
         for ll in loglist:
             (msg0, ts0, level0) = ll
             log_as_list = []
@@ -901,7 +900,20 @@ class ApplicationGui(Gtk.Application):
                 bg = "white"
             log_as_list.append(bg)
             log_as_list.append(fg)
-            self.logs_liststore.append(log_as_list)
+            loglistlist.append(log_as_list)
+        for ll in reversed(loglistlist):
+            treeiter = self.logs_liststore.get_iter_first()
+            (msg0, level0, ts0, bg0, fg0) = ll
+            found = False
+            while treeiter is not None:
+                if msg0 == self.logs_liststore[treeiter][0] and level0 == self.logs_liststore[treeiter][1]\
+                   and ts0 == self.logs_liststore[treeiter][2]:
+                    found = True
+                    break
+                treeiter = self.logs_liststore.iter_next(treeiter)
+            if not found:
+                self.logs_liststore.prepend(ll)
+        # hier noch gtk self.treeview_loglist.set_cursor oder so
 
     def update_serverlist_liststore(self, init=False):
         self.serverlist_liststore.clear()
