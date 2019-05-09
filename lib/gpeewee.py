@@ -1094,6 +1094,9 @@ class PWDB():
     def get_stored_sorted_nzbs(self):
         return self.sorted_nzbs_for_gui, self.sorted_nzbshistory_for_gui
 
+    def get_stored_sorted_nzbhistory(self):
+        return self.sorted_nzbshistory_for_gui
+
     def store_sorted_nzbs(self):
         sortednzbs, sortednzbs_history = self.db_nzb_getall_sorted()
         if sortednzbs == []:

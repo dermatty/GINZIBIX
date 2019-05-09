@@ -499,14 +499,44 @@ class ApplicationGui(Gtk.Application):
     # all the gui update functions
 
     def update_logs_and_lists(self):
-        if self.last_update_for_gui > self.pwdb.exc("db_msg_get_last_update", [], {}):
-            return
-        nzbname = self.pwdb.exc("db_nzb_get_current_nzbname", [], {})
-        if nzbname or (not nzbname and self.appdata.nzbname):
-            self.appdata.nzbname = nzbname
-            download_logs = self.pwdb.exc("db_msg_get", [self.appdata.nzbname], {})
-            self.update_logstore(download_logs)
-        self.last_update_for_gui = datetime.datetime.now()
+
+        # update log messages in download window
+        if self.activestack == "downloading":
+            if self.last_update_for_gui > self.pwdb.exc("db_msg_get_last_update", [], {}):
+                pass
+            else:
+                nzbname = self.pwdb.exc("db_nzb_get_current_nzbname", [], {})
+                if nzbname or (not nzbname and self.appdata.nzbname):
+                    self.appdata.nzbname = nzbname
+                    download_logs = self.pwdb.exc("db_msg_get", [self.appdata.nzbname], {})
+                    self.update_logstore(download_logs)
+                self.last_update_for_gui = datetime.datetime.now()
+
+        # update nzbhistory if active
+        if self.activestack == "history":
+            sortednzbhistorylist0 = self.pwdb.exc("get_stored_sorted_nzbhistory", [], {})
+            if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
+                if sortednzbhistorylist0 == [-1]:
+                    sortednzbhistorylist = []
+                else:
+                    sortednzbhistorylist = sortednzbhistorylist0
+                nzbs_copy = self.appdata.nzbs_history.copy()
+                self.appdata.nzbs_history = []
+                for idx1, (n_name, n_prio, n_updatedate, n_status, n_size, n_downloaded) in enumerate(sortednzbhistorylist):
+                    n_downloaded_gb = n_downloaded / GIBDIVISOR
+                    n_size_gb = n_size / GIBDIVISOR
+                    n_perc_downloaded = n_downloaded_gb / n_size_gb
+                    selected = False
+                    for n_selected0, n_name0, n_status0, n_size0, n_downloaded0, _, _ in nzbs_copy:
+                        if n_name0 == n_name:
+                            selected = n_selected0
+                    self.appdata.nzbs_history.append((selected, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, "white"))
+                if nzbs_copy != self.appdata.nzbs_history:
+                    self.update_nzbhistory_liststore()
+                self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
+
+
+
 
     def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, sortednzblist0,
                           sortednzbhistorylist0, article_health, connection_health, dlconfig,
@@ -542,31 +572,9 @@ class ApplicationGui(Gtk.Application):
         except Exception:
             netstat_mbitcur = 0
 
-        # ### stack "SERVERGRAPHS" ###
+        # update servergraph if active
         if self.activestack == "servergraphs":
             self.update_servergraph()
-
-        # ### stack "HISTORY" ###
-        if self.activestack == "history":
-            if sortednzbhistorylist0 and sortednzbhistorylist0 != self.appdata.sortednzbhistorylist:
-                if sortednzbhistorylist0 == [-1]:
-                    sortednzbhistorylist = []
-                else:
-                    sortednzbhistorylist = sortednzbhistorylist0
-                nzbs_copy = self.appdata.nzbs_history.copy()
-                self.appdata.nzbs_history = []
-                for idx1, (n_name, n_prio, n_updatedate, n_status, n_size, n_downloaded) in enumerate(sortednzbhistorylist):
-                    n_downloaded_gb = n_downloaded / GIBDIVISOR
-                    n_size_gb = n_size / GIBDIVISOR
-                    n_perc_downloaded = n_downloaded_gb / n_size_gb
-                    selected = False
-                    for n_selected0, n_name0, n_status0, n_size0, n_downloaded0, _, _ in nzbs_copy:
-                        if n_name0 == n_name:
-                            selected = n_selected0
-                    self.appdata.nzbs_history.append((selected, n_name, n_status, n_size_gb, n_downloaded_gb, n_perc_downloaded, "white"))
-                if nzbs_copy != self.appdata.nzbs_history:
-                    self.update_nzbhistory_liststore()
-                self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
 
         # downloading nzbs
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
@@ -901,19 +909,22 @@ class ApplicationGui(Gtk.Application):
             log_as_list.append(bg)
             log_as_list.append(fg)
             loglistlist.append(log_as_list)
-        for ll in reversed(loglistlist):
-            treeiter = self.logs_liststore.get_iter_first()
-            (msg0, level0, ts0, bg0, fg0) = ll
-            found = False
-            while treeiter is not None:
-                if msg0 == self.logs_liststore[treeiter][0] and level0 == self.logs_liststore[treeiter][1]\
-                   and ts0 == self.logs_liststore[treeiter][2]:
-                    found = True
-                    break
-                treeiter = self.logs_liststore.iter_next(treeiter)
-            if not found:
-                self.logs_liststore.prepend(ll)
-        # hier noch gtk self.treeview_loglist.set_cursor oder so
+        
+        if loglistlist:
+            # this avoids flickerung, however scroll_to_cell lags!
+            for ll in reversed(loglistlist):
+                treeiter = self.logs_liststore.get_iter_first()
+                (msg0, level0, ts0, bg0, fg0) = ll
+                found = False
+                while treeiter is not None:
+                    if msg0 == self.logs_liststore[treeiter][0] and level0 == self.logs_liststore[treeiter][1]\
+                       and ts0 == self.logs_liststore[treeiter][2]:
+                        found = True
+                        break
+                    treeiter = self.logs_liststore.iter_next(treeiter)
+                if not found:
+                    self.logs_liststore.prepend(ll)
+            self.treeview_loglist.scroll_to_cell(Gtk.TreePath(0), None)
 
     def update_serverlist_liststore(self, init=False):
         self.serverlist_liststore.clear()
