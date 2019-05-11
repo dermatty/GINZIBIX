@@ -142,5 +142,3 @@ if __name__ == '__main__':
         sh.shutdown(exit_status=exit_status)
 
     print("ginzibix exits!")
-    sys.exit()
-

@@ -9,6 +9,7 @@ import datetime
 import pandas as pd
 import nntplib
 import ssl
+import signal
 
 gi.require_version("Gtk", "3.0")
 
@@ -76,6 +77,17 @@ UNIT_DIC = {"MBit": "mbit", "KB": "kb", "MB": "mb", "GB": "gb"}
 DEBUGLEVEL_DIC = {"debug": 0, "info": 1, "warning": 2, "error": 3}
 
 
+# this is to catch (very rare) segfaults from gtk/gi
+class SigHandler_GUI:
+
+    def __init__(self, logger):
+        self.logger = logger
+
+    def sighandler_sigsev(self, a, b):
+        self.logger.warning(whoami() + ": segfault occured!")
+        print("Segfault!")
+
+
 # ******************************************************************************************************
 # *** main gui itself
 class ApplicationGui(Gtk.Application):
@@ -117,6 +129,10 @@ class ApplicationGui(Gtk.Application):
         self.tester_done = False
         self.tester_return_msg = ""
         self.ct = None
+
+        # Handler for SegFault
+        sh = SigHandler_GUI(self.logger)
+        signal.signal(signal.SIGSEGV, sh.sighandler_sigsev)
 
     def run(self, argv):
         self.app.run(argv)
@@ -510,9 +526,9 @@ class ApplicationGui(Gtk.Application):
             else:
                 nzbname = self.pwdb.exc("db_nzb_get_current_nzbname", [], {})
                 if nzbname or (not nzbname and self.appdata.nzbname):
+                    download_logs = self.pwdb.exc("db_msg_get", [nzbname], {})
+                    self.update_logstore(nzbname, download_logs)
                     self.appdata.nzbname = nzbname
-                    download_logs = self.pwdb.exc("db_msg_get", [self.appdata.nzbname], {})
-                    self.update_logstore(download_logs)
                 self.last_update_for_gui = datetime.datetime.now()
 
         # update nzbhistory if active
@@ -538,10 +554,7 @@ class ApplicationGui(Gtk.Application):
                     self.update_nzbhistory_liststore()
                 self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
 
-
-
-
-    def update_mainwindow(self, data, server_config, dl_running, nzb_status_string, sortednzblist0,
+    def update_mainwindow(self, data, server_config, dl_running, nzb_status_string,
                           article_health, connection_health, dlconfig, gb_downloaded, server_ts):
 
         # check if connection_tester has completed -> if yes, join tester thread, stop spinner etc.
@@ -579,6 +592,7 @@ class ApplicationGui(Gtk.Application):
             self.update_servergraph()
 
         # downloading nzbs
+        sortednzblist0 = self.pwdb.exc("get_stored_sorted_nzbs", [], {})
         if (sortednzblist0 and sortednzblist0 != self.appdata.sortednzblist):    # or (sortednzblist0 == [-1] and self.appdata.sortednzblist):
             # sort again just to make sure
             if sortednzblist0 == [-1]:
@@ -749,15 +763,6 @@ class ApplicationGui(Gtk.Application):
             self.logger.warning(whoami() + str(e) + ", setting debuglevel to 'info'")
             self.debuglevel = "info"
 
-        # debug level
-        try:
-            self.connectionsasmp = self.cfg["OPTIONS"]["CONNECTIONS_AS_MP"]
-            if self.connectionsasmp.lower() not in ["yes", "no"]:
-                self.connectionsasmp = "yes"
-        except Exception as e:
-            self.logger.warning(whoami() + str(e) + ", setting connections_as_mp to 'yes'")
-            self.connectionsasmp = "yes"
-
         # connection timeout
         try:
             self.serverconnectiontimeout = float(self.cfg["OPTIONS"]["CONNECTION_IDLE_TIMEOUT"])
@@ -877,11 +882,13 @@ class ApplicationGui(Gtk.Application):
             self.server_delete_button.set_sensitive(False)
             self.server_edit_button.set_sensitive(False)
 
-    def update_logstore(self, loglist):
+    def update_logstore(self, nzbname, loglist):
         # only show msgs for current nzb
-        if not self.appdata.nzbname:
+        if not nzbname:
             self.logs_liststore.clear()
             return
+        if nzbname != self.appdata.nzbname:
+            self.logs_liststore.clear()
         loglistlist = []
         for ll in loglist:
             (msg0, ts0, level0) = ll
@@ -911,7 +918,7 @@ class ApplicationGui(Gtk.Application):
             log_as_list.append(bg)
             log_as_list.append(fg)
             loglistlist.append(log_as_list)
-        
+
         if loglistlist:
             # this avoids flickerung, however scroll_to_cell lags!
             for ll in reversed(loglistlist):
@@ -935,10 +942,9 @@ class ApplicationGui(Gtk.Application):
             try:
                 treeiter = self.logs_liststore.get_iter_first()
                 if treeiter:
-                    self.treeview_loglist.scroll_to_cell(Gtk.TreePath(0), None)
+                    self.treeview_loglist.scroll_to_cell(Gtk.TreePath(0), column=None)
             except Exception:
                 pass
-            
 
     def update_serverlist_liststore(self, init=False):
         self.serverlist_liststore.clear()
@@ -1324,8 +1330,7 @@ class Handler:
                                        "pw_file": self.gui.gs_filechooser_button.get_filename(),
                                        "get_pw_directly": "yes" if self.gui.gs_getpwdir_switch.get_active() else "no",
                                        "update_delay": self.gui.gs_guidelay_spinbutton2.get_value(),
-                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value(),
-                                       "connections_as_mp": self.gui.connectionsasmp}
+                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value()}
             self.gui.restart_button.set_label("!")
             self.gui.read_config()
             self.gui.appdata.settings_changed = True
@@ -1518,7 +1523,7 @@ class Handler:
 
     def on_button_pause_resume_clicked(self, button):
         with self.gui.lock:
-            self.gui.appdata.dl_running = not self.gui.appdata.dl_runningactivestack
+            self.gui.appdata.dl_running = not self.gui.appdata.dl_running
         self.gui.guiqueue.put(("dl_running", self.gui.appdata.dl_running))
         if self.gui.appdata.dl_running:
             icon = Gio.ThemedIcon(name="media-playback-pause")

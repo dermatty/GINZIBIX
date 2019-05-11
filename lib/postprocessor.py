@@ -86,12 +86,6 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     logger = setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting ...")
 
-    # connections in main thread or as mp?
-    try:
-        CONNECTIONS_AS_MP = True if cfg["OPTIONS"]["CONNECTIONS_AS_MP"].lower() == "yes" else False
-    except Exception as e:
-        logger.warning(whoami() + str(e) + ", setting connections_as_mp to False")
-
     nzbdirname = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"
     incompletedir = dirs["incomplete"] + nzbdirname
     if not os.path.isdir(incompletedir):
@@ -112,13 +106,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
     logger.debug(whoami() + "starting clearing queues & pipes")
 
-    if not CONNECTIONS_AS_MP:
-        articlequeue.clear()
-        resultqueue.clear()
-
     # clear pipes
-    if CONNECTIONS_AS_MP:
-        do_mpconnections(pipes, "clearqueues", None)
+    do_mpconnections(pipes, "clearqueues", None)
     try:
         for key, item in pipes.items():
             if pipes[key][0].poll():

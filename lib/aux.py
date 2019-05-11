@@ -454,12 +454,11 @@ class GUI_Poller(Thread):
                     if datatype == "NOOK":
                         continue
                     elif datatype == "DL_DATA":
-                        data, server_config, dl_running, nzb_status_string, sortednzblist, \
+                        data, server_config, dl_running, nzb_status_string, \
                             article_health, connection_health, dlconfig, gb_downloaded, server_ts = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, dl_running, nzb_status_string,
-                                          sortednzblist, article_health, connection_health,
-                                          dlconfig, gb_downloaded, server_ts)
+                                          article_health, connection_health, dlconfig, gb_downloaded, server_ts)
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))

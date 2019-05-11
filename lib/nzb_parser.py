@@ -204,7 +204,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                     
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
-                        pwdb.exc("db_nzb_update_status", [nzb0, -1], {})   # status "cannot queue / -1"
+                        pwdb.exc("db_nzb_update_status", [nzb0, -1], {{"usefasttrack": False}})   # status "cannot queue / -1"
                     else:
                         size_gb = bytescount / (1024 * 1024 * 1024)
                         infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
@@ -234,7 +234,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                             if not pwdb.exc("db_nzb_are_all_nzb_idle", [], {}):
                                 time.sleep(0.3)
                         logger.info(whoami() + "Added NZB: " + infostr + " to database / queue")
-                        pwdb.exc("db_nzb_update_status", [nzb0, 1], {})         # status "queued / 1"
+                        pwdb.exc("db_nzb_update_status", [nzb0, 1], {"usefasttrack": False})  # status "queued / 1"
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
                         pwdb.exc("store_sorted_nzbs", [], {})
                         pwdb.exc("create_allfile_list_via_name", [nzb0, incompletedir], {})
