@@ -1,12 +1,10 @@
-db_msg_insert -> messages not shown in gui (wahrsch. weil all_data_for_gui nicht upgedatet wird) -> direkt 
-pwdb in gui.py abfragen???
+in news_server: if not downloading -> only -ALL SERVERS- update, but not eweka etc.
 
+remember position & size of window if restart!!
 
 missing articles? better checks:
 	if parvols: enough parvols to repair
 	no parvols: sofort abbrechen
-
-speed/mbit in gui too high - re-check/better logging - with 2 level 1 servers -> seems to double
 
 check 2 pw files hintereinander!!!
 
@@ -14,7 +12,6 @@ check 2 pw files hintereinander!!!
 
 5. if failed -> is not moved to history in gui
 6. Trying to get password from file / Cannot get pw from nzb string takes too long
-7. if paused -> hangs on shutdown
 8. cancel dl if dl + postproc takes "too long"
 
 -  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python

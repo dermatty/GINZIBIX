@@ -411,16 +411,42 @@
     <property name="can_focus">False</property>
     <property name="icon_name">view-refresh</property>
   </object>
-  <object class="GtkImage" id="image3">
+  <object class="GtkMenu" id="menu1">
     <property name="visible">True</property>
     <property name="can_focus">False</property>
-    <property name="tooltip_text" translatable="yes">settings</property>
-    <property name="icon_name">document-properties</property>
-  </object>
-  <object class="GtkImage" id="image4">
-    <property name="visible">True</property>
-    <property name="can_focus">False</property>
-    <property name="icon_name">dialog-information</property>
+    <child>
+      <object class="GtkMenuItem" id="menu1_settings">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">Settings</property>
+        <property name="use_underline">True</property>
+        <signal name="activate" handler="on_menu1_settings_activate" swapped="no"/>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="menu2_about">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">About</property>
+        <property name="use_underline">True</property>
+        <signal name="activate" handler="on_menu2_about_activate" swapped="no"/>
+      </object>
+    </child>
+    <child>
+      <object class="GtkSeparatorMenuItem">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkMenuItem" id="menu3_quit">
+        <property name="visible">True</property>
+        <property name="can_focus">False</property>
+        <property name="label" translatable="yes">Quit</property>
+        <property name="use_underline">True</property>
+        <signal name="activate" handler="on_menu3_quit_activate" swapped="no"/>
+      </object>
+    </child>
   </object>
   <object class="GtkApplicationWindow" id="main_window">
     <property name="can_focus">False</property>
@@ -1345,31 +1371,23 @@
           </packing>
         </child>
         <child>
-          <object class="GtkButton" id="button_about">
+          <object class="GtkMenuButton" id="hamburger_menu_button">
             <property name="visible">True</property>
             <property name="can_focus">True</property>
             <property name="receives_default">True</property>
-            <property name="tooltip_text" translatable="yes">about</property>
-            <property name="image">image4</property>
-            <signal name="clicked" handler="on_button_about_clicked" swapped="no"/>
+            <property name="popup">menu1</property>
+            <property name="use_popover">False</property>
+            <child>
+              <object class="GtkImage" id="image5">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="tooltip_text" translatable="yes">settings</property>
+                <property name="icon_name">document-properties</property>
+              </object>
+            </child>
           </object>
           <packing>
             <property name="pack_type">end</property>
-            <property name="position">2</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkButton" id="button_settings">
-            <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="receives_default">True</property>
-            <property name="image">image3</property>
-            <property name="always_show_image">True</property>
-            <signal name="clicked" handler="on_button_settings_clicked" swapped="no"/>
-          </object>
-          <packing>
-            <property name="pack_type">end</property>
-            <property name="position">3</property>
           </packing>
         </child>
       </object>

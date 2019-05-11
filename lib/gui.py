@@ -1228,8 +1228,64 @@ class Handler:
     def __init__(self, gui):
         self.gui = gui
 
-    def on_button_about_clicked(self, button):
+    def on_menu3_quit_activate(self, button):
+        self.gui.obj("menu1").popdown()
+        self.gui.app.quit()
+
+    def on_menu2_about_activate(self, button):
         do_about_dialog(self.gui.window)
+        self.gui.obj("hamburger_menu_button").set_active(False)
+
+    def on_menu1_settings_activate(self, button):
+        # self.gui.obj("hamburger_menu_button").set_active(False)
+
+        if not self.gui.generalsettingsdialog:
+            self.gui.generalsettingsdialog = GeneralSettingsDialog(self.gui.window, "Settings", self.gui)
+        # preset values
+        self.gui.gs_filechooser_button.set_filename(self.gui.pw_file)
+        if self.gui.pw_file != "":
+            try:
+                with open(self.gui.pw_file, "r") as f:
+                    self.gui.pw_file_text = f.read()
+            except Exception as e:
+                if DEBUGPRINT:
+                    print(str(e))
+                pass
+        else:
+            self.pw_file_text = ""
+        self.gui.gs_pwfile_textbuffer.set_text(self.gui.pw_file_text)
+        if self.gui.get_pw_directly.lower() == "yes":
+            self.gui.gs_getpwdir_switch.set_active(True)
+        else:
+            self.gui.gs_getpwdir_switch.set_active(False)
+        if self.gui.sanity_precheck.lower() == "yes":
+            self.gui.gs_sanprecheck_switch.set_active(True)
+        else:
+            self.gui.gs_sanprecheck_switch.set_active(False)
+        self.gui.gs_connectionstimeout_spinbutton1.set_value(float(self.gui.serverconnectiontimeout))
+        self.gui.gs_guidelay_spinbutton2.set_value(float(self.gui.update_delay))
+        self.gui.gs_debuglevel_combotext.set_active(DEBUGLEVEL_DIC[self.gui.debuglevel])
+
+        # wait for dialog completed
+        response = self.gui.generalsettingsdialog.run()
+        self.gui.generalsettingsdialog.hide()
+        if response == Gtk.ResponseType.CANCEL:
+            self.gui.obj("menu1").popdown()
+            return
+
+        # get & store return values
+        with self.gui.lock:
+            self.gui.cfg["OPTIONS"] = {"debuglevel": self.gui.gs_debuglevel_combotext.get_active_text(),
+                                       "sanity_check": "yes" if self.gui.gs_sanprecheck_switch.get_active() else "no",
+                                       "pw_file": self.gui.gs_filechooser_button.get_filename(),
+                                       "get_pw_directly": "yes" if self.gui.gs_getpwdir_switch.get_active() else "no",
+                                       "update_delay": self.gui.gs_guidelay_spinbutton2.get_value(),
+                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value()}
+            self.gui.restart_button.set_label("!")
+            self.gui.read_config()
+            self.gui.appdata.settings_changed = True
+
+        self.gui.obj("menu1").popdown()
 
     def on_test_connection_button_clicked(self, button):
         self.gui.serverdialog_test_button.set_sensitive(False)
@@ -1288,52 +1344,6 @@ class Handler:
                     print(str(e))
                 pass
         self.gui.gs_pwfile_textbuffer.set_text(self.pw_file_text)
-
-    def on_button_settings_clicked(self, button):
-        if not self.gui.generalsettingsdialog:
-            self.gui.generalsettingsdialog = GeneralSettingsDialog(self.gui.window, "Settings", self.gui)
-        # preset values
-        self.gui.gs_filechooser_button.set_filename(self.gui.pw_file)
-        if self.gui.pw_file != "":
-            try:
-                with open(self.gui.pw_file, "r") as f:
-                    self.gui.pw_file_text = f.read()
-            except Exception as e:
-                if DEBUGPRINT:
-                    print(str(e))
-                pass
-        else:
-            self.pw_file_text = ""
-        self.gui.gs_pwfile_textbuffer.set_text(self.gui.pw_file_text)
-        if self.gui.get_pw_directly.lower() == "yes":
-            self.gui.gs_getpwdir_switch.set_active(True)
-        else:
-            self.gui.gs_getpwdir_switch.set_active(False)
-        if self.gui.sanity_precheck.lower() == "yes":
-            self.gui.gs_sanprecheck_switch.set_active(True)
-        else:
-            self.gui.gs_sanprecheck_switch.set_active(False)
-        self.gui.gs_connectionstimeout_spinbutton1.set_value(float(self.gui.serverconnectiontimeout))
-        self.gui.gs_guidelay_spinbutton2.set_value(float(self.gui.update_delay))
-        self.gui.gs_debuglevel_combotext.set_active(DEBUGLEVEL_DIC[self.gui.debuglevel])
-
-        # wait for dialog completed
-        response = self.gui.generalsettingsdialog.run()
-        self.gui.generalsettingsdialog.hide()
-        if response == Gtk.ResponseType.CANCEL:
-            return
-
-        # get & store return values
-        with self.gui.lock:
-            self.gui.cfg["OPTIONS"] = {"debuglevel": self.gui.gs_debuglevel_combotext.get_active_text(),
-                                       "sanity_check": "yes" if self.gui.gs_sanprecheck_switch.get_active() else "no",
-                                       "pw_file": self.gui.gs_filechooser_button.get_filename(),
-                                       "get_pw_directly": "yes" if self.gui.gs_getpwdir_switch.get_active() else "no",
-                                       "update_delay": self.gui.gs_guidelay_spinbutton2.get_value(),
-                                       "connection_idle_timeout": self.gui.gs_connectionstimeout_spinbutton1.get_value()}
-            self.gui.restart_button.set_label("!")
-            self.gui.read_config()
-            self.gui.appdata.settings_changed = True
 
     def on_server_edit_clicked(self, button):
         servername = self.gui.servergraph_selectedserver
