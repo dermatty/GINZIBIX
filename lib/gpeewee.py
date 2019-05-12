@@ -81,7 +81,15 @@ class PWDB():
                 return super(TimestampedModel, self).save(*args, **kwargs)
 
         class CONFIG(BaseModel):
-            connection_health_threshold = IntegerField(default=65)
+            # connection_health_threshold = IntegerField(default=65)
+            pseudoname = CharField()
+            gui_position_x = IntegerField(default=-1)
+            gui_position_y = IntegerField(default=-1)
+            gui_width = IntegerField(default=-1)
+            gui_height = IntegerField(default=-1)
+            gui_is_maximized = BooleanField(default=False)
+            gui_is_fullscreen = BooleanField(default=False)
+            gui_screen = DillField(default="N/A")
 
         class MSG(BaseModel):
             nzbname = CharField()
@@ -197,7 +205,8 @@ class PWDB():
         self.FILE = FILE
         self.ARTICLE = ARTICLE
         self.SERVER_TS = SERVER_TS
-        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.SERVER_TS]
+        self.CONFIG = CONFIG
+        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.SERVER_TS, self.CONFIG]
 
         if self.db_file_exists:
             try:
@@ -264,6 +273,29 @@ class PWDB():
                 nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
             nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
         return nzb_data
+
+    # ---- self.CONFIG ----
+    def db_config_update(self, pos_x, pos_y, gui_width, gui_height, gui_is_max, gui_is_full):
+        try:
+            msg, created = self.CONFIG.get_or_create(pseudoname="config")
+            msg.gui_position_x = pos_x
+            msg.gui_position_y = pos_y
+            msg.gui_width = gui_width
+            msg.gui_height = gui_height
+            msg.gui_is_maximized = gui_is_max
+            msg.gui_is_fullscreen = gui_is_full
+            # msg.gui_screen = gui_screen
+            msg.save()
+        except Exception as e:
+            print("----", str(e))
+            pass
+
+    def db_config_get(self):
+        try:
+            msg = self.CONFIG.get(self.CONFIG.pseudoname == "config")
+            return msg.gui_position_x, msg.gui_position_y, msg.gui_width, msg.gui_height
+        except Exception:
+            return -1, -1, -1, -1
 
     # ---- self.SERVER_TS ----
     def db_sts_insert(self, servername, downloaded):

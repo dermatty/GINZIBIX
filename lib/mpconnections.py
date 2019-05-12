@@ -309,17 +309,15 @@ class ConnectionThreads:
             result["-ALL SERVERS-"] = 0
         if not self.servers:
             return result
-        #sumbdl = 0
         for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
             if useserver:
+                print(servername)
                 bdl = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
-                #sumbdl += bdl
                 result["-ALL SERVERS-"] += bdl
                 try:
                     result[servername] = self.bdl_results[servername] + bdl
                 except Exception:
                     result[servername] = bdl
-        #print(time.time(), sumbdl / (1024 * 1024))
         return result
 
     def start_threads(self):

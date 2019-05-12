@@ -454,6 +454,9 @@
     <property name="margin_right">5</property>
     <property name="margin_top">5</property>
     <property name="margin_bottom">5</property>
+    <signal name="destroy" handler="on_main_window_destroy" swapped="no"/>
+    <signal name="size-allocate" handler="on_main_window_size_allocate" swapped="no"/>
+    <signal name="window-state-event" handler="on_main_window_window_state_event" swapped="no"/>
     <child>
       <object class="GtkBox" id="box_primary">
         <property name="visible">True</property>
@@ -1388,6 +1391,7 @@
           </object>
           <packing>
             <property name="pack_type">end</property>
+            <property name="position">2</property>
           </packing>
         </child>
       </object>
