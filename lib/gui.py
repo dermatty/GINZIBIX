@@ -1730,7 +1730,7 @@ class Handler:
 
     def on_main_window_destroy(self, widget):
         screen = self.gui.window.get_screen()
-        print(screen.get_number())
+        display = screen.get_display()
 
         width, height = self.gui.current_width, self.gui.current_height
         is_max, is_full = self.gui.is_maximized, self.gui.is_fullscreen
