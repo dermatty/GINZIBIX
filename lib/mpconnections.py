@@ -311,7 +311,6 @@ class ConnectionThreads:
             return result
         for servername, _, _, _, _, _, _, _, _, useserver in self.servers.server_config:
             if useserver:
-                print(servername)
                 bdl = sum([t.bytesdownloaded for t, _ in self.threads if t.name == servername])
                 result["-ALL SERVERS-"] += bdl
                 try:

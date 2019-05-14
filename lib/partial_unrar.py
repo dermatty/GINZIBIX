@@ -89,9 +89,6 @@ def process_next_unrar_child_pass(event_idle, child, logger):
         if "All OK" in str0:
             status = 0
             statmsg = "All OK"
-        else:
-            status = -3
-            statmsg = "unknown error: other"
     event_idle.clear()
     return status, statmsg, str0
 

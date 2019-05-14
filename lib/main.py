@@ -557,9 +557,9 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                                 logger.debug(whoami() + reprocessed_nzb + ": status " + str(reproc_stat0) + ", restart from 0")
                             # status -4/-3 (postproc. failed/interrupted): re-postprocess
                             elif reproc_stat0 in [-4, -3]:
-                                if stat0 == -4:
-                                    pwdb.exc("db_nzb_undo_postprocess", [nzbname], {})
-                                    clear_postproc_dirs(nzbname, dirs)
+                                if reproc_stat0 == -4:
+                                    pwdb.exc("db_nzb_undo_postprocess", [reprocessed_nzb], {})
+                                    clear_postproc_dirs(reprocessed_nzb, dirs)
                                 #  if incompletedir: -> postprocess again
                                 if os.path.isdir(incompletedir):
                                     pwdb.exc("nzb_prio_insert_second", [reprocessed_nzb, 3], {})

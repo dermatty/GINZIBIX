@@ -169,11 +169,6 @@ class ApplicationGui(Gtk.Application):
         self.server_apply_button = self.obj("apply_server")
         self.restart_button = self.obj("button_restart")
 
-        #pos_x, pos_y, gui_width, gui_height = self.pwdb.exc("db_config_get", [], {})
-        #if pos_x != -1 and pos_y != -1 and gui_width != -1 and gui_height != -1:
-        #    self.window.move(pos_x, pos_y)
-        #    self.window.resize(gui_width, gui_height)
-
         self.last_update_for_gui = datetime.datetime.now()
 
         self.serversettingsdialog = None
@@ -1728,6 +1723,7 @@ class Handler:
             self.gui.unselect_selected_from_history_and_update(selected_nzbs)
             self.gui.guiqueue.put(("reprocess_from_start", selected_nzbs))
 
+    # --- unused signal ---
     def on_main_window_destroy(self, widget):
         screen = self.gui.window.get_screen()
         display = screen.get_display()
@@ -1745,19 +1741,19 @@ class Handler:
         curr_monitor = screen.get_monitor_at_window(screen.get_active_window())
         print(">>>:", curr_monitor)
         print(monitors[curr_monitor].x, monitors[curr_monitor].y, monitors[curr_monitor].width, monitors[curr_monitor].height)
-
         # x, y, width, height = monitors[curr_monitor]
-
         print(width, height, is_max, is_full, pos_x, pos_y)
         #try:
         #    self.gui.pwdb.exc("db_config_update", [pos_x, pos_y, width, height, is_max. is_full], {})
         #except Exception as e:
         #    pass
 
+    # --- unused signal ---
     def on_main_window_size_allocate(self, *args):
         if not (self.gui.is_maximized or self.gui.is_fullscreen):
             self.gui.current_width, self.gui.current_height = self.gui.window.get_size()
 
+    # --- unused signal ---
     def on_main_window_window_state_event(self, wind, eventwinstate):
         ws = eventwinstate.new_window_state
         if ws & Gdk.WindowState.MAXIMIZED != 0:
