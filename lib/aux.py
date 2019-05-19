@@ -12,6 +12,7 @@ from gi.repository import GLib
 from os.path import expanduser
 from threading import Thread
 from .mplogging import whoami
+import signal
 
 gi.require_version('Gtk', '3.0')
 
@@ -123,6 +124,31 @@ def mpp_is_alive(mpp, procname):
         return True
     except Exception:
         return False
+
+
+def kill_mpp(mpp, mppname, timeout=None):
+    try:
+        if mpp_is_alive(mpp, mppname):
+            mpid = mpp[mppname].pid
+            os.kill(mpid, signal.SIGTERM)
+            mpp[mppname].join(timeout=timeout)
+            if mpp_is_alive(mpp, mppname):
+                os.kill(mpid, signal.SIGKILL)
+                mpp[mppname].join()
+            mpp[mppname] = None
+        elif mpp[mppname]:
+            try:
+                mpid = mpp[mppname].pid
+                os.kill(mpid, signal.SIGKILL)
+            except Exception:
+                pass
+            mpp[mppname] = None
+    except Exception:
+        try:
+            mpp[mppname] = None
+        except Exception:
+            pass
+    return
 
 
 def mpp_join(mpp, procname, timeout=-1):

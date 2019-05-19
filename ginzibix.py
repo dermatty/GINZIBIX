@@ -37,35 +37,35 @@ class SigHandler_Ginzibix:
             trstr = str(datetime.datetime.now()) + ": RESTART - "
         else:
             trstr = str(datetime.datetime.now()) + ": SHUTDOWN - "
+        # shutdown mpp_main
         if self.mpp_main:
             if self.mpp_main.pid:
-                print(trstr + "joining main!")
-                try:
-                    # os.kill(self.mpp_main.pid, signal.SIGTERM)
-                    self.mpp_main.join()
-                    # os.kill(self.mpp_main.pid, signal.SIGTERM)
-                except Exception:
-                    pass
+                print(trstr + "joining main ...")
+                self.mpp_main.join(timeout=30)
+                if self.mpp_main.is_alive():
+                    print(trstr + "attention, nzb db may be corrupt, killing main")
+                    os.kill(self.mpp_main.pid, signal.SIGKILL)
         try:
             self.pwdb.exc("set_exit_goodbye_from_main", [], {})
         except Exception:
             pass
-        print(trstr + "joining mpp_wrapper")
-        try:
-            self.mpp_wrapper.join(timeout=5)
-            if self.mpp_wrapper.is_alive():
-                print(trstr + "killing mpp_wrapper")
-                os.kill(self.mpp_wrapper.pid, signal.SIGTERM)
-        except Exception as e:
-            logger.warning(lib.whoami() + str(e))
-        print(trstr + "killing loglistener")
-        lib.stop_logging_listener(self.mp_loggerqueue, self.mp_loglistener)
-        try:
-            if self.mp_loglistener.is_alive():
-                os.kill(self.mp_loglistener.pid, signal.SIGTERM)
+        # shutdown mpp_wrapper
+        if self.mpp_wrapper:
+            if self.mpp_wrapper.pid:
+                print(trstr + "joining mpp_wrapper ...")
+                self.mpp_wrapper.join(timeout=5)
+                if self.mpp_wrapper.is_alive():
+                    print(trstr + "killing mpp_wrapper")
+                    os.kill(self.mpp_wrapper.pid, signal.SIGKILL)
+        # shutdown loglistener
+        if self.mp_loglistener:
+            if self.mp_loglistener.pid:
+                print(trstr + "joining loglistener ...")
+                lib.stop_logging_listener(self.mp_loggerqueue, self.mp_loglistener)
                 self.mp_loglistener.join(timeout=5)
-        except Exception as e:
-            logger.warning(lib.whoami() + str(e))
+                if self.mp_loglistener.is_alive():
+                    print(trstr + "killing mpp_wrapper")
+                    os.kill(self.mp_loglistener.pid, signal.SIGKILL)
         print(trstr + "finally done!")
 
 

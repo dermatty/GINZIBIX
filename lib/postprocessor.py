@@ -10,7 +10,7 @@ import re
 import glob
 import shutil
 import sys
-from .aux import PWDBSender, mpp_is_alive, mpp_join, clear_postproc_dirs, do_mpconnections
+from .aux import PWDBSender, mpp_is_alive, mpp_join, clear_postproc_dirs, do_mpconnections, kill_mpp
 from .mplogging import setup_logger, whoami
 from setproctitle import setproctitle
 
@@ -134,13 +134,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             timeout_reached = True
         if timeout_reached:
             logger.warning(whoami() + "Timeout reached/error in joining decoder, terminating decoder ...")
-            try:
-                os.kill(mpp["decoder"].pid, signal.SIGTERM)
-                mpp["decoder"].join()
-                mpp["decoder"] = None
-                logger.info(whoami() + "decoder terminated!")
-            except Exception as e:
-                logger.warning(whoami() + str(e) + ": cannot terminate decoder")
+            kill_mpp(mpp, "decoder")
+            logger.info(whoami() + "decoder terminated!")
             try:
                 while not mp_work_queue.empty():
                     mp_work_queue.get_no_wait()
@@ -184,11 +179,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                     while event_verifieridle.is_set() and time.time() - t0 < 30:
                         time.sleep(0.5)
                     if time.time() - t0 >= 30:
-                        logger.info(whoami() + "Verifier deadlock, killing unrarer!")
-                        try:
-                            os.kill(mpp["verifier"].pid, signal.SIGTERM)
-                        except Exception as e:
-                            logger.debug(whoami() + str(e))
+                        logger.info(whoami() + "Verifier deadlock, killing verifier!")
+                        kill_mpp(mpp, "verifier")
                         break
                     else:
                         continue
@@ -206,14 +198,9 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         logger.debug(whoami() + "something is wrong with par_verifier, exiting postprocessor")
         logger.info(whoami() + "postprocess of NZB " + nzbname + " failed!")
         if mpp_is_alive(mpp, "verifier"):
-            try:
-                logger.debug(whoami() + "terminating par_verifier")
-                os.kill(mpp["verifier"].pid, signal.SIGTERM)
-                mpp["verifier"].join()
-                mpp["verifier"] = None
-                logger.info(whoami() + "verifier terminated!")
-            except Exception as e:
-                logger.warning(whoami() + str(e) + ": error in killing verifier!")
+            logger.debug(whoami() + "terminating par_verifier")
+            kill_mpp(mpp, "verifier")
+            logger.info(whoami() + "verifier terminated!")
         sys.exit()
 
     stop_wait(nzbname, dirs, pwdb)
@@ -289,12 +276,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                         time.sleep(0.5)
                     if time.time() - t0 >= timeout0:
                         logger.info(whoami() + "Unrarer deadlock, killing unrarer!")
-                        try:
-                            os.kill(mpp["unrarer"].pid, signal.SIGTERM)
-                            mpp_join(mpp, "unrarer")
-                            mpp["unrarer"] = None
-                        except Exception as e:
-                            logger.debug(whoami() + str(e))
+                        kill_mpp(mpp, "unrarer")
                         break
                     else:
                         logger.debug(whoami() + "Unrarer not idle, waiting before terminating")
@@ -305,13 +287,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
                     break
         else:
             logger.info(whoami() + "Repair/unrar not possible, killing unrarer!")
-            try:
-                os.kill(mpp["unrarer"].pid, signal.SIGTERM)
-                mpp_join(mpp, "unrarer")
-                mpp["unrarer"] = None
-            except Exception as e:
-                logger.debug(whoami() + str(e))
-        mpp["unrarer"] = None
+            kill_mpp(mpp, "unrarer")
         logger.debug(whoami() + "unrarer completed/terminated!")
 
     stop_wait(nzbname, dirs, pwdb)
