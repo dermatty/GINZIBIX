@@ -57,7 +57,7 @@ def delete_all_rar_files(unpack_dir, logger):
 
 
 def process_next_unrar_child_pass(event_idle, child, logger):
-    event_idle.set()
+    #event_idle.set()
     str0 = ""
     while True:
         try:
@@ -89,7 +89,7 @@ def process_next_unrar_child_pass(event_idle, child, logger):
         if "All OK" in str0:
             status = 0
             statmsg = "All OK"
-    event_idle.clear()
+    #event_idle.clear()
     return status, statmsg, str0
 
 

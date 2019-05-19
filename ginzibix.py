@@ -64,7 +64,7 @@ class SigHandler_Ginzibix:
                 lib.stop_logging_listener(self.mp_loggerqueue, self.mp_loglistener)
                 self.mp_loglistener.join(timeout=5)
                 if self.mp_loglistener.is_alive():
-                    print(trstr + "killing mpp_wrapper")
+                    print(trstr + "killing loglistener")
                     os.kill(self.mp_loglistener.pid, signal.SIGKILL)
         print(trstr + "finally done!")
 
@@ -142,3 +142,4 @@ if __name__ == '__main__':
         sh.shutdown(exit_status=exit_status)
 
     print("ginzibix exits!")
+    os._exit(1)
