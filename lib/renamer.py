@@ -37,18 +37,20 @@ def get_not_yet_renamed_files(source_dir, filewrite_lock):
 
 def scan_renamed_dir(renamed_dir, p2obj, filewrite_lock, logger):
     # get all files in renamed
+    p2list = []
     with filewrite_lock:
         rn = []
         p2obj0 = p2obj
         p2basename0 = None
         for fn in glob.glob(renamed_dir + "*"):
             fn0 = fn.split("/")[-1]
-            if not p2obj0:
-                ptype0 = check_for_par_filetype(fn)
-                if ptype0 == 1:
-                    p2obj0 = Par2File(fn)
-                    p2basename0 = fn.split(".par2")[0]
-                    logger.debug(whoami() + "Found .par2 in _renamed0: " + fn0)
+
+            ptype0 = check_for_par_filetype(fn)
+            if ptype0 == 1:
+                p2obj0 = Par2File(fn)
+                p2basename0 = fn.split(".par2")[0]
+                logger.debug(whoami() + "Found .par2 in _renamed0: " + fn0)
+                p2list.append((p2obj0, p2basename0))
             rn.append(fn0)
     return rn, p2obj0, p2basename0
 

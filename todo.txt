@@ -1,6 +1,10 @@
-in news_server: if not downloading -> only -ALL SERVERS- update, but not eweka etc.
+par_verifier stops and starts
 
-remember position & size of window if restart!!
+main - DEBUG - run / #548: unrarer finished, but not cleaned up, cleaning ...
+
+rewrite renamer - redundant stuff there!
+
+multiple par2's and rar-chains!
 
 missing articles? better checks:
 	if parvols: enough parvols to repair
