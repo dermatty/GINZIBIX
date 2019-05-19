@@ -404,7 +404,7 @@ class GUI_Poller(Thread):
         dl_running = True
         while not self.event_stopped.wait(self.delay):
             # some button pressed, of which main.py should be informed?
-            self.gui.update_logs_and_lists()
+            GLib.idle_add(self.gui.update_logs_and_lists)
 
             try:
                 queue_elem = self.guiqueue.get_nowait()

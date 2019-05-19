@@ -897,13 +897,9 @@ class ApplicationGui(Gtk.Application):
             self.server_edit_button.set_sensitive(False)
 
     def update_logstore(self, nzbname, loglist):
-        # only show msgs for current nzb
+        self.logs_liststore.clear()
         if not nzbname:
-            self.logs_liststore.clear()
             return
-        if nzbname != self.appdata.nzbname:
-            self.logs_liststore.clear()
-        loglistlist = []
         for ll in loglist:
             (msg0, ts0, level0) = ll
             log_as_list = []
@@ -931,34 +927,7 @@ class ApplicationGui(Gtk.Application):
                 bg = "white"
             log_as_list.append(bg)
             log_as_list.append(fg)
-            loglistlist.append(log_as_list)
-
-        if loglistlist:
-            # this avoids flickerung, however scroll_to_cell lags!
-            for ll in reversed(loglistlist):
-                try:
-                    treeiter = self.logs_liststore.get_iter_first()
-                except Exception:
-                    treeiter = None
-                if not treeiter:
-                    self.logs_liststore.append(ll)
-                    continue
-                (msg0, level0, ts0, bg0, fg0) = ll
-                found = False
-                while treeiter is not None:
-                    if msg0 == self.logs_liststore[treeiter][0] and level0 == self.logs_liststore[treeiter][1]\
-                       and ts0 == self.logs_liststore[treeiter][2]:
-                        found = True
-                        break
-                    treeiter = self.logs_liststore.iter_next(treeiter)
-                if not found:
-                    self.logs_liststore.prepend(ll)
-            try:
-                treeiter = self.logs_liststore.get_iter_first()
-                if treeiter:
-                    self.treeview_loglist.scroll_to_cell(Gtk.TreePath(0), column=None)
-            except Exception:
-                pass
+            self.logs_liststore.append(log_as_list)
 
     def update_serverlist_liststore(self, init=False):
         self.serverlist_liststore.clear()

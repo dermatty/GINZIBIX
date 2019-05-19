@@ -536,7 +536,7 @@ class Downloader(Thread):
             unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
             if unrarstatus == 1:    # if unrarer is busy, does it hang?
                 if not mpp_is_alive(self.mpp, "unrarer") or\
-                   (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime):
+                   (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
                     self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
                     kill_mpp(self.mpp, "unrarer")
                     self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
@@ -640,12 +640,6 @@ class Downloader(Thread):
                     self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                     self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 
-            # for monitoring download progress of unrarer
-            if self.filetypecounter["rar"]["counter"] > rarcounter:
-                self.logger.debug(whoami() + ": new rar downloaded")
-                rarcounter += 1
-                last_rar_downloadedtime = time.time()
-
             # check if unrarer should be started
             if not self.event_stopped.isSet() and unrarstatus == 0 and self.filetypecounter["rar"]["counter"] > oldrarcounter\
                and not self.pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {}):
@@ -653,6 +647,8 @@ class Downloader(Thread):
                 rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
                 # if no rar files in verified_rardir: skip as we cannot test for password
                 if rf:
+                    rarcounter += 1
+                    last_rar_downloadedtime = time.time()
                     oldrarcounter = self.filetypecounter["rar"]["counter"]
                     self.logger.debug(whoami() + ": first/new verified rar file appeared, testing if pw protected")
                     is_pwp = is_rar_password_protected(self.verifiedrar_dir, self.logger)
@@ -693,8 +689,11 @@ class Downloader(Thread):
                         self.logger.info(whoami() + ": cannot check for pw protection as first rar not present yet")
                 else:
                     self.logger.debug(whoami() + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
+            elif self.filetypecounter["rar"]["counter"] > rarcounter:
+                self.logger.debug(whoami() + ": new rar downloaded")
+                rarcounter += 1
+                last_rar_downloadedtime = time.time()
 
-            # print(time.time(), "#5")
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "verifier"):
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
