@@ -164,6 +164,22 @@ FILE_DESCRIPTION_PACKET = ("<64s"  # PACKET_HEADER
                            "16s"   # hashfull;  hash of the whole file (which?)
                            "16s"   # hash16k;  hash of the first 16k of the file (which?)
                            "Q")    # length of the file
+# Length (bytes)	Type	        Description
+#   8	                8-byte uint	Slice size. Must be a multiple of 4.
+#   4	                4-byte uint	Number of files in the recovery set.
+# ?*16	                MD5 Hash array	File IDs of all files in the recovery set. (See File Description packet.) These hashes are sorted by numerical value
+#                                       (treating them as 16-byte unsigned integers).
+# ?*16	                MD5 Hash array	File IDs of all files in the non-recovery set. (See File Description packet.) These hashes are sorted by numerical value
+#                                       (treating them as 16-byte unsigned integers).
+MAIN_PACKET = ("<64s"   # PACKET_HEADER
+               "q"     # 8-byte uint	Slice size. Must be a multiple of 4.
+               "i")     # 4-byte uint	Number of files in the recovery set.
+
+# Length (bytes)	Type	        Description
+#     4	                4-byte unit	Exponent used to generate recovery data
+# ?*4	                byte array	Recovery data.
+RECOVERY_SLICE_PACKET = ("<64s"
+                         "i")
 
 
 class Header(object):
@@ -182,12 +198,44 @@ class Header(object):
         return self.magic == b'PAR2\x00PKT'
 
 
+class RecSlicePacket(object):
+    header_type = b"PAR 2.0\x00RecvSlic"
+    fmt = RECOVERY_SLICE_PACKET
+
+    def __init__(self, par2file, offset=0):
+        self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
+        parts = struct.unpack(self.fmt, self.raw)
+        self.header = Header(parts[0])
+        self.exponent = parts[1]
+
+
 class UnknownPar2Packet(object):
     fmt = PACKET_HEADER
 
     def __init__(self, par2file, offset=0):
         self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
         self.header = Header(self.raw)
+
+
+class MainPacket(object):
+    header_type = b"PAR 2.0\x00Main\x00\x00\x00\x00"
+    fmt = MAIN_PACKET
+
+    def __init__(self, par2file, offset=0):
+        self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
+        parts = struct.unpack(self.fmt, self.raw)
+        self.header = Header(parts[0])
+        self.slice_size = parts[1]
+        self.no_files = parts[2]
+        self.file_id_list = []
+
+        self.fmt0 = "16s"
+        offset0 = offset+struct.calcsize(self.fmt)
+        while offset0 < offset + self.header.length:
+            self.raw2 = par2file[offset0:offset0+struct.calcsize(self.fmt0)]
+            parts0 = struct.unpack(self.fmt0, self.raw2)
+            self.file_id_list.append(parts0[0])
+            offset0 += struct.calcsize(self.fmt0)
 
 
 class FileDescriptionPacket(object):
@@ -229,6 +277,10 @@ class Par2File(object):
             header = Header(self.contents, offset)
             if header.type == FileDescriptionPacket.header_type:
                 packets.append(FileDescriptionPacket(self.contents, offset))
+            elif header.type == RecSlicePacket.header_type:
+                packets.append(RecSlicePacket(self.contents, offset))
+            elif header.type == MainPacket.header_type:
+                packets.append(MainPacket(self.contents, offset))
             else:
                 packets.append(UnknownPar2Packet(self.contents, offset))
             offset += header.length
@@ -236,14 +288,36 @@ class Par2File(object):
 
     def filenames_only(self):
         """Returns the filenames that this par2 file repairs."""
-        return [p.name.decode("utf-8") for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        fnlist = [p.name.decode("utf-8") for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        return list(dict.fromkeys(fnlist))
 
     def filenames(self):
         """Returns the filenames that this par2 file repairs."""
-        return [(p.name.decode("utf-8"), p.file_hashfull) for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        fnlist = [(p.name.decode("utf-8"), p.file_hashfull) for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        return list(dict.fromkeys(fnlist))
+
+    def get_main_data(self):
+        fnlist = [(p.slice_size, p.no_files, p.file_id_list) for p in self.packets if isinstance(p, MainPacket)]
+        mlist =  []
+        for p in self.packets:
+            if isinstance(p, FileDescriptionPacket):
+                for m in self.packets:
+                    if isinstance(m, MainPacket):
+                        if p.fileid in m.file_id_list:
+                            mlist.append((m.slice_size, m.no_files, p.name))
+        mlist = list(dict.fromkeys(mlist))
+        return mlist
+
+    # returns xxx, yyy in ...volxxx+yyy.par2
+    def get_vol_exponents(self):
+        exp_list = [p.exponent for p in self.packets if isinstance(p, RecSlicePacket)]
+        if exp_list:
+            return min(exp_list), max(exp_list) - min(exp_list) + 1
+        return -1, -1
 
     def md5_16khash(self):
-        return [(p.name.decode("utf-8"), p.file_hash16k) for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        hashlist = [(p.name.decode("utf-8"), p.file_hash16k) for p in self.packets if isinstance(p, FileDescriptionPacket)]
+        return list(dict.fromkeys(hashlist))
 
     def related_pars(self):
         """Returns a list of related par2 files (ones par2 will try to read
@@ -302,8 +376,16 @@ def get_file_type(filename):
         filetype0 = "etc"
     return filetype0
 
+# fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.vol15+16.par2"
+fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
 
-#fn = "/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2"
+p2obj = Par2File(fn)
+fnlist = p2obj.filenames()
+vol_xxx, vol_yyy = p2obj.get_vol_exponents()
+for f in fnlist:
+    print(f)
+print(vol_xxx, vol_yyy)
+print(p2obj.get_main_data())
 #a = check_for_par_filetype(fn)
 #print(a)
 

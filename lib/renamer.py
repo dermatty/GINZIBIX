@@ -424,6 +424,7 @@ def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
                                 elif partype == 2:
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2vol"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2vol", fnshort, oldft))
+                                    # could set # of blocks here in gpeewee
                                 with filewrite_lock:
                                     os.remove(fnfull)
                             else:
