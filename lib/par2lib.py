@@ -51,6 +51,16 @@ import hashlib
 from random import randint
 
 
+signatures = {
+    'par2': 'PAR2\x00',
+    'zip': 'PK\x03\x04',  # empty is \x05\x06, multi-vol is \x07\x08
+    'rar': 'Rar!\x1A\x07\x00',
+    '7zip': '7z\xbc\xaf\x27\x1c',
+    'bzip2': 'BZh',
+    'gzip': '\x1f\x8b\x08',
+}
+
+
 def check_for_par_filetype(fname):
     # return: 1 ... par2 main file
     #         2 ... par2vol file
@@ -100,15 +110,6 @@ def check_for_rar_filetype(fname):
         return 1
     return 0
 
-
-signatures = {
-    'par2': 'PAR2\x00',
-    'zip': 'PK\x03\x04',  # empty is \x05\x06, multi-vol is \x07\x08
-    'rar': 'Rar!\x1A\x07\x00',
-    '7zip': '7z\xbc\xaf\x27\x1c',
-    'bzip2': 'BZh',
-    'gzip': '\x1f\x8b\x08',
-}
 
 lscolors = filter(None, os.environ.get('LS_COLORS', '').split(':'))
 dircolormap = dict([x.split('=') for x in lscolors])
@@ -175,11 +176,13 @@ MAIN_PACKET = ("<64s"   # PACKET_HEADER
                "q"     # 8-byte uint	Slice size. Must be a multiple of 4.
                "i")     # 4-byte uint	Number of files in the recovery set.
 
-# Length (bytes)	Type	        Description
-#     4	                4-byte unit	Exponent used to generate recovery data
-# ?*4	                byte array	Recovery data.
 RECOVERY_SLICE_PACKET = ("<64s"
-                         "i")
+                         "i")   # Exponent used to generate recovery data
+
+IFSC_PACKET = ("<64s"   # PACKET_HEADER
+               "16s")   # The File ID of the file.
+
+CREATOR_PACKET = ("<64s")
 
 
 class Header(object):
@@ -198,6 +201,25 @@ class Header(object):
         return self.magic == b'PAR2\x00PKT'
 
 
+class IFSCPacket(object):
+    header_type = b"PAR 2.0\x00IFSC\x00\x00\x00\00"
+    fmt = IFSC_PACKET
+
+    def __init__(self, par2file, offset=0):
+        self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
+        parts = struct.unpack(self.fmt, self.raw)
+        self.header = Header(parts[0])
+        self.fileid = parts[1]
+        self.fmt0 = "20s"
+        self.md5_crc32_array = []
+        offset0 = offset+struct.calcsize(self.fmt)
+        while offset0 < offset + self.header.length:
+            self.raw2 = par2file[offset0:offset0+struct.calcsize(self.fmt0)]
+            parts0 = struct.unpack(self.fmt0, self.raw2)
+            self.md5_crc32_array.append(parts0[0])
+            offset0 += struct.calcsize(self.fmt0)
+
+
 class RecSlicePacket(object):
     header_type = b"PAR 2.0\x00RecvSlic"
     fmt = RECOVERY_SLICE_PACKET
@@ -207,7 +229,6 @@ class RecSlicePacket(object):
         parts = struct.unpack(self.fmt, self.raw)
         self.header = Header(parts[0])
         self.exponent = parts[1]
-
 
 class UnknownPar2Packet(object):
     fmt = PACKET_HEADER
@@ -236,6 +257,18 @@ class MainPacket(object):
             parts0 = struct.unpack(self.fmt0, self.raw2)
             self.file_id_list.append(parts0[0])
             offset0 += struct.calcsize(self.fmt0)
+
+
+class CreatorPacket(object):
+    header_type = b"PAR 2.0\x00Creator\x00"
+    fmt = CREATOR_PACKET
+
+    def __init__(self, par2file, offset=0):
+        self.raw = par2file[offset:offset+struct.calcsize(self.fmt)]
+        parts = struct.unpack(self.fmt, self.raw)
+        self.header = Header(parts[0])
+        packet = par2file[offset:offset+self.header.length]
+        self.clienttext = packet[struct.calcsize(self.fmt):]
 
 
 class FileDescriptionPacket(object):
@@ -269,6 +302,29 @@ class Par2File(object):
                 self.path = obj_or_path.name
         self.packets = self.read_packets()
 
+    def __bool__(self):
+        if self.packets:
+            return True
+        return False
+
+    def is_par2(self):
+        if self.packets and not self.get_recslice_packets():
+            return True
+        return False
+
+    def is_par2vol(self):
+        if self.packets and self.get_recslice_packets():
+            return True
+        return False
+
+    # -1 no par2 file, 1 par2 file, 2 par2vol file
+    def get_par2_type(self):
+        if not self.packets:
+            return -1
+        if self.get_recslice_packets():
+            return 2
+        return 1
+
     def read_packets(self):
         offset = 0
         filelen = len(self.contents)
@@ -281,10 +337,36 @@ class Par2File(object):
                 packets.append(RecSlicePacket(self.contents, offset))
             elif header.type == MainPacket.header_type:
                 packets.append(MainPacket(self.contents, offset))
-            else:
-                packets.append(UnknownPar2Packet(self.contents, offset))
+            elif header.type == CreatorPacket.header_type:
+                packets.append(CreatorPacket(self.contents, offset))
+            elif header.type == IFSCPacket.header_type:
+                packets.append(IFSCPacket(self.contents, offset))
             offset += header.length
         return packets
+
+    def get_structure(self):
+        pstruct = {"FileDescriptionPacket": 0,
+                   "RecSlicePacket": 0,
+                   "MainPacket": 0,
+                   "CreatorPacket": 0,
+                   "IFSCPacket": 0,
+                   "UnknownPar2Packet": 0}
+
+        for p in self.packets:
+            if isinstance(p, FileDescriptionPacket):
+                pstruct["FileDescriptionPacket"] += 1
+            if isinstance(p, RecSlicePacket):
+                pstruct["RecSlicePacket"] += 1
+            if isinstance(p, MainPacket):
+                pstruct["MainPacket"] += 1
+            if isinstance(p, CreatorPacket):
+                pstruct["CreatorPacket"] += 1
+            if isinstance(p, IFSCPacket):
+                pstruct["IFSCPacket"] += 1
+            if isinstance(p, UnknownPar2Packet):
+                pstruct["UnknownPar2Packet"] += 1
+
+        return pstruct
 
     def filenames_only(self):
         """Returns the filenames that this par2 file repairs."""
@@ -296,16 +378,36 @@ class Par2File(object):
         fnlist = [(p.name.decode("utf-8"), p.file_hashfull) for p in self.packets if isinstance(p, FileDescriptionPacket)]
         return list(dict.fromkeys(fnlist))
 
-    def get_main_data(self):
-        fnlist = [(p.slice_size, p.no_files, p.file_id_list) for p in self.packets if isinstance(p, MainPacket)]
-        mlist =  []
-        for p in self.packets:
-            if isinstance(p, FileDescriptionPacket):
-                for m in self.packets:
-                    if isinstance(m, MainPacket):
-                        if p.fileid in m.file_id_list:
-                            mlist.append((m.slice_size, m.no_files, p.name))
-        mlist = list(dict.fromkeys(mlist))
+    def get_main_packets(self, clean=False):
+        mlist = [(i, p.slice_size, p.no_files, p.file_id_list)
+                 for i, p in enumerate(self.packets) if isinstance(p, MainPacket)]
+        if clean:
+            return list(dict.fromkeys(mlist))
+        return mlist
+
+    def get_filedescription_packets(self, clean=False):
+        mlist = [(i, p.fileid, p.file_hashfull, p.file_hash16k, p.file_length, p.name)
+                 for i, p in enumerate(self.packets) if isinstance(p, FileDescriptionPacket)]
+        if clean:
+            return list(dict.fromkeys(mlist))
+        return mlist
+
+    def get_recslice_packets(self, clean=False):
+        mlist = [(i, p.exponent) for i, p in enumerate(self.packets) if isinstance(p, RecSlicePacket)]
+        if clean:
+            return list(dict.fromkeys(mlist))
+        return mlist
+
+    def get_creator_packets(self, clean=False):
+        mlist = [(i, p.clienttext) for i, p in enumerate(self.packets) if isinstance(p, CreatorPacket)]
+        if clean:
+            return list(dict.fromkeys(mlist))
+        return mlist
+
+    def get_ifsc_packets(self, clean=False):
+        mlist = [(i, p.fileid, p.md5_crc32_array) for i, p in enumerate(self.packets) if isinstance(p, IFSCPacket)]
+        if clean:
+            return list(dict.fromkeys(mlist))
         return mlist
 
     # returns xxx, yyy in ...volxxx+yyy.par2
@@ -358,7 +460,9 @@ def calc_file_md5hash_16k(fn):
     return md5
 
 
-def get_file_type(filename):
+def get_file_type(filename, inspect=False):
+    if inspect:
+        pass
     if check_for_rar_filetype(filename) == 1:
         return "rar"
     if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
@@ -376,19 +480,53 @@ def get_file_type(filename):
         filetype0 = "etc"
     return filetype0
 
-# fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.vol15+16.par2"
-fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
 
-p2obj = Par2File(fn)
-fnlist = p2obj.filenames()
-vol_xxx, vol_yyy = p2obj.get_vol_exponents()
-for f in fnlist:
-    print(f)
-print(vol_xxx, vol_yyy)
-print(p2obj.get_main_data())
-#a = check_for_par_filetype(fn)
-#print(a)
+if __name__ == "main":
+    # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.vol15+16.par2"
+    # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.nfo"
+    fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
 
-#a = Par2File("/home/stephan/.ginzibix/incomplete/Gnomeo.und.Julia.German.2011.AC3.DVDRiP.XviD-ETM-1/_renamed0/etm-gnomeo-xvid.par2")
-#b = a.filenames()
-#print(b)
+    p2obj = Par2File(fn)
+    print(p2obj.get_structure())
+
+    if not p2obj:
+        print("No par2 file!")
+        sys.exit()
+
+    if p2obj.is_par2():
+        print("This is a par2 main file")
+
+    if p2obj.is_par2vol():
+        vol_xxx, vol_yyy = p2obj.get_vol_exponents()
+        print("This is a par2vol file with volumes vol" + str(vol_xxx) + "+" + str(vol_yyy))
+
+    sys.exit()
+
+    print("-" * 80)
+    print("--- FileDescriptionPackets ---")
+    print(p2obj.get_filedescription_packets())
+
+    print("-" * 80)
+    print("--- MainPackets ---")
+    print(p2obj.get_main_packets())
+
+    print("-" * 80)
+    print("--- RecSlicePacket ---")
+    print(p2obj.get_recslice_packets())
+
+    print("-" * 80)
+    print("--- CreatorPackets ---")
+    print(p2obj.get_creator_packets())
+
+    print("-" * 80)
+    print("--- IFSCPackets ---")
+    print(p2obj.get_ifsc_packets())
+
+    print("-" * 80)
+    print("--- MainPackets ---")
+    print(p2obj.get_main_packets())
+
+    print("-" * 80)
+    print("--- Vol Info ---")
+    vol_xxx, vol_yyy = p2obj.get_vol_exponents()
+    print(vol_xxx, "+", vol_yyy)
