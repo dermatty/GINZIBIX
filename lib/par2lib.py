@@ -52,12 +52,12 @@ from random import randint
 
 
 signatures = {
-    'par2': 'PAR2\x00',
-    'zip': 'PK\x03\x04',  # empty is \x05\x06, multi-vol is \x07\x08
-    'rar': 'Rar!\x1A\x07\x00',
-    '7zip': '7z\xbc\xaf\x27\x1c',
-    'bzip2': 'BZh',
-    'gzip': '\x1f\x8b\x08',
+    'par2': b'PAR2\x00',
+    'zip': b'PK\x03\x04',  # empty is \x05\x06, multi-vol is \x07\x08
+    'rar': b'Rar!\x1A\x07\x00',
+    '7zip': b'7z\xbc\xaf\x27\x1c',
+    'bzip2': b'BZh',
+    'gzip': b'\x1f\x8b\x08',
 }
 
 
@@ -462,9 +462,21 @@ def calc_file_md5hash_16k(fn):
 
 def get_file_type(filename, inspect=False):
     if inspect:
-        pass
-    if check_for_rar_filetype(filename) == 1:
-        return "rar"
+        # check for rar
+        with open(filename, "rb") as f:
+            contents = f.read()
+        rar_sig = signatures["rar"]
+        rar_sig_len = len(rar_sig)
+        if rar_sig in contents[:rar_sig_len]:
+            return "rar"
+        # check for par2 / par2vol
+        p2 = Par2File(filename)
+        if p2.is_par2():
+            return "par2"
+        if p2.is_par2vol():
+            return "par2vol"
+
+    # if cannot match rars or par2 -> try simply with suffix
     if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):
         filetype0 = "rar"
     elif re.search(r"[.]nfo$", filename, flags=re.IGNORECASE) or re.search(r"[.]nfo.txt$", filename, flags=re.IGNORECASE):
@@ -481,10 +493,14 @@ def get_file_type(filename, inspect=False):
     return filetype0
 
 
-if __name__ == "main":
+
+if __name__ == "__main__":
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.vol15+16.par2"
-    # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.nfo"
-    fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
+    fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.nfo"
+    # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
+    # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.part01.rar"
+
+    print(get_file_type(fn, inspect=True))
 
     p2obj = Par2File(fn)
     print(p2obj.get_structure())

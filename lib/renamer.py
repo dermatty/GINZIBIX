@@ -281,7 +281,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
 
 def rename_and_move_rarandremainingfiles_new(p2list, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue,
                                              filewrite_lock, logger):
-    if p2obj:
+    for p2obj in p2list:
         rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
         notrenamedfiles0 = notrenamedfiles[:]
         # rarfiles
@@ -409,19 +409,19 @@ def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
                     for fnfull in glob.glob(source_dir + "*"):
                         fnshort = fnfull.split("/")[-1]
                         if pwdb.exc("db_file_get_renamed_name", [fnshort], {}) == "N/A":
-                            partype = check_for_par_filetype(fnfull)
-                            if partype in [1, 2]:
+                            p2 = Par2File(fnfull)
+                            if p2:
                                 oldft = pwdb.exc("db_file_get_orig_filetype", [fnshort], {})
                                 with filewrite_lock:
                                     shutil.copyfile(fnfull, dest_dir + fnshort)
                                     pwdb.exc("db_file_set_renamed_name", [fnshort, fnshort], {})
                                 # par2
-                                if partype == 1:
-                                    p2list.append((Par2File(fnfull), fnshort))
+                                if p2.is_par2():
+                                    p2list.append((p2, fnshort))
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2", fnshort, oldft))
                                 # par2vol
-                                elif partype == 2:
+                                elif p2.is_par2vol():
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2vol"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2vol", fnshort, oldft))
                                     # could set # of blocks here in gpeewee
