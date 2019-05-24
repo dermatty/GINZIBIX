@@ -285,45 +285,39 @@ def rename_and_move_rarandremainingfiles_new(p2list, notrenamedfiles, source_dir
         rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
         notrenamedfiles0 = notrenamedfiles[:]
         # rarfiles
-        for a_name, a_md5 in notrenamedfiles0:
-            pp = (a_name, a_md5)
+        for fullname, shortname, a_md5 in notrenamedfiles0:
+            pp = (fullname, shortname, a_md5)
             try:
                 r_name = [fn for fn, r_md5 in rarfileslist if r_md5 == a_md5][0]
                 if not r_name:
                     continue
-                if r_name != a_name:
+                if r_name != shortname:
                     with filewrite_lock:
-                        shutil.copyfile(source_dir + a_name, dest_dir + r_name)
+                        shutil.copyfile(source_dir + shortname, dest_dir + r_name)
                 else:
                     with filewrite_lock:
-                        shutil.copyfile(source_dir + a_name, dest_dir + a_name)
-                    r_name = a_name
-                # oldft = pwdb.db_file_get_orig_filetype(a_name)
-                oldft = pwdb.exc("db_file_get_orig_filetype", [a_name], {})
-                # pwdb.db_file_set_renamed_name(a_name, r_name)
-                pwdb.exc("db_file_set_renamed_name", [a_name, r_name], {})
-                pwdb.exc("db_file_set_file_type", [a_name, "rar"], {})
-                renamer_result_queue.put((r_name, dest_dir + r_name, "rar", a_name, oldft))
-                # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
+                        shutil.copyfile(source_dir + shortname, dest_dir + shortname)
+                    r_name = shortname
+                oldft = pwdb.exc("db_file_get_orig_filetype", [shortname], {})
+                pwdb.exc("db_file_set_renamed_name", [shortname, r_name], {})
+                pwdb.exc("db_file_set_file_type", [shortname, "rar"], {})
+                renamer_result_queue.put((r_name, dest_dir + r_name, "rar", shortname, oldft))
                 with filewrite_lock:
-                    os.remove(source_dir + a_name)
+                    os.remove(source_dir + shortname)
                 notrenamedfiles.remove(pp)
             except IndexError:
                 pass
             except Exception as e:
                 logger.warning(whoami() + str(e))
-    for a_name, a_md5 in notrenamedfiles:
+    for fullname, shortname, a_md5 in notrenamedfiles:
         with filewrite_lock:
-            shutil.copyfile(source_dir + a_name, dest_dir + a_name)
-        ft = get_file_type(a_name)
-        # pwdb.db_file_set_renamed_name(a_name, a_name)
-        pwdb.exc("db_file_set_renamed_name", [a_name, a_name], {})
-        # pwdb.db_file_set_file_type(a_name, ft)
-        pwdb.exc("db_file_set_file_type", [a_name, ft], {})
-        renamer_result_queue.put((a_name, dest_dir + a_name, ft, a_name, ft))
-        # os.rename(source_dir + a_name, source_dir + a_name + ".renamed")
+            shutil.copyfile(source_dir + shortname, dest_dir + shortname)
+        ft = get_file_type(shortname)
+        pwdb.exc("db_file_set_renamed_name", [shortname, shortname], {})
+        pwdb.exc("db_file_set_file_type", [shortname, ft], {})
+        renamer_result_queue.put((shortname, dest_dir + shortname, ft, shortname, ft))
         with filewrite_lock:
-            os.remove(source_dir + a_name)
+            os.remove(source_dir + shortname)
 
 
 def get_not_yet_renamed_files_new(dir0, pwdb, filewrite_lock, logger):
@@ -397,13 +391,14 @@ def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
 
         isfirstrun = True
 
+        p2list = []
         while not TERMINATED:
             events = get_inotify_events(inotify, filewrite_lock)
             if isfirstrun or events:  # and events not in eventslist):
                 logger.debug(whoami() + "Events: " + str(events))
                 # in downloaded_dir: look for not renamed files
                 logger.debug(whoami() + "reading not yet downloaded files in _downloaded0")
-                p2list = []
+                # p2list = []
                 notrenamedfiles = []
                 with filewrite_lock:
                     for fnfull in glob.glob(source_dir + "*"):
