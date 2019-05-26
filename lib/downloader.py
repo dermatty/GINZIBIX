@@ -423,7 +423,7 @@ class Downloader(Thread):
         # which set of filetypes should I download
         self.logger.debug(whoami() + "download: define inject set")
         if self.filetypecounter["par2"]["max"] > 0 and self.filetypecounter["par2"]["max"] > self.filetypecounter["par2"]["counter"]:
-            inject_set0 = ["par2", "par2vol"]
+            inject_set0 = ["par2"]
         elif self.pwdb.exc("db_nzb_loadpar2vols", [nzbname], {}):
             inject_set0 = ["etc", "par2vol", "rar", "sfv", "nfo"]
             loadpar2vols = True
@@ -439,7 +439,7 @@ class Downloader(Thread):
                     break
 
         if not self.event_stopped.isSet():
-            self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir))
+            self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir, nzbname))
 
             # sanity check
             inject_set_sanity = []

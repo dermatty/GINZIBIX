@@ -308,6 +308,8 @@ class Par2File(object):
         return False
 
     def is_par2(self):
+        #print("--> #1", self.packets)
+        #print("--> #2", self.get_recslice_packets())
         if self.packets and not self.get_recslice_packets():
             return True
         return False
@@ -463,18 +465,24 @@ def calc_file_md5hash_16k(fn):
 def get_file_type(filename, inspect=False):
     if inspect:
         # check for rar
-        with open(filename, "rb") as f:
-            contents = f.read()
-        rar_sig = signatures["rar"]
-        rar_sig_len = len(rar_sig)
-        if rar_sig in contents[:rar_sig_len]:
-            return "rar"
+        try:
+            with open(filename, "rb") as f:
+                contents = f.read()
+            rar_sig = signatures["rar"]
+            rar_sig_len = len(rar_sig)
+            if rar_sig in contents[:rar_sig_len]:
+                return "rar"
+        except Exception:
+            pass
         # check for par2 / par2vol
-        p2 = Par2File(filename)
-        if p2.is_par2():
-            return "par2"
-        if p2.is_par2vol():
-            return "par2vol"
+        try:
+            p2 = Par2File(filename)
+            if p2.is_par2():
+                return "par2"
+            if p2.is_par2vol():
+                return "par2vol"
+        except Exception:
+            pass
 
     # if cannot match rars or par2 -> try simply with suffix
     if re.search(r"[.]rar$", filename, flags=re.IGNORECASE):

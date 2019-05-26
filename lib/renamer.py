@@ -117,8 +117,8 @@ def renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfil
     return p2obj0, p2basename0
 
 
-def rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue, filewrite_lock,
-                                         logger):
+def rename_and_move_rarandremainingfiles_old(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb,
+                                             renamer_result_queue, filewrite_lock, logger):
     if p2obj:
         rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
         notrenamedfiles0 = notrenamedfiles[:]
@@ -183,7 +183,7 @@ def get_inotify_events(inotify, filewrite_lock):
 
 
 # renamer with inotify
-def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
+def renamer_old(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
     setproctitle("gzbx." + os.path.basename(__file__))
 
     logger = setup_logger(mp_loggerqueue, __file__)
@@ -256,8 +256,8 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                 p2obj, p2objname = renamer_process_par2s(source_dir, dest_dir, p2obj, p2basename, notrenamedfiles, pwdb,
                                                          renamer_result_queue, filewrite_lock)
                 # rename & move rar + remaining files
-                rename_and_move_rarandremainingfiles(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue,
-                                                     filewrite_lock, logger)
+                rename_and_move_rarandremainingfiles_old(p2obj, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue,
+                                                         filewrite_lock, logger)
                 isfirstrun = False
             if child_pipe.poll():
                 command, _, _ = child_pipe.recv()
@@ -272,17 +272,15 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
         logger.debug(whoami() + "renamer paused")
     logger.info(whoami() + "exited!")
 
-
 # ---------------------------------------------------------------------------------------------------------
 #
 # NEW VERSION
 #
 # ---------------------------------------------------------------------------------------------------------
 
-def rename_and_move_rarandremainingfiles_new(p2list, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue,
-                                             filewrite_lock, logger):
-    for p2obj in p2list:
-        rarfileslist = [(fn, md5) for fn, md5 in p2obj.md5_16khash() if get_file_type(fn) == "rar"]
+def rename_and_move_rarandremainingfiles(p2list, notrenamedfiles, source_dir, dest_dir, pwdb, renamer_result_queue,
+                                         filewrite_lock, logger):
+    for _, _, _, rarfileslist in p2list:
         notrenamedfiles0 = notrenamedfiles[:]
         # rarfiles
         for fullname, shortname, a_md5 in notrenamedfiles0:
@@ -325,7 +323,8 @@ def get_not_yet_renamed_files_new(dir0, pwdb, filewrite_lock, logger):
     with filewrite_lock:
         for fn in glob.glob(dir0 + "*"):
             fn0 = fn.split("/")[-1]
-            is_renamed = (pwdb.exc("db_file_get_renamed_name", [fn0], {}) != "N/A")
+            rn = pwdb.exc("db_file_get_renamed_name", [fn0], {})
+            is_renamed = rn and (rn != "N/A")
             if not is_renamed:
                 nrf.append((fn0, calc_file_md5hash_16k(fn0)))
     p2list = []
@@ -342,7 +341,7 @@ def get_not_yet_renamed_files_new(dir0, pwdb, filewrite_lock, logger):
 
 
 # renamer with inotify
-def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
+def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
     setproctitle("gzbx." + os.path.basename(__file__))
 
     logger = setup_logger(mp_loggerqueue, __file__)
@@ -362,7 +361,7 @@ def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
             if child_pipe.poll():
                 command = child_pipe.recv()
                 try:
-                    cmd0, source_dir, dest_dir = command
+                    cmd0, source_dir, dest_dir, nzbname = command
                     if cmd0 == "start":
                         break
                 except Exception as e:
@@ -390,29 +389,37 @@ def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
         wd = inotify.add_watch(source_dir, watch_flags)
 
         isfirstrun = True
+        p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
 
-        p2list = []
+        print("started renamer")
+
         while not TERMINATED:
             events = get_inotify_events(inotify, filewrite_lock)
             if isfirstrun or events:  # and events not in eventslist):
                 logger.debug(whoami() + "Events: " + str(events))
                 # in downloaded_dir: look for not renamed files
                 logger.debug(whoami() + "reading not yet downloaded files in _downloaded0")
-                # p2list = []
                 notrenamedfiles = []
                 with filewrite_lock:
                     for fnfull in glob.glob(source_dir + "*"):
                         fnshort = fnfull.split("/")[-1]
-                        if pwdb.exc("db_file_get_renamed_name", [fnshort], {}) == "N/A":
+                        rn = pwdb.exc("db_file_get_renamed_name", [fnshort], {})
+                        print(rn, fnshort)
+                        is_renamed = rn and (rn != "N/A")
+                        if not is_renamed:
                             p2 = Par2File(fnfull)
                             if p2:
                                 oldft = pwdb.exc("db_file_get_orig_filetype", [fnshort], {})
-                                with filewrite_lock:
+                                try:
                                     shutil.copyfile(fnfull, dest_dir + fnshort)
                                     pwdb.exc("db_file_set_renamed_name", [fnshort, fnshort], {})
+                                except Exception as e:
+                                    print(str(e))
                                 # par2
                                 if p2.is_par2():
-                                    p2list.append((p2, fnshort))
+                                    rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash() if
+                                                get_file_type(source_dir + fn, inspect=True) == "rar"]
+                                    p2list.append((p2, fnshort,  dest_dir + fnshort, rarfiles))
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2", fnshort, oldft))
                                 # par2vol
@@ -420,19 +427,20 @@ def renamer_new(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2vol"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2vol", fnshort, oldft))
                                     # could set # of blocks here in gpeewee
-                                with filewrite_lock:
-                                    os.remove(fnfull)
+                                os.remove(fnfull)
                             else:
                                 notrenamedfiles.append((fnfull, fnshort, calc_file_md5hash_16k(fnfull)))
                 # rename & move rar + remaining files
                 if notrenamedfiles:
-                    rename_and_move_rarandremainingfiles_new(p2list, notrenamedfiles, source_dir, dest_dir, pwdb,
-                                                             renamer_result_queue, filewrite_lock, logger)
+                    # da hats was
+                    rename_and_move_rarandremainingfiles(p2list, notrenamedfiles, source_dir, dest_dir, pwdb,
+                                                         renamer_result_queue, filewrite_lock, logger)
                 isfirstrun = False
             if child_pipe.poll():
                 command, _, _ = child_pipe.recv()
                 if command == "pause":
                     break
+        pwdb.exc("db_nzb_store_p2list", [nzbname, p2list], {})
         os.chdir(cwd0)
         try:
             if wd:

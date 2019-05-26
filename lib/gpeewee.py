@@ -129,6 +129,7 @@ class PWDB():
             filetypecounter_dill = DillField(default="N/A")
             allfilesizes_dill = DillField(default="N/A")
             p2_dill = DillField(default="N/A")
+            p2list_dill = DillField(default="N/A")
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -411,6 +412,31 @@ class PWDB():
             return allfilelist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2
         return None
 
+    def db_nzb_store_p2list(self, nzbname, p2list):
+        try:
+            nzb = self.NZB.get(self.NZB.name == nzbname)
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return False
+        try:
+            nzb.p2list_dill = p2list
+            nzb.save
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return False
+        return True
+
+    def db_nzb_get_p2list(self, nzbname):
+        try:
+            nzb = self.NZB.get(self.NZB.name == nzbname)
+        except Exception as e:
+            self.logger.debug(whoami() + str(e))
+            return []
+        p2l = nzb.p2list_dill
+        if p2l == "N/A":
+            return []
+        return p2l
+
     @set_db_timestamp
     def db_nzb_insert(self, name0):
         try:
@@ -653,6 +679,14 @@ class PWDB():
         try:
             f0 = self.FILE.get(self.FILE.renamed_name == name)
             return (f0.orig_name, f0.renamed_name, f0.ftype)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return None
+
+    def db_file_get_renamed_name(self, origname):
+        try:
+            f0 = self.FILE.get(self.FILE.orig_name == origname)
+            return f0.renamed_name
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
