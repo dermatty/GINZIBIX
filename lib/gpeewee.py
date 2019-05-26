@@ -557,7 +557,7 @@ class PWDB():
             query = self.NZB.select().order_by(-self.NZB.date_updated)
             nzblist_history = [(n.name, n.priority, n.date_updated, n.status, self.db_nzb_getsize(n, checkpar2volsloaded=True),
                                 self.db_nzb_get_downloadedsize(n))
-                               for n in query if n.status in [4, -1, -2, -3, -4]]
+                               for n in query if n.status in [4, -1, -2, -3, -4, -5]]
             return nzblist, nzblist_history
         except Exception as e:
             self.logger.warning(whoami() + str(e))

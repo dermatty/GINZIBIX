@@ -391,8 +391,6 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
         isfirstrun = True
         p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
 
-        print("started renamer")
-
         while not TERMINATED:
             events = get_inotify_events(inotify, filewrite_lock)
             if isfirstrun or events:  # and events not in eventslist):
@@ -404,7 +402,6 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                     for fnfull in glob.glob(source_dir + "*"):
                         fnshort = fnfull.split("/")[-1]
                         rn = pwdb.exc("db_file_get_renamed_name", [fnshort], {})
-                        print(rn, fnshort)
                         is_renamed = rn and (rn != "N/A")
                         if not is_renamed:
                             p2 = Par2File(fnfull)

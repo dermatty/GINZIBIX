@@ -300,7 +300,10 @@ class Par2File(object):
             self.contents = obj_or_path.read()
             if getattr(obj_or_path, 'name', None):
                 self.path = obj_or_path.name
-        self.packets = self.read_packets()
+        try:
+            self.packets = self.read_packets()
+        except Exception:
+            self.packets = []
 
     def __bool__(self):
         if self.packets:
