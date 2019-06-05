@@ -781,7 +781,7 @@ class PWDB():
             return False, rarl
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-            return None, rarl
+            return None, []
 
     def get_renamed_p2(self, dir01, nzbname):
         try:
@@ -814,11 +814,14 @@ class PWDB():
 
     @set_db_timestamp
     def db_file_update_status(self, filename, newstatus):
-        query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
-        query.execute()
-        file0 = self.FILE.get((self.FILE.orig_name == filename))
-        file0.nzb.date_updated = datetime.datetime.now()
-        file0.nzb.save()
+        try:
+            query = self.FILE.update(status=newstatus).where(self.FILE.orig_name == filename)
+            query.execute()
+            file0 = self.FILE.get((self.FILE.orig_name == filename))
+            file0.nzb.date_updated = datetime.datetime.now()
+            file0.nzb.save()
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
 
     @set_db_timestamp
     def db_file_update_parstatus(self, filename, newparstatus):

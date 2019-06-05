@@ -1,10 +1,8 @@
+gui donwload speed frozen if postproc failed ("dl success but no postproc possible"
+
 par_verifier stops and starts
 
 main - DEBUG - run / #548: unrarer finished, but not cleaned up, cleaning ...
-
-rewrite renamer - redundant stuff there!
-
-multiple par2's and rar-chains!
 
 missing articles? better checks:
 	if parvols: enough parvols to repair

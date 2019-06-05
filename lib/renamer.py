@@ -414,8 +414,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                                     print(str(e))
                                 # par2
                                 if p2.is_par2():
-                                    rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash() if
-                                                get_file_type(source_dir + fn, inspect=True) == "rar"]
+                                    rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash()]
                                     p2list.append((p2, fnshort,  dest_dir + fnshort, rarfiles))
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2", fnshort, oldft))

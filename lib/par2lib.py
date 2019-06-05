@@ -473,7 +473,7 @@ def get_file_type(filename, inspect=False):
                 contents = f.read()
             rar_sig = signatures["rar"]
             rar_sig_len = len(rar_sig)
-            if rar_sig in contents[:rar_sig_len]:
+            if rar_sig in contents[:rar_sig_len + 20]:
                 return "rar"
         except Exception:
             pass
@@ -508,11 +508,13 @@ def get_file_type(filename, inspect=False):
 if __name__ == "__main__":
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.vol15+16.par2"
     fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.nfo"
+    fn = "/home/stephan/.ginzibix/incomplete/Sons.of.Norway.German.1080p.BluRay.x264-EPHEMERiD/_renamed0/epd-sonsofnorway.1080p.r66"
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.part01.rar"
 
     print(get_file_type(fn, inspect=True))
 
+    sys.exit()
     p2obj = Par2File(fn)
     print(p2obj.get_structure())
 
