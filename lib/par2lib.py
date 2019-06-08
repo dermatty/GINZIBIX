@@ -507,13 +507,15 @@ def get_file_type(filename, inspect=False):
 
 if __name__ == "__main__":
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.vol15+16.par2"
-    fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.nfo"
-    fn = "/home/stephan/.ginzibix/incomplete/Sons.of.Norway.German.1080p.BluRay.x264-EPHEMERiD/_renamed0/epd-sonsofnorway.1080p.r66"
+    #fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.nfo"
+    #fn = "/home/stephan/.ginzibix/incomplete/Sons.of.Norway.German.1080p.BluRay.x264-EPHEMERiD/_renamed0/epd-sonsofnorway.1080p.r66"
+    fn ="/home/stephan/.ginzibix/incomplete/The.Death.of.Stalin.2017.German.DTS.DL.1080p.BluRay.x265-UNFIrED/_renamed0/b50f1df4bbbb4d3f7f385bd425.vol000+001.PAR2"
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.par2"
     # fn = "/home/stephan/.ginzibix/incomplete/Der.Gloeckner.von.Notre/_renamed0/Walt.Disneys.Der.Gloeckner.von.Notre.Dame.2.German.2000.DVDRIP.XviD-AIO.part01.rar"
 
     print(get_file_type(fn, inspect=True))
-
+    p2obj = Par2File(fn)
+    print(p2obj.is_par2())
     sys.exit()
     p2obj = Par2File(fn)
     print(p2obj.get_structure())

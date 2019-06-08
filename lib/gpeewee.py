@@ -617,15 +617,17 @@ class PWDB():
     @set_db_timestamp
     def db_nzb_update_unrar_status(self, nzbname, newstatus):
         nzb = self.db_nzb_get_nzbobj(nzbname)
-        nzb.unrar_status = newstatus
-        nzb.date_updated = datetime.datetime.now()
-        nzb.save()
+        if nzb:
+            nzb.unrar_status = newstatus
+            nzb.date_updated = datetime.datetime.now()
+            nzb.save()
 
     def db_nzb_update_verify_status(self, nzbname, newstatus):
         nzb = self.db_nzb_get_nzbobj(nzbname)
-        nzb.verify_status = newstatus
-        nzb.date_updated = datetime.datetime.now()
-        nzb.save()
+        if nzb:
+            nzb.verify_status = newstatus
+            nzb.date_updated = datetime.datetime.now()
+            nzb.save()
 
     @set_db_timestamp
     def db_nzb_update_status(self, nzbname, newstatus, usefasttrack=True):

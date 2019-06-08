@@ -27,22 +27,25 @@ class SigHandler_Verifier:
         TERMINATED = True
 
 
-def get_no_of_blocks(par2file, fn0):
-    ssh = subprocess.Popen(['par2verify', par2file], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+def get_no_of_blocks(par2file, renamed_dir, fn0):
+    ssh = subprocess.Popen(['par2verify', renamed_dir + par2file], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
     sshres = ssh.stdout.readlines()
+    if not sshres:
+        return True, 99999
     damaged = False
     rec_blocks_needed = 0
     for ss in sshres:
         ss0 = ss.decode("utf-8")
-        if fn0 in ss0 and "damaged" in ss0:
+        if fn0 in ss0 and "damaged. Found" in ss0:
             damaged = True
-            if damaged and "You need" in ss0 and "more recovery blocks to be able to repair":
-                rec_blocks_needed_list = [int(s) for s in ss0.split() if s.isdigit()]
-                try:
-                    rec_blocks_needed = rec_blocks_needed_list[-1]
-                except Exception:
-                    rec_blocks_needed = -1
-                break
+            datablocklist = [int(s) for s in ss0.split() if s.isdigit()]
+            try:
+                found_blocks = datablocklist[0]
+                sum_blocks = datablocklist[-1]
+                rec_blocks_needed = sum_blocks - found_blocks
+            except Exception:
+                rec_blocks_needed = -1
+            break
     return damaged, rec_blocks_needed
 
 
@@ -83,25 +86,23 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
             f_short = filename.split("/")[-1]
             md5 = calc_file_md5hash(renamed_dir + filename)
             md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == filename]
-            if False in md5match or TEST_FOR_FAILED_RAR and "part02.rar" in f_short:
+            if False in md5match:
                 logger.warning(whoami() + " error in md5 hash match for file " + f_short)
                 pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
                 # double check & get # of missing blocks
-                par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
-                is_damaged = True
-                no_missing_blocks = -1
-                if par2name:
-                    is_damaged, no_missing_blocks = get_no_of_blocks(par2name, filename)
-                if is_damaged:
-                    pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
-                    pwdb.exc("db_file_update_parstatus", [f_origname, -1], {})
-                    doloadpar2vols = True
-                    child_pipe.send((doloadpar2vols, no_missing_blocks))
-                else:
-                    logger.info(whoami() + f_short + " md5 hash match not ok, but par2verify was!")
-                    pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match not ok, but par2verify was!, copying to verified_rar dir ", "info"], {})
-                    shutil.copy(renamed_dir + filename, verifiedrar_dir)
-                    pwdb.exc("db_file_update_parstatus", [f_origname, 1], {})
+                #par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
+                #is_damaged = True
+                #no_missing_blocks = -1
+                #if par2name:
+                #    is_damaged, no_missing_blocks = get_no_of_blocks(par2name, renamed_dir, filename)
+                pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
+                pwdb.exc("db_file_update_parstatus", [f_origname, -1], {})
+                child_pipe.send(True)
+                #else:
+                #    logger.info(whoami() + f_short + " md5 hash match not ok, but par2verify was!")
+                #    pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match not ok, but par2verify was!, copying to verified_rar dir ", "info"], {})
+                #    shutil.copy(renamed_dir + filename, verifiedrar_dir)
+                #    pwdb.exc("db_file_update_parstatus", [f_origname, 1], {})
             else:
                 logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
                 pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
@@ -151,25 +152,23 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                         f_short = f0_renamedname.split("/")[-1]
                         md5 = calc_file_md5hash(renamed_dir + rar0)
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0_renamedname]
-                        if False in md5match or TEST_FOR_FAILED_RAR and "part02.rar" in f_short:
+                        if False in md5match:
                             logger.warning(whoami() + "error in md5 hash match for file " + f_short)
                             pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
                             # double check & get # of missing blocks
-                            par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
-                            is_damaged = True
-                            no_missing_blocks = -1
-                            if par2name:
-                                is_damaged, no_missing_blocks = get_no_of_blocks(par2name, f0_renamedname)
-                            if is_damaged:
-                                pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
-                                pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
-                                doloadpar2vols = True
-                                child_pipe.send((doloadpar2vols, no_missing_blocks))
-                            else:
-                                logger.info(whoami() + f_short + " md5 hash match not ok, but par2verify was!")
-                                pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match not ok, but par2verify was ok! ", "info"], {})
-                                shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
-                                pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
+                            #par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
+                            #is_damaged = True
+                            #no_missing_blocks = -1
+                            #if par2name:
+                            #    is_damaged, no_missing_blocks = get_no_of_blocks(par2name, renamed_dir, f0_renamedname)
+                            pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
+                            pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
+                            child_pipe.send(True)
+                            #else:
+                            #    logger.info(whoami() + f_short + " md5 hash match not ok, but par2verify was!")
+                            #    pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match not ok, but par2verify was ok! ", "info"], {})
+                            #    shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
+                            #    pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
                         else:
                             logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
                             pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})

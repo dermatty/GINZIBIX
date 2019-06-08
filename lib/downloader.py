@@ -551,8 +551,8 @@ class Downloader(Thread):
                 if self.download_only:
                     self.logger.info(whoami() + "multiple par2 files, but unrarer running, killing ...")
                     kill_mpp(self.mpp, "unrarer")
-                elif not mpp_is_alive(self.mpp, "unrarer") or\
-                    (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
+                elif not mpp_is_alive(self.mpp, "unrarer"):   # or\
+                    # (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
                     self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
                     kill_mpp(self.mpp, "unrarer")
                     self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
@@ -611,7 +611,7 @@ class Downloader(Thread):
                         self.logger.debug(whoami() + "moved " + filename + " to renamed dir")
                         self.filetypecounter[filetype]["counter"] += 1
                         self.filetypecounter[filetype]["loadedfiles"].append(filename)
-                    if (filetype == "par2" or filetype == "par2vol"):
+                    if filetype == "par2":
                         if not self.p2:
                             self.p2 = Par2File(full_filename)
                             self.logger.info(whoami() + "found first par2 file")
@@ -635,7 +635,7 @@ class Downloader(Thread):
             # if verifier tells us so, we load par2vol files, stop unrarer
             if not self.event_stopped.isSet() and not loadpar2vols:
                 if self.pipes["verifier"][0].poll():
-                    loadpar2vols, no_missing_blocks = self.pipes["verifier"][0].recv()
+                    loadpar2vols = self.pipes["verifier"][0].recv()
                 if loadpar2vols:
                     self.pwdb.exc("db_msg_insert", [nzbname, "rar(s) corrupt, loading par2vol files", "info"], {})
                     self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
