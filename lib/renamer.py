@@ -310,10 +310,11 @@ def rename_and_move_rarandremainingfiles(p2list, notrenamedfiles, source_dir, de
     for fullname, shortname, a_md5 in notrenamedfiles:
         with filewrite_lock:
             shutil.copyfile(source_dir + shortname, dest_dir + shortname)
-        ft = get_file_type(shortname)
+        ft = get_file_type(fullname, inspect=True)
+        oldft = pwdb.exc("db_file_get_orig_filetype", [shortname], {})
         pwdb.exc("db_file_set_renamed_name", [shortname, shortname], {})
         pwdb.exc("db_file_set_file_type", [shortname, ft], {})
-        renamer_result_queue.put((shortname, dest_dir + shortname, ft, shortname, ft))
+        renamer_result_queue.put((shortname, dest_dir + shortname, ft, shortname, oldft))
         with filewrite_lock:
             os.remove(source_dir + shortname)
 

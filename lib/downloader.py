@@ -393,7 +393,7 @@ class Downloader(Thread):
         article_failed = 0
         inject_set0 = []
         avgmiblist = []
-        inject_set0 = ["par2"]             # par2 first!!
+        inject_set0 = ["par2", "sfv"]             # par2 first!!
         files = {}
         loadpar2vols = False
         availmem0 = psutil.virtual_memory()[0] - psutil.virtual_memory()[1]
@@ -423,10 +423,11 @@ class Downloader(Thread):
 
         # which set of filetypes should I download
         self.logger.debug(whoami() + "download: define inject set")
-        if self.filetypecounter["par2"]["max"] > 0 and self.filetypecounter["par2"]["max"] > self.filetypecounter["par2"]["counter"]:
-            inject_set0 = ["par2"]
+        if (self.filetypecounter["par2"]["max"] > 0 and self.filetypecounter["par2"]["max"] > self.filetypecounter["par2"]["counter"]) or\
+           (self.filetypecounter["sfv"]["max"] > 0 and self.filetypecounter["sfv"]["max"] > self.filetypecounter["sfv"]["counter"]):
+            inject_set0 = ["par2", "sfv"]
         elif self.pwdb.exc("db_nzb_loadpar2vols", [nzbname], {}):
-            inject_set0 = ["etc", "par2vol", "rar", "sfv", "nfo"]
+            inject_set0 = ["etc", "par2vol", "rar", "nfo", "sfv"]
             loadpar2vols = True
         else:
             inject_set0 = ["etc", "sfv", "nfo", "rar"]
@@ -619,10 +620,10 @@ class Downloader(Thread):
                             self.download_only = True
                             self.logger.warning(whoami() + "multiple par2 appeared, switching to download only")
                             self.pwdb.exc("db_msg_insert", [nzbname, "multiple par2 files appeared, no postprocessing anymore!", "warning"], {})
-                    if inject_set0 == ["par2"] and (filetype == "par2" or self.filetypecounter["par2"]["max"] == 0):
+                    if "par2" in inject_set0 and (filetype == "par2" or self.filetypecounter["par2"]["max"] == 0):
                         # print(time.time(), filename, filetype, self.p2)
                         self.logger.debug(whoami() + "injecting rars etc.")
-                        inject_set0 = ["etc", "sfv", "nfo", "rar"]
+                        inject_set0 = ["etc", "nfo", "rar"]
                         files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, self.allfileslist, files, infolist, bytescount0,
                                                                                              self.filetypecounter)
                         bytescount0 += bytescount00
@@ -633,10 +634,12 @@ class Downloader(Thread):
                     break
 
             # if verifier tells us so, we load par2vol files, stop unrarer
-            if not self.event_stopped.isSet() and not loadpar2vols:
-                if self.pipes["verifier"][0].poll():
-                    loadpar2vols = self.pipes["verifier"][0].recv()
-                if loadpar2vols:
+            loadpar2vols0 = None
+            if self.pipes["verifier"][0].poll():
+                loadpar2vols0 = self.pipes["verifier"][0].recv()
+            if not self.event_stopped.isSet() and not loadpar2vols and loadpar2vols0:
+                loadpar2vols = True
+                if self.filetypecounter["par2vol"]["max"] > 0:
                     self.pwdb.exc("db_msg_insert", [nzbname, "rar(s) corrupt, loading par2vol files", "info"], {})
                     self.pwdb.exc("db_nzb_update_loadpar2vols", [nzbname, True], {})
                     self.overall_size = self.overall_size_wparvol
@@ -646,7 +649,17 @@ class Downloader(Thread):
                                                                                          self.filetypecounter)
                     bytescount0 += bytescount00
                     article_count += article_count0
-
+                else:
+                    self.logger.error(whoami() + "rar files corrupt but cannot repair (no par2 files), exiting download")
+                    self.pwdb.exc("db_msg_insert", [nzbname, "rar files corrupt but cannot repair (no par2 files), exiting download", "error"], {})
+                    self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
+                    return_reason = "download failed"
+                    self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
+                                              self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
+                                              self.allfileslist)), return_reason, self.main_dir
+                    self.stop()
+                    self.stopped_counter = stopped_max_counter
+                    continue
             # monitor verifier
             if mpp_is_alive(self.mpp, "verifier"):
                 if self.download_only:

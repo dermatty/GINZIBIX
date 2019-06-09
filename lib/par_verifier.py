@@ -11,7 +11,7 @@ import signal
 from .aux import PWDBSender
 from .mplogging import setup_logger, whoami
 from setproctitle import setproctitle
-
+import binascii
 
 TERMINATED = False
 TEST_FOR_FAILED_RAR = False
@@ -108,10 +108,18 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                 pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
                 shutil.copy(renamed_dir + filename, verifiedrar_dir)
                 pwdb.exc("db_file_update_parstatus", [f_origname, 1], {})
-    if pvmode == "copy":
+    elif (pvmode == "verify" and not p2) or (pvmode == "copy"):
         logger.info(whoami() + "copying all rarfiles")
         for filename, f_origname in unverified_rarfiles:
             f_short = filename.split("/")[-1]
+            sfvcheck = pwdb.exc("db_nzb_check_sfvcrc32", [nzbname, renamed_dir, renamed_dir + filename], {})
+            if sfvcheck == -1:
+                logger.warning(whoami() + " error in crc32 check for file " + f_short)
+                pwdb.exc("db_msg_insert", [nzbname, "error in crc32 check for file " + f_short, "warning"], {})
+                pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
+                pwdb.exc("db_file_update_parstatus", [f_origname, -1], {})
+                child_pipe.send(True)
+                continue
             logger.debug(whoami() + "copying " + f_short + " to verified_rar dir")
             pwdb.exc("db_msg_insert", [nzbname, "copying " + f_short + " to verified_rar dir ", "info"], {})
             shutil.copy(renamed_dir + filename, verifiedrar_dir)
@@ -174,18 +182,31 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                             pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
                             shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
                             pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
-            if pvmode == "copy":
-                for rar in glob.glob(renamed_dir + "*.rar"):
-                    rar0 = rar.split("/")[-1]
-                    f0 = pwdb.exc("db_file_get_renamed", [rar0], {})
-                    if not f0:
-                        continue
-                    f0_origname, f0_renamedname, f0_ftype = f0
-                    if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
-                        logger.debug(whoami() + "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir")
-                        pwdb.exc("db_msg_insert", [nzbname, "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir", "info"], {})
-                        shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
-                        pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
+            # free rars or copy mode?
+            elif (pvmode == "verify" and not p2) or (pvmode == "copy"):
+                # maybe we can check via sfv file?
+                for file0full in glob.glob(renamed_dir + "*"):
+                    file0short = file0full.split("/")[-1]
+                    ft = pwdb.exc("db_file_getftype_renamed", [file0short], {})
+                    if ft == "rar":
+                        rar0 = file0short
+                        f0 = pwdb.exc("db_file_get_renamed", [rar0], {})
+                        if not f0:
+                            continue
+                        f0_origname, f0_renamedname, f0_ftype = f0
+                        sfvcheck = pwdb.exc("db_nzb_check_sfvcrc32", [nzbname, renamed_dir, file0full], {})
+                        if sfvcheck == -1:
+                            logger.warning(whoami() + " error in crc32 check for file " + rar0)
+                            pwdb.exc("db_msg_insert", [nzbname, "error in crc32 check for file " + rar0, "warning"], {})
+                            pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
+                            pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
+                            child_pipe.send(True)
+                            continue
+                        if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
+                            logger.debug(whoami() + "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir")
+                            pwdb.exc("db_msg_insert", [nzbname, "copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir", "info"], {})
+                            shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
+                            pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
         allrarsverified, rvlist = pwdb.exc("db_only_verified_rars", [nzbname], {})
         if allrarsverified:
             break
@@ -195,7 +216,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
         logger.info(whoami() + "terminated!")
         sys.exit()
 
-    logger.debug(whoami() + "all rars are verified")
+    logger.debug(whoami() + "all rars are checked!")
     par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
     corruptrars = pwdb.exc("get_all_corrupt_rar_files", [nzbname], {})
     if not corruptrars:

@@ -13,6 +13,7 @@ import sqlite3
 import _pickle as cpickle
 import datetime
 import functools
+import binascii
 from setproctitle import setproctitle
 
 
@@ -659,6 +660,56 @@ class PWDB():
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
+
+    # return:
+    #         -1 - checksum check failed
+    #          0 - no sfv file!
+    #          1 - checksum ok
+    def db_nzb_check_sfvcrc32(self, nzbname, renamed_dir, file_to_be_checked):
+        try:
+            nzb0 = self.db_nzb_get_nzbobj(nzbname)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return 0
+        if nzb0:
+            try:
+                f0 = self.FILE.get(self.FILE.ftype == "sfv", self.FILE.nzb == nzb0)
+                f0list = [f00.renamed_name for f00 in f0]
+            except Exception:
+                try:
+                    f0list = [f0.renamed_name]
+                except Exception as ee:
+                    self.logger.warning(whoami() + str(ee))
+                    return 0
+            if f0list:
+                # calc crc32 of file
+                try:
+                    buf = open(file_to_be_checked, 'rb').read()
+                    buf = (binascii.crc32(buf) & 0xFFFFFFFF)
+                    crc32 = str("%08X" % buf).lower().strip()
+                    fileshort = file_to_be_checked.split("/")[-1]
+                except Exception:
+                    return 0
+                crc32ff = None
+                for ff in f0list:
+                    try:
+                        sfvf = open(renamed_dir + ff, "r")
+                        for svfline in sfvf:
+                            if fileshort in svfline:
+                                crc32ff = svfline.split(" ")[-1].lower().strip()
+                                break
+                        sfvf.close()
+                    except Exception:
+                        pass
+                    if crc32ff:
+                        break
+                if crc32ff == crc32:
+                    return 1
+                else:
+                    return -1
+            return 0
+        else:
+            return 0
 
     def db_nzb_get_verifystatus(self, nzbname):
         try:
