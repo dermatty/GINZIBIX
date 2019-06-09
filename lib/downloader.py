@@ -24,6 +24,7 @@ empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
 
 CRIT_ART_HEALTH_W_PAR = 0.98
 CRIT_ART_HEALTH_WO_PAR = 0.998
+CRIT_ART_HEALTH = 0.80
 CRIT_CONN_HEALTH = 0.7
 
 
@@ -68,6 +69,7 @@ class Downloader(Thread):
         self.crit_conn_health = CRIT_CONN_HEALTH
         self.crit_art_health_w_par = CRIT_ART_HEALTH_W_PAR
         self.crit_art_health_wo_par = CRIT_ART_HEALTH_WO_PAR
+        self.crit_art_health = CRIT_ART_HEALTH
 
         if self.pw_file:
             try:
@@ -763,24 +765,33 @@ class Downloader(Thread):
                 else:
                     article_health = 0
             self.article_health = article_health
-            # stop if par2file cannot be downloaded
-            par2failed = False
             if failed != 0:
+                # stop if par2file cannot be downloaded
+                par2failed = False
                 for fname, item in files.items():
                     f_nr_articles, f_age, f_filetype, _, failed0 = item
                     if (failed0 and f_filetype == "par2"):
                         par2failed = True
                         break
+                # stop if rar failed and no parvol files
+                rarfailed_wo_parvol = False
+                if self.filetypecounter["par2vol"]["max"] == 0:
+                    for fname, item in files.items():
+                        f_nr_articles, f_age, f_filetype, _, failed0 = item
+                        if (failed0 and f_filetype == "rar"):
+                            rarfailed_wo_parvol = True
+                            break
+
                 self.logger.warning(whoami() + str(failed) + " articles failed, article_count: " + str(article_count) + ", health: " + str(article_health)
-                                    + ", par2failed: " + str(par2failed))
+                                    + ", par2failed: " + str(par2failed) + ", rarfailed_wo_parvol: " + str(rarfailed_wo_parvol))
                 # if too many missing articles: exit download
-                if (article_health < self.crit_art_health_wo_par and self.filetypecounter["par2vol"]["max"] == 0) \
-                   or par2failed \
-                   or (self.filetypecounter["par2vol"]["max"] > 0 and article_health <= self.crit_art_health_w_par):
+                if rarfailed_wo_parvol or par2failed or article_health <= self.crit_art_health:
                     self.logger.info(whoami() + "articles missing and cannot repair, exiting download")
                     self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
                     if par2failed:
                         self.pwdb.exc("db_msg_insert", [nzbname, "par2 file broken/not available on servers", "error"], {})
+                    elif rarfailed_wo_parvol:
+                        self.pwdb.exc("db_msg_insert", [nzbname, "rar file broken and repair files available", "error"], {})
                     else:
                         self.pwdb.exc("db_msg_insert", [nzbname, "critical health threashold exceeded", "error"], {})
                     return_reason = "download failed"
@@ -790,7 +801,7 @@ class Downloader(Thread):
                     self.stop()
                     self.stopped_counter = stopped_max_counter
                     continue
-                if not loadpar2vols and self.filetypecounter["par2vol"]["max"] > 0 and article_health > 0.95:
+                if not loadpar2vols and self.filetypecounter["par2vol"]["max"] > 0 and article_health > self.crit_art_health:
                     self.logger.info(whoami() + "queuing par2vols")
                     inject_set0 = ["par2vol"]
                     files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, self.allfileslist, files, infolist, bytescount0,

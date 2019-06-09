@@ -678,8 +678,7 @@ class PWDB():
             except Exception:
                 try:
                     f0list = [f0.renamed_name]
-                except Exception as ee:
-                    self.logger.warning(whoami() + str(ee))
+                except Exception:
                     return 0
             if f0list:
                 # calc crc32 of file
