@@ -195,12 +195,14 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                     logger.warning(whoami() + " NZB file " + nzb0 + " already exists in DB")
                     continue
                 # replace [ and ] brackets in nzb0 / this is a bug in re!?
-                nzb0 = nzb0.replace("[", "(")
-                nzb0 = nzb0.replace("]", ")")
-                try:
-                    os.rename(nzb, dirs["nzb"] + nzb0)
-                except Exception as e:
-                    logger.warning(whoami() + str(e))
+                if ("[" in nzb0) or ("]" in nzb0):
+                    nzb0 = nzb0.replace("[", "(")
+                    nzb0 = nzb0.replace("]", ")")
+                    try:
+                        os.rename(nzb, dirs["nzb"] + nzb0)
+                    except Exception as e:
+                        logger.error(whoami() + "Cannot rename NZB file " + nzb0 + " :" + str(e))
+                        continue
                 logger.info(whoami() + "inserting " + nzb0 + "into db")
                 newnzb = pwdb.exc("db_nzb_insert", [nzb0], {})
                 if newnzb:
