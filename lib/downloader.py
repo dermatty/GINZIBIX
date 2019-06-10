@@ -107,6 +107,13 @@ class Downloader(Thread):
         except Exception as e:
             self.logger.debug(whoami() + str(e) + ": no pw file provided!")
             self.pw_file = None
+        # connection_idle_timeout
+        try:
+            self.connection_idle_timeout = float(self.cfg["OPTIONS"]["CONNECTION_IDLE_TIMEOUT"])
+            self.logger.debug(whoami() + "connection_idle_timeout is: " + str(self.connection_idle_timeout))
+        except Exception as e:
+            self.logger.debug(whoami() + str(e) + ": setting connection_idle_timeout to 15 sec.")
+            self.connection_idle_timeout = 30
 
     def serverhealth(self):
         if self.contains_par_files:
@@ -508,6 +515,8 @@ class Downloader(Thread):
         last_rar_downloadedtime = sys.maxsize
         rarcounter = 0
 
+        self.tt_wait_for_completion = None
+
         while self.stopped_counter < stopped_max_counter:
 
             # monitor idle times of unrarer to avoid deadlock further down
@@ -549,41 +558,48 @@ class Downloader(Thread):
                 continue
 
             # monitor unrarer
-            unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
-            if unrarstatus == 1:    # if unrarer is busy, does it hang?
-                if self.download_only:
-                    self.logger.info(whoami() + "multiple par2 files, but unrarer running, killing ...")
-                    kill_mpp(self.mpp, "unrarer")
-                elif not mpp_is_alive(self.mpp, "unrarer"):   # or\
-                    # (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
-                    self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
+            if self.event_stopped.isSet() and mpp_is_alive(self.mpp, "unrarer"):
+                self.logger.info(whoami() + "unrarer re-started, but should be dead, stopping ...")
+                kill_mpp(self.mpp, "unrarer")
+            if not self.event_stopped.isSet():
+                unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
+                if unrarstatus == 1:    # if unrarer is busy, does it hang?
+                    if self.download_only:
+                        self.logger.info(whoami() + "multiple par2 files, but unrarer running, killing ...")
+                        kill_mpp(self.mpp, "unrarer")
+                    elif not mpp_is_alive(self.mpp, "unrarer"):   # or\
+                        # (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
+                        self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
+                        kill_mpp(self.mpp, "unrarer")
+                        self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                                  nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
+                        self.mpp_unrarer.start()
+                        self.mpp["unrarer"] = self.mpp_unrarer
+                elif unrarstatus == 2:  # finished but some artefacts remain?
+                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
+                        self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
+                        kill_mpp(self.mpp, "unrarer")
+                elif unrarstatus == -1:  # failed but still running
+                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
+                        self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
+                        kill_mpp(self.mpp, "unrarer")
+                elif unrarstatus == -2 and not self.download_only:  # failed bcause wrong first rar -> restart
+                    self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
                     kill_mpp(self.mpp, "unrarer")
                     self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
                                                                               nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
                     self.mpp_unrarer.start()
                     self.mpp["unrarer"] = self.mpp_unrarer
-            elif unrarstatus == 2:  # finished but some artefacts remain?
-                if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
-                    self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
-                    kill_mpp(self.mpp, "unrarer")
-            elif unrarstatus == -1:  # failed but still running
-                if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
-                    self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
-                    kill_mpp(self.mpp, "unrarer")
-            elif unrarstatus == -2 and not self.download_only:  # failed bcause wrong first rar -> restart
-                self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
-                kill_mpp(self.mpp, "unrarer")
-                self.mpp_unrarer = mp.Process(target=partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                          nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
-                self.mpp_unrarer.start()
-                self.mpp["unrarer"] = self.mpp_unrarer
-            elif unrarstatus == 0:    # if unrarer should be state 0 but running -> kill!
-                if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
-                    self.logger.debug(whoami() + "unrarer should be idle, but is not, cleaning ...")
-                    kill_mpp(self.mpp, "unrarer")
+                elif unrarstatus == 0:    # if unrarer should be state 0 but running -> kill!
+                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
+                        self.logger.debug(whoami() + "unrarer should be idle, but is not, cleaning ...")
+                        kill_mpp(self.mpp, "unrarer")
 
             # monitor decoder
-            if self.mpp["decoder"] and not mpp_is_alive(self.mpp, "decoder"):
+            if self.event_stopped.isSet() and mpp_is_alive(self.mpp, "decoder"):
+                self.logger.info(whoami() + "decoder re-started, but should be dead, stopping ...")
+                kill_mpp(self.mpp, "decoder")
+            if not self.event_stopped.isSet() and self.mpp["decoder"] and not mpp_is_alive(self.mpp, "decoder"):
                 self.logger.debug(whoami() + "restarting decoder process ...")
                 self.mpp_decoder = mp.Process(target=decode_articles, args=(self.mp_work_queue, self.mp_loggerqueue, self.filewrite_lock, ))
                 self.mpp_decoder.start()
@@ -662,8 +678,12 @@ class Downloader(Thread):
                     self.stop()
                     self.stopped_counter = stopped_max_counter
                     continue
+
             # monitor verifier
-            if mpp_is_alive(self.mpp, "verifier"):
+            if self.event_stopped.isSet() and mpp_is_alive(self.mpp, "verifier"):
+                self.logger.info(whoami() + "verifier re-started, but should be dead, stopping ...")
+                kill_mpp(self.mpp, "verifier")
+            if not self.event_stopped.isSet() and mpp_is_alive(self.mpp, "verifier"):
                 if self.download_only:
                     kill_mpp(self.mpp, "verifier")
                     self.logger.info(whoami() + "verifier running but download_only, killing ...")
@@ -812,7 +832,6 @@ class Downloader(Thread):
                     loadpar2vols = True
                     self.pwdb.exc("db_msg_insert", [nzbname, "rar(s) corrupt, loading par2vol files", "info"], {})
 
-            # print(time.time(), "#7")
             # check if all files are downloaded
             getnextnzb = True
             for filetype, item in self.filetypecounter.items():
@@ -822,11 +841,42 @@ class Downloader(Thread):
                     getnextnzb = False
                     break
 
-            # if all files are downloaded and still articles in queue --> inconsistency, exit!
-            if getnextnzb and not self.all_queues_are_empty:
-                self.pwdb.exc("db_msg_insert", [nzbname, "inconsistency in download queue", "error"], {})
+            # check not getnextnzb & speed = 0 -> stuck, downloadstatus = -2
+            dl_stuck = False
+            if not getnextnzb and self.all_queues_are_empty():
+                if not self.tt_wait_for_completion:
+                    self.tt_wait_for_completion = time.time()
+                else:
+                    if time.time() - self.tt_wait_for_completion > self.connection_idle_timeout:
+                        dl_stuck = True
+            elif not getnextnzb:
+                self.tt_wait_for_completion = None
+
+            # all downloaded but unrarer still running(stuck?)
+            unrarer_is_stuck = False
+            if self.event_unrareridle.is_set() and (getnextnzb or self.all_queues_are_empty()):
+                self.pwdb.exc("db_msg_insert", [nzbname, "waiting for unrarer to resume/finish", "info"], {})
+                tt_ui = time.time()
+                while self.event_unrareridle.is_set() and time.time() - tt_ui < 10:
+                    time.sleep(1)
+                if self.event_unrareridle.is_set():
+                    unrarer_is_stuck = True
+
+            # if unrarer stuck or all files are downloaded and still articles in queue --> inconsistency, exit!
+            if unrarer_is_stuck or dl_stuck or (getnextnzb and not self.all_queues_are_empty()):
+                if unrarer_is_stuck:
+                    self.pwdb.exc("db_msg_insert", [nzbname, "unrarer is stuck!", "error"], {})
+                elif dl_stuck:
+                    self.pwdb.exc("db_msg_insert", [nzbname, "download is stuck!", "error"], {})
+                else:
+                    self.pwdb.exc("db_msg_insert", [nzbname, "inconsistency in download queue", "error"], {})
                 self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})
-                self.logger.warning(whoami() + ": records say dl is done, but still some articles in queue, exiting ...")
+                if unrarer_is_stuck:
+                    self.logger.error(whoami() + ": all articles/files downloaded but unrarer still waiting, exiting ...")
+                elif dl_stuck:
+                    self.logger.error(whoami() + ": all queues are empty but not completed, exiting ...")
+                else:
+                    self.logger.error(whoami() + ": records say dl is done, but still some articles in queue, exiting ...")
                 return_reason = "download failed"
                 self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                           self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
@@ -834,7 +884,6 @@ class Downloader(Thread):
                 self.stop()
                 self.stopped_counter = stopped_max_counter
                 continue
-            # print("-" * 60)
 
         # store infolist in file
         if infolist and files:

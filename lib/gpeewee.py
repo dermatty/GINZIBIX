@@ -694,7 +694,7 @@ class PWDB():
                     try:
                         sfvf = open(renamed_dir + ff, "r")
                         for svfline in sfvf:
-                            if fileshort in svfline:
+                            if not svfline.startswith(";") and fileshort in svfline:
                                 crc32ff = svfline.split(" ")[-1].lower().strip()
                                 break
                         sfvf.close()

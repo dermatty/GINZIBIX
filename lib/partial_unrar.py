@@ -187,6 +187,9 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
 
         child = pexpect.spawn(cmd)
         status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
+        
+        
+
         while not TERMINATED:
             oldnextrarname = nextrarname.split("/")[-1]
             status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
@@ -246,18 +249,50 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
                 break
             pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " success!", "info"], {})
             logger.debug(whoami() + "Waiting for next rar: " + nextrarname)
+            # first, if .r00
+            try:
+                nextrar_number = int(re.search(r"\d{0,9}$", nextrarname).group())
+                nextrar_wo_number = nextrarname.rstrip("0123456789") 
+            except Exception:
+                nextrar_wo_number = nextrarname
+                nextrar_number = -1
+            # if part01.rar
+            if nextrar_number == -1:
+                try:
+                    nextrar_number = int(nextrarname.split(".part")[-1].split(".rar")[0])
+                    nextrar_wo_number = nextrarname.rstrip(".rar").rstrip("0123456789").rstrip("part").rstrip(".")
+                except Exception:
+                    nextrar_wo_number = nextrarname
+                    nextrar_number = -1
             gotnextrar = False
+            nextrar_short = nextrarname.split("/")[-1]
             # todo: hier deadlock/unendliches Warten im Postprocess vermeiden, wenn rar nicht auftaucht!
             event_idle.set()
             while not gotnextrar and not TERMINATED:
                 time.sleep(1)
                 for f0 in glob.glob(directory + "*"):
                     if nextrarname == f0:
+                        gotnextrar = True
+                # now check if we waited too long for next rar0 - but how?
+                if not gotnextrar and nextrar_number != -1:
+                    for f0 in glob.glob(directory + "*"):
+                        f0_number = -1
+                        f0_wo_number = f0
                         try:
-                            gotnextrar = True
+                            f0_number = int(re.search(r"\d{0,9}$", f0).group())
+                            f0_wo_number = f0.rstrip("0123456789")
+                        except Exception:
+                            try:
+                                f0_number = int(f0.split(".part")[-1].split(".rar")[0])
+                                f0_wo_number = f0.rstrip(".rar").rstrip("0123456789").rstrip("part").rstrip(".")
+                            except Exception:
+                                continue
+                        if f0_number == -1:
+                            continue
+                        if f0_wo_number == nextrar_wo_number and f0_number > nextrar_number:
+                            pwdb.exc("db_msg_insert", [nzbname, "unrar waiting for next rar, but next rar " + nextrar_short + " seems to be skipped, you may want to interrupt ...", "warning"], {})
                             break
-                        except Exception as e:
-                            logger.warning(whoami() + str(e))
+
             event_idle.clear()
             if TERMINATED:
                 break

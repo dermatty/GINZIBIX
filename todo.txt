@@ -1,29 +1,4 @@
-gui donwload speed frozen if postproc failed ("dl success but no postproc possible"
+if waiting for next rar16 ... and it does not appear bzw. nur 20 21 22 etc. kommen -> stop 
 
-par_verifier stops and starts
+if failed -> logs & Mbit not cleaned!
 
-main - DEBUG - run / #548: unrarer finished, but not cleaned up, cleaning ...
-
-missing articles? better checks:
-	if parvols: enough parvols to repair
-	no parvols: sofort abbrechen
-
-check 2 pw files hintereinander!!!
-
----------------------------------------------------------------------
-
-5. if failed -> is not moved to history in gui
-6. Trying to get password from file / Cannot get pw from nzb string takes too long
-8. cancel dl if dl + postproc takes "too long"
-
--  unrar idle -> obwohl killed .. are multiple instances spawnded. watch with top -bc | grep python
-- gui: menu server - server setup + RT speed & health indication
-0. test for password again
-1. unrar *.rar ???
-1. nach viel umgruppieren -> par_verifier waiting to complete
-2. pause / resume / closeall during postprocessing
-3. auto-turn off server: if all download fail on server - turn it off for this
-nzb!
-4. test what happens if no internet at all!! mit verbindungsabbrüchen gzbx
-verwirren!
-...
