@@ -58,6 +58,9 @@ def update_server_ts(server_ts, ct, pipes):
     if not current_stats:
         return
 
+    if not isinstance(current_stats, dict):
+        return
+
     for server, bdl in current_stats.items():
         bdl = bdl / (1024 * 1024)   # in MB
         try:

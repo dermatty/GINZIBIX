@@ -194,16 +194,20 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                 if pwdb.exc("db_nzb_exists", [nzb0], {}):
                     logger.warning(whoami() + " NZB file " + nzb0 + " already exists in DB")
                     continue
-                logger.info(whoami() + "inserting " + nzb0 + "into db")
                 # replace [ and ] brackets in nzb0 / this is a bug in re!?
                 nzb0 = nzb0.replace("[", "(")
                 nzb0 = nzb0.replace("]", ")")
+                try:
+                    os.rename(nzb, dirs["nzb"] + nzb0)
+                except Exception as e:
+                    logger.warning(whoami() + str(e))
+                logger.info(whoami() + "inserting " + nzb0 + "into db")
                 newnzb = pwdb.exc("db_nzb_insert", [nzb0], {})
                 if newnzb:
                     logger.info(whoami() + "new NZB file " + nzb0 + " detected")
                     # update size
                     # rename nzb here to ....processed
-                    filedic, bytescount = decompose_nzb(nzb, logger)
+                    filedic, bytescount = decompose_nzb(nzb0, logger)
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
                         pwdb.exc("db_nzb_update_status", [nzb0, -1], {{"usefasttrack": False}})   # status "cannot queue / -1"
