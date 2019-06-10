@@ -30,7 +30,7 @@ register_matplotlib_converters()
 
 
 __appname__ = "ginzibix"
-__version__ = "0.02 alpha"
+__version__ = "0.1 beta"
 __author__ = "dermatty"
 
 DEBUGPRINT = True
