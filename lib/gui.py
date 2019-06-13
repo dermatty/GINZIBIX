@@ -40,6 +40,13 @@ GLADEFILE = "lib/ginzibix.glade"
 
 GIBDIVISOR = (1024 * 1024 * 1024)
 CLOSEALL_TIMEOUT = 8
+
+MIN_NZB_WIDTH = 520
+MIN_PRGB_WIDTH = 220
+MIN_INT_WIDTH = 120
+MIN_MSG_WIDTH = 460
+MIN_TIME_WIDTH = 180
+
 MAX_NZB_LEN = 60
 MAX_INT_LEN = 18
 MAX_STAT_LEN = 20
@@ -328,9 +335,10 @@ class ApplicationGui(Gtk.Application):
         self.update_serverlist_liststore(init=True)
 
         # 0st column: server name
-        renderer_text0 = Gtk.CellRendererText(width_chars=75, ellipsize=Pango.EllipsizeMode.END)
+        renderer_text0 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text0 = Gtk.TreeViewColumn("Server name", renderer_text0, text=0)
         column_text0.set_expand(True)
+        column_text0.set_alignment(0.5)
         self.treeview_serverlist.append_column(column_text0)
 
         # 1th server toggled
@@ -352,16 +360,22 @@ class ApplicationGui(Gtk.Application):
         self.logs_liststore.clear()
         self.treeview_loglist = Gtk.TreeView(model=self.logs_liststore)
 
-        renderer_log4 = Gtk.CellRendererText()
+        renderer_log4 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
+        column_log4.set_min_width(MIN_TIME_WIDTH)
+        column_log4.set_alignment(0.5)
         self.treeview_loglist.append_column(column_log4)
 
-        renderer_log3 = Gtk.CellRendererText()
+        renderer_log3 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
+        column_log3.set_min_width(MIN_INT_WIDTH)
+        column_log3.set_alignment(0.5)
         self.treeview_loglist.append_column(column_log3)
 
-        renderer_log2 = Gtk.CellRendererText(width_chars=MAX_MSG_LEN, ellipsize=Pango.EllipsizeMode.END)
+        renderer_log2 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
+        column_log2.set_min_width(MIN_MSG_WIDTH)
+        column_log2.set_alignment(0.5)
         column_log2.set_expand(True)
         self.treeview_loglist.append_column(column_log2)
 
@@ -372,25 +386,30 @@ class ApplicationGui(Gtk.Application):
         self.historylogs_liststore = Gtk.ListStore(str, str, str, str, str, str)
         self.treeview_historyloglist = Gtk.TreeView(model=self.historylogs_liststore)
 
-        renderer_log0 = Gtk.CellRendererText(width_chars=MAX_NZB_LEN, ellipsize=Pango.EllipsizeMode.END)
+        renderer_log0 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log0 = Gtk.TreeViewColumn("NZB Name", renderer_log0, text=5, background=3, foreground=4)
         column_log0.set_expand(True)
+        column_log0.set_min_width(MIN_NZB_WIDTH)
+        column_log0.set_alignment(0.5)
         self.treeview_historyloglist.append_column(column_log0)
 
-        renderer_log4 = Gtk.CellRendererText()
+        renderer_log4 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log4 = Gtk.TreeViewColumn("Time", renderer_log4, text=2, background=3, foreground=4)
-        #column_log4.set_min_width(80)
+        column_log4.set_min_width(MIN_TIME_WIDTH)
+        column_log4.set_alignment(0.5)
         self.treeview_historyloglist.append_column(column_log4)
 
-        renderer_log3 = Gtk.CellRendererText()
+        renderer_log3 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log3 = Gtk.TreeViewColumn("Level", renderer_log3, text=1, background=3, foreground=4)
-        #column_log3.set_min_width(80)
+        column_log3.set_min_width(MIN_INT_WIDTH)
+        column_log3.set_alignment(0.5)
         self.treeview_historyloglist.append_column(column_log3)
 
-        renderer_log2 = Gtk.CellRendererText(width_chars=MAX_MSG_LEN, ellipsize=Pango.EllipsizeMode.END)
+        renderer_log2 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log2 = Gtk.TreeViewColumn("Message", renderer_log2, text=0, background=3, foreground=4)
         column_log2.set_expand(True)
-        #column_log2.set_min_width(520)
+        column_log2.set_min_width(MIN_MSG_WIDTH)
+        column_log2.set_alignment(0.5)
         self.treeview_historyloglist.append_column(column_log2)
 
         self.obj("scrolled_window_nzbhistorylogs").add(self.treeview_historyloglist)
@@ -410,25 +429,33 @@ class ApplicationGui(Gtk.Application):
         historyrenderer_toggle.connect("toggled", self.on_inverted_toggled_nzbhistory)
         self.treeview_history.append_column(historycolumn_toggle)
         # 1st column: NZB name
-        historyrenderer_text0 = Gtk.CellRendererText(width_chars=MAX_NZB_LEN, ellipsize=Pango.EllipsizeMode.END)
+        historyrenderer_text0 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         historycolumn_text0 = Gtk.TreeViewColumn("NZB name", historyrenderer_text0, text=1)
         historycolumn_text0.set_expand(True)
+        historycolumn_text0.set_min_width(MIN_NZB_WIDTH)
+        historycolumn_text0.set_alignment(0.5)
         self.treeview_history.append_column(historycolumn_text0)
         # 2nd column status
-        historyrenderer_text1 = Gtk.CellRendererText()
+        historyrenderer_text1 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         historycolumn_text1 = Gtk.TreeViewColumn("Status", historyrenderer_text1, text=2, background=6)
+        historycolumn_text1.set_min_width(MIN_INT_WIDTH)
+        historycolumn_text1.set_alignment(0.5)
         self.treeview_history.append_column(historycolumn_text1)
         # 4th overall GiB
-        historyrenderer_text2 = Gtk.CellRendererText()
-        historycolumn_text2 = Gtk.TreeViewColumn("Size", historyrenderer_text2, text=3)
+        historyrenderer_text2 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
+        historycolumn_text2 = Gtk.TreeViewColumn("Overall", historyrenderer_text2, text=3)
         historycolumn_text2.set_cell_data_func(historyrenderer_text2, lambda col, cell, model, iter, unused:
                                                cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
+        historycolumn_text2.set_min_width(MIN_INT_WIDTH)
+        historycolumn_text2.set_alignment(0.5)
         self.treeview_history.append_column(historycolumn_text2)
         # 5th downloaded in %
-        historyrenderer_text3 = Gtk.CellRendererText()
-        historycolumn_text3 = Gtk.TreeViewColumn("downloaded %", historyrenderer_text3, text=5)
+        historyrenderer_text3 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
+        historycolumn_text3 = Gtk.TreeViewColumn("Downloaded", historyrenderer_text3, text=5)
         historycolumn_text3.set_cell_data_func(historyrenderer_text3, lambda col, cell, model, iter, unused:
                                                cell.set_property("text", "{0:.0f}".format(min(model.get(iter, 5)[0] * 100, 100)) + "%"))
+        historycolumn_text3.set_min_width(MIN_INT_WIDTH)
+        historycolumn_text3.set_alignment(0.5)
         self.treeview_history.append_column(historycolumn_text3)
 
         self.obj("detailsscrolled_window").add(self.treeview_history)
@@ -448,54 +475,44 @@ class ApplicationGui(Gtk.Application):
         renderer_toggle.connect("toggled", self.on_inverted_toggled)
         self.treeview_nzblist.append_column(column_toggle)
         # 1st column: NZB name
-        renderer_text0 = Gtk.CellRendererText()
-        renderer_text0.set_property("ellipsize", Pango.EllipsizeMode.END)
-        renderer_text0.set_property("xalign", 0.5)
+        renderer_text0 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text0 = Gtk.TreeViewColumn("NZB name", renderer_text0, text=0)
         column_text0.set_expand(True)
-        column_text0.set_min_width(520)
+        column_text0.set_min_width(MIN_NZB_WIDTH)
         column_text0.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_text0)
         # 2nd: progressbar
         renderer_progress = Gtk.CellRendererProgress()
         column_progress = Gtk.TreeViewColumn("Progress", renderer_progress, value=1, text=5)
-        column_progress.set_min_width(220)
+        column_progress.set_min_width(MIN_PRGB_WIDTH)
         column_progress.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_progress)
         # 3rd downloaded GiN
-        renderer_text1 = Gtk.CellRendererText()
-        renderer_text1.set_property("ellipsize", Pango.EllipsizeMode.END)
-        renderer_text1.set_property("xalign", 0.5)
+        renderer_text1 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text1 = Gtk.TreeViewColumn("Downloaded", renderer_text1, text=2)
         column_text1.set_cell_data_func(renderer_text1, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 2)[0]) + " GiB"))
-        column_text1.set_min_width(120)
+        column_text1.set_min_width(MIN_INT_WIDTH)
         column_text1.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_text1)
         # 4th overall GiB
-        renderer_text2 = Gtk.CellRendererText()
-        renderer_text2.set_property("ellipsize", Pango.EllipsizeMode.END)
-        renderer_text2.set_property("xalign", 0.5)
+        renderer_text2 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text2 = Gtk.TreeViewColumn("Overall", renderer_text2, text=3)
         column_text2.set_cell_data_func(renderer_text2, lambda col, cell, model, iter, unused:
                                         cell.set_property("text", "{0:.2f}".format(model.get(iter, 3)[0]) + " GiB"))
-        column_text2.set_min_width(120)
+        column_text2.set_min_width(MIN_INT_WIDTH)
         column_text2.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_text2)
         # 5th Eta
-        renderer_text3 = Gtk.CellRendererText()
-        renderer_text3.set_property("ellipsize", Pango.EllipsizeMode.END)
-        renderer_text3.set_property("xalign", 0.5)
+        renderer_text3 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text3 = Gtk.TreeViewColumn("Eta", renderer_text3, text=4)
-        column_text3.set_min_width(120)
+        column_text3.set_min_width(MIN_INT_WIDTH)
         column_text3.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_text3)
         # 7th status
-        renderer_text7 = Gtk.CellRendererText()
-        renderer_text7.set_property("ellipsize", Pango.EllipsizeMode.END)
-        renderer_text7.set_property("xalign", 0.5)
+        renderer_text7 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
-        column_text7.set_min_width(160)
+        column_text7.set_min_width(MIN_INT_WIDTH)
         column_text7.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_text7)
         self.obj("scrolled_window_nzblist").add(self.treeview_nzblist)

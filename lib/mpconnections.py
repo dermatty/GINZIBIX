@@ -86,7 +86,8 @@ class ConnectionWorker(Thread):
             if resp.startswith("222"):
                 status = 1
                 info0 = [inf + b"\r\n" if not inf.endswith(b"\r\n") else inf for inf in info.lines]
-                bytesdownloaded = sum(len(i) for i in info0)
+                # bytesdownloaded = sum(len(i) for i in info0)
+                bytesdownloaded = len(b''.join(info.lines))
             else:
                 self.logger.warning(whoami() + resp + ": could not find " + article_name + " on " + self.idn)
                 status = 0
