@@ -743,7 +743,9 @@ class Downloader(Thread):
                             self.mpp_unrarer.start()
                             self.mpp["unrarer"] = self.mpp_unrarer
                         else:
-                            self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, -1], {})
+                            if mpp_is_alive(self.mpp, "unrarer"):
+                                kill_mpp(self.mpp, "unrarer")
+                                self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                             self.logger.debug(whoami() + "not starting unrarer due to verifier state = -2")
                     elif is_pwp == -3:
                         self.logger.info(whoami() + ": cannot check for pw protection as first rar not present yet")
