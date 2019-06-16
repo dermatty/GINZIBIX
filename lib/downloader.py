@@ -516,6 +516,7 @@ class Downloader(Thread):
         rarcounter = 0
 
         self.tt_wait_for_completion = None
+        self.tt_wait_for_completion_unrar = None
 
         while self.stopped_counter < stopped_max_counter:
 
@@ -861,12 +862,14 @@ class Downloader(Thread):
             # all downloaded but unrarer still running(stuck?)
             unrarer_is_stuck = False
             if self.event_unrareridle.is_set() and (getnextnzb or self.all_queues_are_empty()):
-                self.pwdb.exc("db_msg_insert", [nzbname, "waiting for unrarer to resume/finish", "info"], {})
-                tt_ui = time.time()
-                while self.event_unrareridle.is_set() and time.time() - tt_ui < 10:
-                    time.sleep(1)
-                if self.event_unrareridle.is_set():
-                    unrarer_is_stuck = True
+                if not self.tt_wait_for_completion_unrar:
+                    self.tt_wait_for_completion_unrar = time.time()
+                    self.pwdb.exc("db_msg_insert", [nzbname, "waiting for unrarer to resume/finish", "info"], {})
+                else:
+                    if time.time() - self.tt_wait_for_completion_unrar > self.connection_idle_timeout:
+                        unrarer_is_stuck = True
+            elif not getnextnzb or not self.event_unrareridle.is_set():
+                self.tt_wait_for_completion_unrar = None
 
             # if unrarer stuck or all files are downloaded and still articles in queue --> inconsistency, exit!
             if unrarer_is_stuck or dl_stuck or (getnextnzb and not self.all_queues_are_empty()):
