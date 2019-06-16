@@ -208,7 +208,7 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
                 is_double_packed, fn = check_double_packed(unpack_dir)
                 if is_double_packed:
                     pwdb.exc("db_msg_insert", [nzbname, "rars are double packed, starting unrar 2nd run", "warning"], {})
-                    cmd = "unrar x -y -o+ -vp '" + fn + "' '" + unpack_dir + "'"
+                    cmd = "unrar x -y -o+ '" + fn + "' '" + unpack_dir + "'"
                     logger.debug(whoami() + "rars are double packed, executing " + cmd)
                     # unrar without pausing! 
                     child = pexpect.spawn(cmd)

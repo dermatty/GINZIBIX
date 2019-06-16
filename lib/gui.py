@@ -388,7 +388,6 @@ class ApplicationGui(Gtk.Application):
 
         renderer_log0 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_log0 = Gtk.TreeViewColumn("NZB Name", renderer_log0, text=5, background=3, foreground=4)
-        column_log0.set_expand(True)
         column_log0.set_min_width(MIN_NZB_WIDTH)
         column_log0.set_alignment(0.5)
         self.treeview_historyloglist.append_column(column_log0)
@@ -687,7 +686,8 @@ class ApplicationGui(Gtk.Application):
             self.appdata.sortednzblist = sortednzblist0[:]
 
         if not self.appdata.nzbs:
-            self.no_queued_label.set_text("Queued: -")
+            self.no_queued_label.set_markup("<b>Queued:</b> <i>-</i>")
+
 
         if data and None not in data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
@@ -1102,9 +1102,9 @@ class ApplicationGui(Gtk.Application):
     def update_liststore_dldata(self):
         if len(self.nzblist_liststore) == 0:
             self.levelbar.set_value(0)
-            self.mbitlabel2.set_text("- Mbit/s")
-            self.no_queued_label.set_text("Queued: -")
-            self.overall_eta_label.set_text("ETA: -")
+            self.mbitlabel2.set_markup("<i>- Mbit/s</i>")
+            self.no_queued_label.set_markup("<b>Queued:</b> <i>-</i>")
+            self.overall_eta_label.set_markup("<b>ETA:</b> <i>-</i>")
             return
         path = Gtk.TreePath(0)
         iter = self.nzblist_liststore.get_iter(path)
@@ -1146,22 +1146,22 @@ class ApplicationGui(Gtk.Application):
         self.nzblist_liststore.set_value(iter, 4, etastr)
         if len(self.appdata.nzbs) > 0:
             newnzb = (self.appdata.nzbs[0][0], n_perc, n_dl, n_size, etastr, str(n_perc) + "%", self.appdata.nzbs[0][6], self.appdata.nzbs[0][7])
-            self.no_queued_label.set_text("Queued: " + str(len(self.appdata.nzbs)))
+            self.no_queued_label.set_markup("<b>Queued:</b> <i>" + str(len(self.appdata.nzbs)) + "</i>")
             self.appdata.nzbs[0] = newnzb
             if self.appdata.mbitsec > 0 and self.appdata.dl_running:
                 self.levelbar.set_value(self.appdata.mbitsec / self.appdata.max_mbitsec)
                 mbitsecstr = str(int(self.appdata.mbitsec)) + " MBit/s"
-                self.mbitlabel2.set_text(mbitsecstr.rjust(11))
-                self.overall_eta_label.set_text("ETA: " + overall_etastr)
+                self.mbitlabel2.set_markup("<i>" + mbitsecstr.rjust(11) + "</i>")
+                self.overall_eta_label.set_markup("<b>ETA:</b> <i>" + overall_etastr + "</i>")
             else:
                 self.levelbar.set_value(0)
-                self.mbitlabel2.set_text("- MBit/s")
-                self.overall_eta_label.set_text("ETA: -")
+                self.mbitlabel2.set_markup("<i>- MBit/s</i>")
+                self.overall_eta_label.set_markup("<b>ETA:</b> <i>-</i>")
         else:
             self.levelbar.set_value(0)
-            self.mbitlabel2.set_text("")
-            self.no_queued_label.set_text("Queued: -")
-            self.overall_eta_label.set_text("ETA: -")
+            self.mbitlabel2.set_markup("<i>- MBit/s</i>")
+            self.no_queued_label.set_markup("<b>Queued:</b> <i>-</i>")
+            self.overall_eta_label.set_markup("<b>ETA:</b> <i>-</i>")
 
 
 # ******************************************************************************************************

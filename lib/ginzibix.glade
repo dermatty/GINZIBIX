@@ -490,7 +490,8 @@
                               <object class="GtkLabel" id="speedlabel">
                                 <property name="visible">True</property>
                                 <property name="can_focus">False</property>
-                                <property name="label" translatable="yes">Speed	</property>
+                                <property name="label" translatable="yes">&lt;b&gt;Speed&lt;/b&gt;	</property>
+                                <property name="use_markup">True</property>
                               </object>
                               <packing>
                                 <property name="expand">False</property>
@@ -516,7 +517,8 @@
                               <object class="GtkLabel" id="mbitlabel2">
                                 <property name="visible">True</property>
                                 <property name="can_focus">False</property>
-                                <property name="label" translatable="yes">- Mbit/s</property>
+                                <property name="label" translatable="yes">&lt;i&gt;- Mbit/s&lt;/i&gt;</property>
+                                <property name="use_markup">True</property>
                               </object>
                               <packing>
                                 <property name="expand">False</property>
@@ -540,7 +542,8 @@
                               <object class="GtkLabel" id="overalleta">
                                 <property name="visible">True</property>
                                 <property name="can_focus">False</property>
-                                <property name="label" translatable="yes">ETA: - </property>
+                                <property name="label" translatable="yes">&lt;b&gt;ETA:&lt;/b&gt; &lt;i&gt;-&lt;/i&gt; </property>
+                                <property name="use_markup">True</property>
                               </object>
                               <packing>
                                 <property name="expand">True</property>
@@ -589,7 +592,7 @@
                   <object class="GtkLabel">
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
-                    <property name="label" translatable="yes">Speed / Health</property>
+                    <property name="label" translatable="yes">Info</property>
                   </object>
                 </child>
               </object>
