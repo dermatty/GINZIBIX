@@ -413,8 +413,8 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                                     pwdb.exc("db_file_set_renamed_name", [fnshort, fnshort], {})
                                 except Exception as e:
                                     print(str(e))
-                                # par2
-                                if p2.is_par2():
+                                # par2 (we exclude this strange .._sample.par2's!)
+                                if p2.is_par2() and not fnfull.endswith("_sample.par2"):
                                     rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash()]
                                     p2list.append((p2, fnshort,  dest_dir + fnshort, rarfiles))
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})

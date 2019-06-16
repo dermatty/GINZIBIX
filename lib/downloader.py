@@ -839,6 +839,10 @@ class Downloader(Thread):
             for filetype, item in self.filetypecounter.items():
                 if filetype == "par2vol" and not loadpar2vols:
                     continue
+                if filetype == "par2" and (self.filetypecounter["par2"]["counter"] < self.filetypecounter["par2"]["max"]):
+                    par2l = filter(lambda parl0: parl0.endswith("_sample.par2"), self.filetypecounter[filetype]["filelist"])
+                    if par2l:
+                        continue
                 if self.filetypecounter[filetype]["counter"] < self.filetypecounter[filetype]["max"]:
                     getnextnzb = False
                     break
@@ -914,7 +918,7 @@ class Downloader(Thread):
             msgtype = "success"
         else:
             msgtype = "info"
-        self.pwdb.exc("db_msg_insert", [nzbname, return_reason, msgtype], {})
+        # self.pwdb.exc("db_msg_insert", [nzbname, return_reason, msgtype], {})
         self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                   self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                   self.allfileslist)), return_reason, self.main_dir

@@ -650,6 +650,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     article_health = 0
                     connection_health = 0
                     logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
+                    pwdb.exc("db_msg_insert", [nzbname, "downloaded ok, starting postprocess", "success"], {})
                     mpp_post = mp.Process(target=postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
                                                                         dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
                                                                         dl.download_dir, dl.dirs, dl.pw_file, mp_loggerqueue, ))
@@ -663,6 +664,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                                    stopall=False, onlyarticlequeue=False)
                     dl.stop()
                     dl.join()
+                    pwdb.exc("db_msg_insert", [nzbname, "downloaded failed!", "error"], {})
                     # set 'flags' for getting next nzb
                     del dl
                     dl = None
