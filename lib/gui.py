@@ -46,6 +46,7 @@ MIN_PRGB_WIDTH = 220
 MIN_INT_WIDTH = 120
 MIN_MSG_WIDTH = 460
 MIN_TIME_WIDTH = 180
+MIN_STAT_WIDTH = 180
 
 MAX_NZB_LEN = 60
 MAX_INT_LEN = 18
@@ -437,7 +438,7 @@ class ApplicationGui(Gtk.Application):
         # 2nd column status
         historyrenderer_text1 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         historycolumn_text1 = Gtk.TreeViewColumn("Status", historyrenderer_text1, text=2, background=6)
-        historycolumn_text1.set_min_width(MIN_INT_WIDTH)
+        historycolumn_text1.set_min_width(MIN_STAT_WIDTH)
         historycolumn_text1.set_alignment(0.5)
         self.treeview_history.append_column(historycolumn_text1)
         # 4th overall GiB
@@ -511,7 +512,7 @@ class ApplicationGui(Gtk.Application):
         # 7th status
         renderer_text7 = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, xalign=0.5)
         column_text7 = Gtk.TreeViewColumn("Status", renderer_text7, text=7, background=8)
-        column_text7.set_min_width(MIN_INT_WIDTH)
+        column_text7.set_min_width(MIN_STAT_WIDTH)
         column_text7.set_alignment(0.5)
         self.treeview_nzblist.append_column(column_text7)
         self.obj("scrolled_window_nzblist").add(self.treeview_nzblist)
