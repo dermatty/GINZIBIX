@@ -1,5 +1,5 @@
 import re
-import sabyenc
+import ginzyenc
 import os
 import time
 import queue
@@ -70,7 +70,7 @@ def decode_articles(mp_work_queue0, mp_loggerqueue, filewrite_lock):
         status = 0   # 1: ok, 0: wrong yenc structure, -1: no crc32, -2: crc32 checksum error, -3: decoding error
         statusmsg = "ok"
 
-        # sabyenc
+        # ginzyenc
         full_filename = save_dir + filename
         i = 0
         for info in infolist:
@@ -83,15 +83,15 @@ def decode_articles(mp_work_queue0, mp_loggerqueue, filewrite_lock):
                 logger.warning(whoami() + str(e) + ", guestimate size ...")
                 size = int(sum(len(i) for i in info.lines) * 1.1)
             try:
-                decoded_data, output_filename, crc, crc_yenc, crc_correct = sabyenc.decode_usenet_chunks(info, size)
+                decoded_data, output_filename, crc, crc_yenc, crc_correct = ginzyenc.decode_usenet_chunks(info, size)
                 #if filename.endswith("part01.rar") and i == 3:
                 #    pass
                 #else:
                 bytesfinal.extend(decoded_data)
             except Exception as e:
-                logger.warning(whoami() + str(e) + ": cannot perform sabyenc3")
+                logger.warning(whoami() + str(e) + ": cannot perform ginzyenc")
                 status = -3
-                statusmsg = "Sabyenc3 decoding error!"
+                statusmsg = "ginzyenc decoding error!"
                 # continue decoding, maybe it can be repaired ...?
             i += 1
         logger.debug(whoami() + "decoding for " + filename + ": success!")

@@ -2,3 +2,14 @@ if waiting for next rar16 ... and it does not appear bzw. nur 20 21 22 etc. komm
 
 if failed -> logs & Mbit not cleaned!
 
+Process Process-6:1:
+Traceback (most recent call last):
+  File "/usr/lib/python3.7/multiprocessing/process.py", line 297, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.7/multiprocessing/process.py", line 99, in run
+    self._target(*self._args, **self._kwargs)
+  File "/media/nfs/development/GIT/GINZIBIX/lib/nzb_parser.py", line 215, in ParseNZB
+    pwdb.exc("db_nzb_update_status", [nzb0, -1], {{"usefasttrack": False}})   # status "cannot queue / -1"
+TypeError: unhashable type: 'dict'
+
+

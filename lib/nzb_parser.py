@@ -212,7 +212,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                     filedic, bytescount = decompose_nzb(nzb0, logger)
                     if not filedic:
                         logger.warning("Could not interpret nzb " + nzb0 + ", setting to obsolete")
-                        pwdb.exc("db_nzb_update_status", [nzb0, -1], {{"usefasttrack": False}})   # status "cannot queue / -1"
+                        pwdb.exc("db_nzb_update_status", [nzb0, -1], {"usefasttrack": False})   # status "cannot queue / -1"
                     else:
                         size_gb = bytescount / (1024 * 1024 * 1024)
                         infostr = nzb0 + " / " + "{0:.3f}".format(size_gb) + " GB"
