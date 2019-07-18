@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # All credits go to:
 # https://github.com/jmoiron/par2ools/blob/master/par2ools/par2.py
 
