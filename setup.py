@@ -11,7 +11,7 @@ setup(
     description="A Binary newsreader for the Gnome Desktop",
     author="dermatty",
     author_email="stephan@untergrabner.at",
-    url="https://github.com/dermatty/GINZICUT",
+    url="https://github.com/dermatty/GINZIBIX",
     platforms="posix",
     packages=find_packages(),
     include_package_data=True,
