@@ -16,9 +16,9 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     entry_points={"gui_scripts": ["ginzibix = ginzibix.__main__:run"]},
-    install_requires=["ginzyenc>=1.2.3", "pyzmq>=18.0.2", "PyGObject>=3.32.1", "setproctitle>=1.1.10", "peewee>=3.9.6",
-                      "pandas>=0.24.2", "rarfile>=3.0", "pexpect>=4.7.0", "inotify-simple>=1.1.8", "lxml>=4.3.4",
-                      "psutil>=5.6.", "matplotlib>=3.1.1"],
+    install_requires=["ginzyenc>=1.2.3", "pyzmq>=17.1.0", "PyGObject>=3.32.1", "setproctitle>=1.1.10", "peewee>=3.9.6",
+                      "pandas>=0.24.2", "rarfile>=3.0", "pexpect>=4.6.0", "inotify-simple>=1.1.8", "lxml>=4.3.4",
+                      "psutil>=5.6.0", "matplotlib>=3.1.1"],
     keywords=["usenet", "nntp"],
     python_requires=">=3.6.1",
     classifiers=[
