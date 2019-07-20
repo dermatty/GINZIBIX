@@ -1,3 +1,3 @@
 # GINZIBIX
 
-Binary newsreader for the Gnome Desktop
+A Binary newsreader for the Gnome Desktop
