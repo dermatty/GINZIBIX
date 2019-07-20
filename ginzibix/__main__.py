@@ -68,6 +68,8 @@ class SigHandler_Ginzibix:
 def run():
     setproctitle("gzbx." + os.path.basename(__file__))
 
+    print("Starting ginzibix: " + os.getcwd())
+
     guiport = 36703
     while is_port_in_use(guiport):
         guiport += 1
