@@ -104,7 +104,7 @@ def setup_dirs():
         if not os.path.isfile(gladefile):
             return -1, "Cannot detect gladefile", None, None, None, None, None
     # detect iconfile
-    iconfile = "/usr/share/icons/hicolor/48x48/ginzibix.png"
+    iconfile = "/usr/share/icons/hicolor/48x48/apps/ginzibix.png"
     if not os.path.isfile(iconfile):
         iconfile = install_dir + "/data/ginzibix48x48.png"
         if not os.path.isfile(iconfile):
