@@ -70,6 +70,7 @@ def run():
 
     setup_res0, userhome, maindir, dirs, subdirs, gladefile, iconfile = setup_dirs()
     if setup_res0 == -1:
+        print(userhome)
         print("Exiting ...")
         sys.exit()
 
