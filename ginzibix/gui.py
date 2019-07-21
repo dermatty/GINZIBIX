@@ -38,8 +38,8 @@ __author__ = "dermatty"
 
 DEBUGPRINT = True
 
-ICONFILE = "ginzibix/data/icon.png"
-GLADEFILE = "ginzibix/data/ginzibix.glade"
+ICONFILE = None
+GLADEFILE = None
 
 GIBDIVISOR = (1024 * 1024 * 1024)
 CLOSEALL_TIMEOUT = 8
@@ -109,13 +109,20 @@ class SigHandler_GUI:
 # *** main gui itself
 class ApplicationGui(Gtk.Application):
 
-    def __init__(self, dirs, cfg, guiport, mp_loggerqueue):
+    def __init__(self, dirs, cfg, guiport, iconfile, gladefile, mp_loggerqueue):
+
+        global ICONFILE
+        global GLADEFILE
 
         # init app
         self.app = Gtk.Application.new("org.dermatty.ginzibix", Gio.ApplicationFlags(0), )
         self.app.connect("startup", self.on_app_startup)
         self.app.connect("activate", self.on_app_activate)
         self.app.connect("shutdown", self.on_app_shutdown)
+
+        # icon & gladefile
+        ICONFILE = iconfile
+        GLADEFILE = gladefile
 
         # settings from cfg
         self.settings_servers = None

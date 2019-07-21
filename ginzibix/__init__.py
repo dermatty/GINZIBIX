@@ -36,6 +36,82 @@ gi.require_version('Gtk', '3.0')
 __version__ = "1.0"
 
 
+def setup_dirs():
+
+    userhome, maindir, dirs, subdirs = make_dirs()
+
+    ginzibix_dir = maindir
+    complete_dir = dirs["complete"]
+    incomplete_dir = dirs["incomplete"]
+    config_dir = dirs["config"]
+    logs_dir = dirs["logs"]
+    nzb_dir = dirs["nzb"]
+    install_dir = os.path.dirname(os.path.realpath(__file__))
+    # test if .ginzibix dir exist, create if necessary
+    if not os.path.exists(ginzibix_dir):
+        try:
+            os.mkdir(ginzibix_dir)
+            os.mkdir(complete_dir)
+            os.mkdir(incomplete_dir)
+            os.mkdir(config_dir)
+            os.mkdir(logs_dir)
+            os.mkdir(nzb_dir)
+        except Exception as e:
+            return -1, str(e) + ": cannot initialize .ginzibix directory!", None, None, None, None, None
+    # test if .ginzibix/config dir exist, create if necessary
+    if not os.path.exists(config_dir):
+        try:
+            os.mkdir(config_dir)
+        except Exception as e:
+            print(str(e) + ": cannot create log_dir, exiting")
+            return -1, str(e) + ": cannot create complete directory!", None, None, None, None, None
+    # test if config file is located in .ginzibix/config
+    # if not -> copy it from /etc/default or from install_dir
+    if not os.path.isfile(config_dir + "ginzibix.config"):
+        config_template = "/etc/default/ginzibix.config"
+        if os.path.isfile(config_template):
+            try:
+                shutil.copy(config_template, config_dir + "ginzibix.config")
+            except Exception as e:
+                return -1, str(e) + ": cannot initialize ginzibix.config file!", None, None, None, None, None
+        else:
+            try:
+                shutil.copy(install_dir + "/data/ginzicut.config", config_dir + "ginzibix.config")
+            except Exception as e:
+                return -1, str(e) + ": cannot initialize ginzibix.config file!", None, None, None, None, None
+    # test for incomplete_dir
+    if not os.path.exists(incomplete_dir):
+        try:
+            os.mkdir(incomplete_dir)
+        except Exception as e:
+            return -1, str(e) + ": cannot create incomplete directory!", None, None, None, None, None
+    # test for logs_dir
+    if not os.path.exists(logs_dir):
+        try:
+            os.mkdir(logs_dir)
+        except Exception as e:
+            return -1, str(e) + ": cannot create logs directory!", None, None, None, None, None
+    # test for nzb_dir
+    if not os.path.exists(nzb_dir):
+        try:
+            os.mkdir(nzb_dir)
+        except Exception as e:
+            return -1, str(e) + ": cannot create nzb directory!", None, None, None, None, None
+    # where is gladefile
+    gladefile = "/usr/share/ginzibix/ginzibix.glade"
+    if not os.path.isfile(gladefile):
+        gladefile = install_dir + "ginzibix.glade"
+        if not os.path.isfile(gladefile):
+            return -1, "Cannot detect gladefile", None, None, None, None, None
+    # detect iconfile
+    iconfile = "/usr/share/icons/hicolor/48x48/ginzibix.png"
+    if not os.path.isfile(iconfile):
+        iconfile = install_dir + "/data/ginzibix48x48.png"
+        if not os.path.isfile(iconfile):
+            return -1, "Cannot detect iconfile", None, None, None, None, None
+    return 0, userhome, maindir, dirs, subdirs, gladefile, iconfile
+
+
 def do_mpconnections(pipes, cmd, param):
     res = None
     pipes["mpconnector"][2].acquire()

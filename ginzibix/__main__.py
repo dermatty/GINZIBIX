@@ -10,7 +10,7 @@ import sys
 from setproctitle import setproctitle
 from ginzibix.mplogging import whoami
 from ginzibix import gpeewee, control_loop, gui, mplogging
-from ginzibix import is_port_in_use, make_dirs, PWDBSender, __version__
+from ginzibix import is_port_in_use, make_dirs, PWDBSender, __version__, setup_dirs
 gi.require_version('Gtk', '3.0')
 
 
@@ -68,6 +68,11 @@ class SigHandler_Ginzibix:
 def run():
     setproctitle("gzbx." + os.path.basename(__file__))
 
+    setup_res0, userhome, maindir, dirs, subdirs, gladefile, iconfile = setup_dirs()
+    if setup_res0 == -1:
+        print("Exiting ...")
+        sys.exit()
+
     guiport = 36703
     while is_port_in_use(guiport):
         guiport += 1
@@ -75,10 +80,7 @@ def run():
     exit_status = 3
 
     while exit_status == 3:
-
-        # dirs
-        userhome, maindir, dirs, subdirs = make_dirs()
-
+        
         # init config
         try:
             cfg_file = dirs["config"] + "/ginzibix.config"
@@ -87,6 +89,18 @@ def run():
         except Exception as e:
             print(str(e) + ": config file syntax error, exiting")
             sys.exit()
+
+        # init PW file
+        if not os.path.isfile(cfg["OPTIONS"]["pw_file"]):
+            try:
+                pwfile = maindir + "PWFile.txt"
+                os.mknod(pwfile)
+                cfg["OPTIONS"]["pw_file"] = pwfile
+                with open(cfg_file, "w") as cfgfile0:
+                    cfg.write(cfgfile0)
+            except Exception as e:
+                print(str(e) + ": cannot init password file, exiting")
+                sys.exit()
 
         # get log level
         try:
@@ -130,7 +144,7 @@ def run():
         signal.signal(signal.SIGINT, sh.sighandler_ginzibix)
         signal.signal(signal.SIGTERM, sh.sighandler_ginzibix)
 
-        app = gui.ApplicationGui(dirs, cfg, guiport, mp_loggerqueue)
+        app = gui.ApplicationGui(dirs, cfg, guiport, iconfile, gladefile, mp_loggerqueue)
         exit_status = app.run(sys.argv)
 
         sh.shutdown(exit_status=exit_status)

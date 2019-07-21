@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=ginzibix
+GenericName=Binary Usenet Client
+Exec=ginzibix %f
+TryExec=ginzibix
+Icon=ginzibix
+StartupWMClass=ginzibix
+StartupNotify=true
+Terminal=false
+Type=Application
+Version=1.0
+Categories=Utility
+
+
