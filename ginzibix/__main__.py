@@ -74,6 +74,14 @@ def run():
         print("Exiting ...")
         sys.exit()
 
+    # redirect prints to file if not started from tty
+    old_sys_stdout = sys.stdout
+    if not sys.stdout.isatty():
+        try:
+            sys.stdout = open(dirs["logs"] + "printlog.txt", "w")
+        except Exception:
+            pass
+
     guiport = 36703
     while is_port_in_use(guiport):
         guiport += 1
@@ -81,7 +89,7 @@ def run():
     exit_status = 3
 
     while exit_status == 3:
-        
+
         # init config
         try:
             cfg_file = dirs["config"] + "/ginzibix.config"
@@ -150,5 +158,10 @@ def run():
 
         sh.shutdown(exit_status=exit_status)
 
+        if sys.stdout != old_sys_stdout:
+            sys.stdout.flush()
+
     print("ginzibix exits!")
+    if sys.stdout != old_sys_stdout:
+        sys.stdout = old_sys_stdout
     os._exit(1)

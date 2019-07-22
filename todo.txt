@@ -1,3 +1,6 @@
+better check for pwfile in gui.py!!!
+
+
 if waiting for next rar16 ... and it does not appear bzw. nur 20 21 22 etc. kommen -> stop 
 
 if failed -> logs & Mbit not cleaned!
