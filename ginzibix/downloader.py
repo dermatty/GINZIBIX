@@ -714,7 +714,7 @@ class Downloader(Thread):
                     self.logger.debug(whoami() + ": first/new verified rar file appeared, testing if pw protected")
                     is_pwp = passworded_rars.is_rar_password_protected(self.verifiedrar_dir, self.logger)
                     self.pwdb.exc("db_nzb_set_ispw_checked", [nzbname, True], {})
-                    if is_pwp in [0, -2]:
+                    if is_pwp == 0:
                         self.logger.warning(whoami() + "cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
                         self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})  # status download failed
                         return_reason = "download failed"
@@ -725,6 +725,8 @@ class Downloader(Thread):
                         self.stop()
                         self.stopped_counter = stopped_max_counter
                         continue
+                    elif is_pwp == -2:         # could not check -> check next time and continue downloading
+                        self.logger.warning(whoami() + "cannot test rar if pw protected, but continuing ...")
                     if is_pwp == 1:
                         # if pw protected -> postpone password test + unrar
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, True], {})

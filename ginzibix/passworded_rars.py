@@ -36,7 +36,7 @@ def get_sorted_rar_list(directory):
                     nr = int(gg.group().split(".r")[-1])
                     rarlist.append((nr, rarf))
                     continue
-                except Exception as e:
+                except Exception:
                     pass
             # any other rar-wise file, no idea about sorting, let's hope the best
             rarlist.append((i, rarf))
