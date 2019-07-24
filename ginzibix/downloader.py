@@ -9,6 +9,7 @@ import multiprocessing as mp
 from threading import Thread
 import psutil
 import sys
+import ginzyenc
 
 from ginzibix.mplogging import whoami
 from ginzibix import par_verifier, par2lib, partial_unrar, article_decoder, passworded_rars
@@ -183,7 +184,7 @@ class Downloader(Thread):
         bytescount0 = bytescount0 / (1024 * 1024 * 1024)
         return bytescount0
 
-    def inject_articles(self, ftypes, filelist, files0, infolist0, bytescount0_0, filetypecounter):
+    def inject_articles(self, ftypes, filelist, files0, infolist0, bytescount0_0, filetypecounter, onlyfirstarticle=False):
         # generate all articles and files
         files = files0
         infolist = infolist0
@@ -194,32 +195,43 @@ class Downloader(Thread):
             for j, file_articles in enumerate(reversed(filelist)):
                 # iterate over all articles in file
                 filename, age, filetype, nr_articles = file_articles[0]
-                filestatus = self.pwdb.exc("db_file_getstatus", [filename], {})
+                if onlyfirstarticle:
+                    filestatus = -100
+                else:
+                    filestatus = self.pwdb.exc("db_file_getstatus", [filename], {})
                 # reconcile filetypecounter with db
-                if filetype == f:
+                if filetype == f and filestatus != -100:
                     if filename in filetypecounter[f]["filelist"] and filename not in filetypecounter[f]["loadedfiles"] and filestatus not in [0, 1]:
                         filetypecounter[f]["counter"] += 1
                         filetypecounter[f]["loadedfiles"].append(filename)
-                if filetype == f and filestatus in [0, 1]:
+                if filetype == f and (filestatus in [0, 1, -100]):
                     level_servers = self.get_level_servers(age)
                     files[filename] = (nr_articles, age, filetype, False, True)
-                    try:
-                        infolist[filename]
-                    except Exception:
-                        infolist[filename] = [None] * nr_articles
-                    self.pwdb.exc("db_file_update_status", [filename, 1], {})   # status do downloading
+                    if not onlyfirstarticle:
+                        try:
+                            infolist[filename]
+                        except Exception:
+                            infolist[filename] = [None] * nr_articles
+                    if not onlyfirstarticle:
+                        self.pwdb.exc("db_file_update_status", [filename, 1], {})   # status do downloading
                     for i, art0 in enumerate(file_articles):
                         if i == 0:
                             continue
                         art_nr, art_name, art_bytescount = art0
-                        try:
-                            art_downloaded = True if infolist[filename][art_nr - 1] is not None else False
-                        except Exception:
-                            art_downloaded = False
-                        if not art_downloaded:
-                            bytescount0 += art_bytescount
-                            entire_artqueue.append((filename, age, filetype, nr_articles, art_nr, art_name,
-                                                    level_servers))
+                        if not onlyfirstarticle:
+                            try:
+                                art_downloaded = True if infolist[filename][art_nr - 1] is not None else False
+                            except Exception:
+                                art_downloaded = False
+                            if not art_downloaded:
+                                bytescount0 += art_bytescount
+                                entire_artqueue.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                                                        level_servers))
+                        else:
+                            if art_nr == 1:
+                                entire_artqueue.append((filename, age, filetype, nr_articles, art_nr, art_name,
+                                                        level_servers))
+                                break
                         article_count += 1
         if entire_artqueue:
             do_mpconnections(self.pipes, "push_entire_articlequeue", entire_artqueue)
@@ -308,7 +320,7 @@ class Downloader(Thread):
 
     def clear_queues_and_pipes(self, onlyarticlequeue=False):
         self.logger.debug(whoami() + "starting clearing queues & pipes")
-        return do_mpconnections(self.pipes, "clear_articlequeue", None)
+        do_mpconnections(self.pipes, "clear_articlequeue", None)
         if onlyarticlequeue:
             return True
         return do_mpconnections(self.pipes, "clear_resultqueue", None)
@@ -356,6 +368,58 @@ class Downloader(Thread):
         do_mpconnections(self.pipes, "set_tmode_download", None)
         return a_health
 
+    def do_pre_analyze(self, allfileslist, files, infolist, bytescount0, filetypecounter):
+
+        # hier noch:
+        #   - filetype ändern
+        self.logger.info(whoami() + "performing pre-analysis")
+        do_mpconnections(self.pipes, "set_tmode_download", None)
+        injects = ["rar", "sfv", "nfo", "etc", "par2", "par2vol"]
+        files, infolist, bytescount0, article_count = self.inject_articles(injects, allfileslist, files, infolist, bytescount0,
+                                                                           filetypecounter, onlyfirstarticle=True)
+        artsize0 = do_mpconnections(self.pipes, "len_articlequeue", None)
+        self.logger.info(whoami() + "Pre-Analyzing on " + str(artsize0) + " articles")
+        nr_articles = 0
+        while True:
+            try:
+                resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
+                if not resultarticle:
+                    continue
+                filename, age, filetype, _, art_nr, _, _, inf0, _ = resultarticle
+                ftype = filetype
+                try:
+                    lastline = inf0[-1].decode("latin-1")
+                    m = re.search('size=(.\d+?) ', lastline)
+                    if m:
+                        size = int(m.group(1))
+                except Exception as e:
+                    self.logger.warning(whoami() + str(e) + ", guestimate size ...")
+                    size = int(sum(len(i) for i in inf0.lines) * 1.1)
+                try:
+                    decoded, _, _, _, _ = ginzyenc.decode_usenet_chunks(inf0, size) 
+                except Exception:
+                    continue
+                if decoded[:4] == b"Rar!":
+                    ftype = "rar"
+                else:
+                    bstr0 = b"PAR2\x00"             # PAR2\x00
+                    bstr1 = b"PAR 2.0\x00FileDesc"  # PAR 2.0\x00FileDesc'
+                    if bstr0 in decoded and bstr1 in decoded:
+                        ftype = "par2"
+                    elif bstr0 in decoded and bstr1 not in decoded:
+                        ftype = "par2vol"
+                print(filename, ftype, nr_articles, art_nr)
+                print(decoded[:20])
+                print("-" * 80)
+                nr_articles += 1
+                if do_mpconnections(self.pipes, "queues_empty", None):
+                    break
+            except (queue.Empty, EOFError, IndexError):
+                continue
+        do_mpconnections(self.pipes, "clear_articlequeue", None)
+        do_mpconnections(self.pipes, "clear_resultqueue", None)
+        return
+
     # main download routine
     def run(self):
 
@@ -374,6 +438,9 @@ class Downloader(Thread):
 
         res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
         self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = res
+
+        # do pre analysis
+        self.do_pre_analyze(self.allfileslist, {}, {}, 0, self.filetypecounter)
 
         bytescount0 = self.getbytescount(self.allfileslist)
         sanity0 = -1
@@ -454,6 +521,7 @@ class Downloader(Thread):
                     break
 
         if not self.event_stopped.isSet():
+
             self.pipes["renamer"][0].send(("start", self.download_dir, self.rename_dir, nzbname))
 
             # sanity check

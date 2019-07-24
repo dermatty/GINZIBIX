@@ -274,6 +274,7 @@ def renamer_old(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
         logger.debug(whoami() + "renamer paused")
     logger.info(whoami() + "exited!")
 
+
 # ---------------------------------------------------------------------------------------------------------
 #
 # NEW VERSION
@@ -309,6 +310,7 @@ def rename_and_move_rarandremainingfiles(p2list, notrenamedfiles, source_dir, de
                 pass
             except Exception as e:
                 logger.warning(whoami() + str(e))
+
     for fullname, shortname, a_md5 in notrenamedfiles:
         with filewrite_lock:
             shutil.copyfile(source_dir + shortname, dest_dir + shortname)
