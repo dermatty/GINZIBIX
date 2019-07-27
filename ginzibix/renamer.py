@@ -169,7 +169,7 @@ def rename_and_move_rarandremainingfiles_old(p2obj, notrenamedfiles, source_dir,
 def get_inotify_events(inotify, filewrite_lock):
     events = []
     with filewrite_lock:
-        for event in inotify.read(timeout=0.3):
+        for event in inotify.read(timeout=500):
             is_created_file = False
             str0 = event.name
             flgs0 = []
@@ -394,7 +394,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
         wd = inotify.add_watch(source_dir, watch_flags)
 
         isfirstrun = True
-        p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
+        p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
 
         while not TERMINATED:
             events = get_inotify_events(inotify, filewrite_lock)
@@ -417,11 +417,10 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                                     pwdb.exc("db_file_set_renamed_name", [fnshort, fnshort], {})
                                 except Exception as e:
                                     print(str(e))
-                                # par2 (we exclude this strange .._sample.par2's!)
-                                if p2.is_par2() and not fnfull.endswith("_sample.par2"):
+                                if p2.is_par2():
                                     rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash()]
                                     p2list.append((p2, fnshort,  dest_dir + fnshort, rarfiles))
-                                    pwdb.exc("db_nzb_store_p2list", [nzbname, p2list], {})
+                                    pwdb.exc("db_p2_insert_p2", [nzbname, p2, fnshort, dest_dir + fnshort, rarfiles], {})
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2", fnshort, oldft))
                                 # par2vol
@@ -429,7 +428,10 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2vol"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2vol", fnshort, oldft))
                                     # could set # of blocks here in gpeewee
-                                os.remove(fnfull)
+                                try:
+                                    os.remove(fnfull)
+                                except Exception:
+                                    pass
                             else:
                                 notrenamedfiles.append((fnfull, fnshort, par2lib.calc_file_md5hash_16k(fnfull)))
                 # rename & move rar + remaining files

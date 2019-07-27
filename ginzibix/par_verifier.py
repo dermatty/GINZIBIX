@@ -83,7 +83,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
     if pvmode == "verify":
         # p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
         try:
-            p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
+            p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
             p2 = P2(p2list)
         except Exception as e:
             logger.warning(whoami() + str(e))
@@ -110,20 +110,9 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
             if False in md5match:
                 logger.warning(whoami() + " error in md5 hash match for file " + f_short)
                 pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
-                # double check & get # of missing blocks
-                #par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
-                #is_damaged = True
-                #no_missing_blocks = -1
-                #if par2name:
-                #    is_damaged, no_missing_blocks = get_no_of_blocks(par2name, renamed_dir, filename)
                 pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
                 pwdb.exc("db_file_update_parstatus", [f_origname, -1], {})
                 child_pipe.send(True)
-                #else:
-                #    logger.info(whoami() + f_short + " md5 hash match not ok, but par2verify was!")
-                #    pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match not ok, but par2verify was!, copying to verified_rar dir ", "info"], {})
-                #    shutil.copy(renamed_dir + filename, verifiedrar_dir)
-                #    pwdb.exc("db_file_update_parstatus", [f_origname, 1], {})
             else:
                 logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
                 pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
@@ -164,7 +153,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
             event_idle.clear()
             if pvmode == "verify" and not p2:
                 try:
-                    p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
+                    p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
                     p2 = P2(p2list)
                 except Exception as e:
                     logger.debug(whoami() + str(e))
@@ -184,20 +173,9 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                         if False in md5match:
                             logger.warning(whoami() + "error in md5 hash match for file " + f_short)
                             pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
-                            # double check & get # of missing blocks
-                            #par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
-                            #is_damaged = True
-                            #no_missing_blocks = -1
-                            #if par2name:
-                            #    is_damaged, no_missing_blocks = get_no_of_blocks(par2name, renamed_dir, f0_renamedname)
                             pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
                             pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
                             child_pipe.send(True)
-                            #else:
-                            #    logger.info(whoami() + f_short + " md5 hash match not ok, but par2verify was!")
-                            #    pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match not ok, but par2verify was ok! ", "info"], {})
-                            #    shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
-                            #    pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
                         else:
                             logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
                             pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
@@ -273,7 +251,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
 
 def get_inotify_events(inotify):
     events = []
-    for event in inotify.read(timeout=1):
+    for event in inotify.read(timeout=500):
         is_created_file = False
         str0 = event.name
         flgs0 = []

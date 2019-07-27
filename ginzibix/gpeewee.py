@@ -1,5 +1,7 @@
+
 from peewee import Model, CharField, ForeignKeyField, IntegerField, TimeField, OperationalError, BooleanField, BlobField, DateTimeField
 from playhouse.sqlite_ext import CSqliteExtDatabase
+from playhouse.fields import PickleField
 from .mplogging import setup_logger, whoami
 import os
 import shutil
@@ -14,7 +16,9 @@ import _pickle as cpickle
 import datetime
 import functools
 import binascii
+import pickle
 from setproctitle import setproctitle
+from dateutil.relativedelta import relativedelta
 
 
 TERMINATED = False
@@ -36,7 +40,7 @@ class DillField(BlobField):
         return cpickle.loads(value)
 
     def db_value(self, value):
-        return sqlite3.Binary(cpickle.dumps(value))
+        return sqlite3.Binary(pickle.dumps(value))
 
 
 class PWDB():
@@ -134,7 +138,13 @@ class PWDB():
             filetypecounter_dill = DillField(default="N/A")
             allfilesizes_dill = DillField(default="N/A")
             p2_dill = DillField(default="N/A")
-            p2list_dill = DillField(default="N/A")
+
+        class P2(BaseModel):
+            fnshort = CharField()
+            fnlong = CharField()
+            nzbname = CharField()
+            p2obj = PickleField()
+            rarfiles = PickleField()
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -200,7 +210,8 @@ class PWDB():
         self.FILE = FILE
         self.ARTICLE = ARTICLE
         self.SERVER_TS = SERVER_TS
-        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.SERVER_TS]
+        self.P2 = P2
+        self.tablelist = [self.NZB, self.FILE, self.ARTICLE, self.MSG, self.SERVER_TS, self.P2]
 
         if self.db_file_exists:
             try:
@@ -267,6 +278,23 @@ class PWDB():
                 nzb_data[n_name]["files"][nzbf.orig_name] = (nzbf.age, nzbf.ftype, nzbf.nr_articles)
             nzb_data[n_name]["msg"] = self.db_msg_get(n_name)
         return nzb_data
+
+    # ---- self.P2 ----
+    def db_p2_insert_p2(self, nzbname, p2, fnshort, fnlong, rarfiles):
+        try:
+            self.P2.create(nzbname=nzbname, p2obj=p2, fnshort=fnshort, fnlong=fnlong, rarfiles=rarfiles)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            pass
+
+    def db_p2_get_p2list(self, nzbname0):
+        try:
+            p2s0 = self.P2.select().where(self.P2.nzbname == nzbname0)
+            p2list = [(p2s.p2obj, p2s.fnshort, p2s.fnlong, p2s.rarfiles) for p2s in p2s0]
+            return p2list
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return []
 
     # ---- self.SERVER_TS ----
     def db_sts_insert(self, servername, downloaded):
@@ -434,31 +462,6 @@ class PWDB():
             return allfilelist, filetypecounter, overall_size, overall_size_wparvol, already_downloaded_size, p2
         return None
 
-    def db_nzb_store_p2list(self, nzbname, p2list):
-        try:
-            nzb = self.NZB.get(self.NZB.name == nzbname)
-        except Exception as e:
-            self.logger.debug(whoami() + str(e))
-            return False
-        try:
-            nzb.p2list_dill = p2list
-            nzb.save()
-        except Exception as e:
-            self.logger.debug(whoami() + str(e))
-            return False
-        return True
-
-    def db_nzb_get_p2list(self, nzbname):
-        try:
-            nzb = self.NZB.get(self.NZB.name == nzbname)
-        except Exception as e:
-            self.logger.debug(whoami() + str(e))
-            return []
-        p2l = nzb.p2list_dill
-        if p2l == "N/A":
-            return []
-        return p2l
-
     @set_db_timestamp
     def db_nzb_insert(self, name0):
         try:
@@ -485,6 +488,8 @@ class PWDB():
             nzb0.delete_instance()
             query_msg = self.MSG.delete().where(self.MSG.nzbname == nzbname)
             query_msg.execute()
+            query_p2 = self.P2.delete().where(self.P2.nzbname == nzbname)
+            query_p2.execute()
             return True
         except Exception as e:
             self.logger.warning(whoami() + str(e))
@@ -941,6 +946,11 @@ class PWDB():
         try:
             query = self.FILE.get(self.FILE.orig_name == filename)
             return query.status
+        except Exception:
+            pass
+        try:
+            query = self.FILE.get(self.FILE.renamed_name == filename)
+            return query.status
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return None
@@ -1379,6 +1389,7 @@ class PWDB():
     #      makes a file/articles list out of top-prio nzb, ready for beeing queued
     #      to download threads
     def make_allfilelist(self, dir0, nzbdir):
+        self.clean_db(nzbdir)
         if self.db_timestamp < self.old_ts_makeallfilelist:
             return None
         try:
@@ -1475,6 +1486,20 @@ class PWDB():
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
                 return None
             return nzbname
+
+    def clean_db(self, nzbdir):
+        now0 = datetime.datetime.now()
+        now01m = relativedelta(months=-1) + now0
+        nzbs = self.NZB.select().where(self.NZB.date_updated < now01m)
+        for nzb in nzbs:
+            self.logger.info(whoami() + "Cleaning NZB " + nzb.name + " from DB because older than 1 month")
+            deletednzb = nzb.name
+            self.db_nzb_delete(deletednzb)
+            try:
+                os.remove(nzbdir + deletednzb)
+                self.logger.debug(whoami() + ": deleted NZB " + deletednzb + " from NZB dir")
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
 
     set_db_timestamp = staticmethod(set_db_timestamp)
 

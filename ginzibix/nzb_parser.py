@@ -146,7 +146,7 @@ def decompose_nzb(nzb, logger):
 
 def get_inotify_events(inotify):
     events = []
-    for event in inotify.read(timeout=1):
+    for event in inotify.read(timeout=500):
         is_created_file = False
         str0 = event.name
         flgs0 = []

@@ -37,6 +37,7 @@ class Downloader(Thread):
         self.lock = threading.Lock()
         self.filewrite_lock = filewrite_lock
         self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.p2 = (None, ) * 5
+        self.p2list = []
         self.mp_loggerqueue = mp_loggerqueue
         self.nzbname = nzbname
         self.event_unrareridle = mp_events["unrarer"]
@@ -64,7 +65,6 @@ class Downloader(Thread):
         self.event_paused = threading.Event()
         self.stopped_counter = 0
         self.thread_is_running = False
-        self.download_only = False
 
         self.crit_conn_health = CRIT_CONN_HEALTH
         self.crit_art_health_w_par = CRIT_ART_HEALTH_W_PAR
@@ -369,12 +369,11 @@ class Downloader(Thread):
         return a_health
 
     def do_pre_analyze(self):
-
         res = self.pwdb.exc("db_nzb_get_allfile_list", [self.nzbname], {})
         self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = res
         # hier noch:
         #   - filetype ändern
-        self.pwdb.exc("db_msg_insert", [self.nzbname, "Performing NZB pre-analysis for oobfusction detection", "info"], {})
+        self.pwdb.exc("db_msg_insert", [self.nzbname, "Performing NZB pre-analysis for obfusction detection", "info"], {})
         self.logger.info(whoami() + "performing pre-analysis")
         do_mpconnections(self.pipes, "set_tmode_download", None)
         injects = ["rar", "sfv", "nfo", "etc", "par2", "par2vol"]
@@ -452,9 +451,13 @@ class Downloader(Thread):
             self.pwdb.exc("db_nzb_store_allfile_list", [self.nzbname, self.allfileslist, self.filetypecounter, self.overall_size,
                                                         self.overall_size_wparvol, self.p2], {})
             self.pwdb.exc("db_msg_insert", [self.nzbname, "Obfuscations detected - setting new file types", "info"], {})
+            self.logger.warning(whoami() + "Obfuscations detected - setting new file types")
 
             self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = self.pwdb.exc(
                 "db_nzb_get_allfile_list", [self.nzbname], {})
+        else:
+            self.pwdb.exc("db_msg_insert", [self.nzbname, "No obfuscations detected!", "info"], {})
+            self.logger.warning(whoami() + "No obfuscations detected!")
         if status == -1:
             self.logger.warning(whoami() + "Not all files could be checked for obfuscation, articles missing ...")
             self.pwdb.exc("db_msg_insert", [self.nzbname, "Not all files could be checked for obfuscation, articles missing ...", "warning"], {})
@@ -478,8 +481,8 @@ class Downloader(Thread):
 
         # if preanalysed:
         if self.pwdb.exc("db_nzb_get_preanalysis_status", [nzbname], {}) == 1:
-            res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
-            self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = res
+            self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = self.pwdb.exc(
+                "db_nzb_get_allfile_list", [nzbname], {})
         else:
             # do pre analysis
             self.do_pre_analyze()
@@ -489,6 +492,9 @@ class Downloader(Thread):
         bytescount0 = self.getbytescount(self.allfileslist)
         sanity0 = -1
         infolist = {}
+
+        # get list of par2 files
+        self.p2list = self.pwdb.exc("db_p2_get_p2list", [self.nzbname], {})
 
         # read infolist
         try:
@@ -551,11 +557,6 @@ class Downloader(Thread):
         else:
             inject_set0 = ["etc", "sfv", "nfo", "rar"]
         self.logger.info(whoami() + "Overall_Size: " + str(self.overall_size) + ", incl. par2vols: " + str(self.overall_size_wparvol))
-
-        # if no. of par2s > 1: download_only
-        self.p2list = self.pwdb.exc("db_nzb_get_p2list", [nzbname], {})
-        if len(self.p2list) > 1:
-            self.download_only = True
 
         # check if paused!
         if self.event_paused.isSet():
@@ -655,13 +656,6 @@ class Downloader(Thread):
 
             # if dl is finished
             if getnextnzb:
-                if self.download_only:
-                    self.logger.info(nzbname + "- download success, but no postproc. possible")
-                    return_reason = "download success, but no postproc. possible!"
-                    self.pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
-                    self.stop()
-                    self.stopped_counter = stopped_max_counter       # stop immediately
-                    continue
                 self.logger.info(nzbname + "- download success!")
                 return_reason = "download success"
                 self.pwdb.exc("db_nzb_update_status", [nzbname, 3], {})
@@ -676,10 +670,7 @@ class Downloader(Thread):
             if not self.event_stopped.isSet():
                 unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
                 if unrarstatus == 1:    # if unrarer is busy, does it hang?
-                    if self.download_only:
-                        self.logger.info(whoami() + "multiple par2 files, but unrarer running, killing ...")
-                        kill_mpp(self.mpp, "unrarer")
-                    elif not mpp_is_alive(self.mpp, "unrarer"):   # or\
+                    if not mpp_is_alive(self.mpp, "unrarer"):   # or\
                         # (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
                         self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
                         kill_mpp(self.mpp, "unrarer")
@@ -696,7 +687,7 @@ class Downloader(Thread):
                     if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
                         self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
                         kill_mpp(self.mpp, "unrarer")
-                elif unrarstatus == -2 and not self.download_only:  # failed bcause wrong first rar -> restart
+                elif unrarstatus == -2:  # failed bcause wrong first rar -> restart
                     self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
                     kill_mpp(self.mpp, "unrarer")
                     self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
@@ -747,12 +738,7 @@ class Downloader(Thread):
                         if not self.p2:
                             self.p2 = par2lib.Par2File(full_filename)
                             self.logger.info(whoami() + "found first par2 file")
-                        else:
-                            self.download_only = True
-                            self.logger.warning(whoami() + "multiple par2 appeared, switching to download only")
-                            self.pwdb.exc("db_msg_insert", [nzbname, "multiple par2 files appeared, no postprocessing anymore!", "warning"], {})
                     if "par2" in inject_set0 and (filetype == "par2" or self.filetypecounter["par2"]["max"] == 0):
-                        # print(time.time(), filename, filetype, self.p2)
                         self.logger.debug(whoami() + "injecting rars etc.")
                         inject_set0 = ["etc", "nfo", "rar"]
                         files, infolist, bytescount00, article_count0 = self.inject_articles(inject_set0, self.allfileslist, files, infolist, bytescount0,
@@ -797,21 +783,17 @@ class Downloader(Thread):
                 self.logger.info(whoami() + "verifier re-started, but should be dead, stopping ...")
                 kill_mpp(self.mpp, "verifier")
             if not self.event_stopped.isSet() and mpp_is_alive(self.mpp, "verifier"):
-                if self.download_only:
-                    kill_mpp(self.mpp, "verifier")
-                    self.logger.info(whoami() + "verifier running but download_only, killing ...")
-                else:
-                    verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
-                    if verifystatus == 2:
-                        self.mpp["verifier"].join()
-                        self.mpp["verifier"] = None
-                        self.logger.debug(whoami() + "verifier joined")
-                    # if unrarer is running and verifystatus is negative, stop!
-                    elif mpp_is_alive(self.mpp, "unrarer") and verifystatus == -2:
-                        self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
-                        kill_mpp(self.mpp, "unrarer")
-                        self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
-                        self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
+                verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
+                if verifystatus == 2:
+                    self.mpp["verifier"].join()
+                    self.mpp["verifier"] = None
+                    self.logger.debug(whoami() + "verifier joined")
+                # if unrarer is running and verifystatus is negative, stop!
+                elif mpp_is_alive(self.mpp, "unrarer") and verifystatus == -2:
+                    self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
+                    kill_mpp(self.mpp, "unrarer")
+                    self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                    self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
 
             # check if unrarer should be started
             if not self.event_stopped.isSet() and unrarstatus == 0 and self.filetypecounter["rar"]["counter"] > oldrarcounter\
@@ -848,7 +830,7 @@ class Downloader(Thread):
                         # if not pw protected -> normal unrar
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
                         verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
-                        if verifystatus != -2 and not self.download_only:
+                        if verifystatus != -2:
                             self.logger.info(whoami() + "rar archive is not pw protected, starting unrarer ...")
                             kill_mpp(self.mpp, "unrarer")
                             self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
@@ -873,7 +855,7 @@ class Downloader(Thread):
                 last_rar_downloadedtime = time.time()
 
             # if par2 available start par2verifier, else just copy rars unchecked!
-            if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "verifier") and not self.download_only:
+            if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "verifier"):
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
                 if not all_rars_are_verified:
                     pvmode = None
