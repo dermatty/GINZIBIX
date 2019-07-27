@@ -647,8 +647,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded ok, starting postprocess", "success"], {})
                     mpp_post = mp.Process(target=postprocessor.postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,
-                                                                        dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
-                                                                        dl.download_dir, dl.dirs, dl.pw_file, mp_loggerqueue, ))
+                                                                                      dl.verifiedrar_dir, dl.unpack_dir, dl.nzbdir, dl.rename_dir, dl.main_dir,
+                                                                                      dl.download_dir, dl.dirs, dl.pw_file, mp_loggerqueue, ))
                     mpp_post.start()
                     mpp["post"] = mpp_post
                 # if download failed

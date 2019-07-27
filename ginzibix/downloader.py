@@ -477,7 +477,6 @@ class Downloader(Thread):
             self.do_pre_analyze()
             if self.event_stopped.isSet():
                 sys.exit()
-            print(self.filetypecounter)
 
         bytescount0 = self.getbytescount(self.allfileslist)
         sanity0 = -1

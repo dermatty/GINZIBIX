@@ -695,8 +695,10 @@ class ApplicationGui(Gtk.Application):
             self.appdata.sortednzblist = sortednzblist0[:]
 
         if not self.appdata.nzbs:
+            self.levelbar.set_value(0)
+            self.mbitlabel2.set_markup("<i>- Mbit/s</i>")
             self.no_queued_label.set_markup("<b>Queued:</b> <i>-</i>")
-
+            self.overall_eta_label.set_markup("<b>ETA:</b> <i>-</i>")
 
         if data and None not in data:   # and (data != self.appdata.dldata or netstat_mbitcur != self.appdata.netstat_mbitcur):
             bytescount00, availmem00, avgmiblist00, filetypecounter00, nzbname, article_health, overall_size, already_downloaded_size = data
