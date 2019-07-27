@@ -53,6 +53,22 @@ def get_no_of_blocks(par2file, renamed_dir, fn0):
     return damaged, rec_blocks_needed
 
 
+class P2:
+    def __init__(self, p2list):
+        self.p2list = p2list
+        self.allfilenames = self.getfilenames()
+
+    def getfilenames(self):
+        allfilenames = []
+        for p2, _, _, _ in self.p2list:
+            for pname, pmd5 in p2.filenames():
+                allfilenames.append((pname, pmd5))
+        return allfilenames
+
+    def filenames(self):
+        return self.allfilenames
+
+
 def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqueue, nzbname, pvmode, event_idle, cfg):
     setproctitle("gzbx." + os.path.basename(__file__))
     logger = mplogging.setup_logger(mp_loggerqueue, __file__)
@@ -67,7 +83,8 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
     if pvmode == "verify":
         # p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
         try:
-            p2 = pwdb.exc("get_renamed_p2", [renamed_dir, nzbname], {})
+            p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
+            p2 = P2(p2list)
         except Exception as e:
             logger.warning(whoami() + str(e))
 
@@ -147,8 +164,8 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
             event_idle.clear()
             if pvmode == "verify" and not p2:
                 try:
-                    # p2 = pwdb.get_renamed_p2(renamed_dir, nzbname)
-                    p2 = pwdb.exc("get_renamed_p2", [renamed_dir, nzbname], {})
+                    p2list = pwdb.exc("db_nzb_get_p2list", [nzbname], {})
+                    p2 = P2(p2list)
                 except Exception as e:
                     logger.debug(whoami() + str(e))
             if pvmode == "verify" and p2:

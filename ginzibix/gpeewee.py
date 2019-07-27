@@ -442,7 +442,7 @@ class PWDB():
             return False
         try:
             nzb.p2list_dill = p2list
-            nzb.save
+            nzb.save()
         except Exception as e:
             self.logger.debug(whoami() + str(e))
             return False

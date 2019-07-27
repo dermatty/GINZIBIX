@@ -384,12 +384,16 @@ class Downloader(Thread):
         self.logger.info(whoami() + "Pre-Analyzing on " + str(artsize0) + " articles")
         nr_articles = 0
         obfusc_detected = False
+        status = 1
         while not self.event_stopped.isSet():
             try:
                 resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
                 if not resultarticle:
                     continue
-                filename, age, old_filetype, _, art_nr, _, _, inf0, _ = resultarticle
+                filename, age, old_filetype, _, art_nr, _, status_article, inf0, _ = resultarticle
+                if status_article == "failed":
+                    status = -1
+                    continue
                 ftype = old_filetype
                 try:
                     lastline = inf0[-1].decode("latin-1")
@@ -442,7 +446,7 @@ class Downloader(Thread):
         do_mpconnections(self.pipes, "clear_articlequeue", None)
         do_mpconnections(self.pipes, "clear_resultqueue", None)
         if self.event_stopped.isSet():
-            return
+            return 0
         self.pwdb.exc("db_nzb_set_preanalysis_status", [self.nzbname, 1], {})
         if obfusc_detected:
             self.pwdb.exc("db_nzb_store_allfile_list", [self.nzbname, self.allfileslist, self.filetypecounter, self.overall_size,
@@ -451,6 +455,10 @@ class Downloader(Thread):
 
             self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = self.pwdb.exc(
                 "db_nzb_get_allfile_list", [self.nzbname], {})
+        if status == -1:
+            self.logger.warning(whoami() + "Not all files could be checked for obfuscation, articles missing ...")
+            self.pwdb.exc("db_msg_insert", [self.nzbname, "Not all files could be checked for obfuscation, articles missing ...", "warning"], {})
+        return status
 
     # main download routine
     def run(self):

@@ -1,9 +1,12 @@
-better check for pwfile in gui.py!!!
+# download_only not necessary -> now with p2list!!!!
+# unrar % status anzeigen -> check file size fs file max. size!!!!
+
+
+
 
 
 if waiting for next rar16 ... and it does not appear bzw. nur 20 21 22 etc. kommen -> stop 
 
-if failed -> logs & Mbit not cleaned!
 
 Process Process-6:1:
 Traceback (most recent call last):

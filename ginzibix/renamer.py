@@ -421,6 +421,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                                 if p2.is_par2() and not fnfull.endswith("_sample.par2"):
                                     rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash()]
                                     p2list.append((p2, fnshort,  dest_dir + fnshort, rarfiles))
+                                    pwdb.exc("db_nzb_store_p2list", [nzbname, p2list], {})
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})
                                     renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2", fnshort, oldft))
                                 # par2vol
@@ -441,7 +442,6 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                 command, _, _ = child_pipe.recv()
                 if command == "pause":
                     break
-        pwdb.exc("db_nzb_store_p2list", [nzbname, p2list], {})
         os.chdir(cwd0)
         try:
             if wd:
