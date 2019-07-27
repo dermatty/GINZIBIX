@@ -1281,21 +1281,6 @@ class PWDB():
             return None, None
 
     @set_db_timestamp
-    def recreate_allfile_list(self, nzbname):
-        nzb0 = self.db_nzb_get_nzbobj(nzbname)
-        if not nzb0:
-            return -1
-        gbdivisor = (1024 * 1024 * 1024)
-        allfilelist = []
-        filetypecounter = {"rar": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "nfo": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "par2": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "par2vol": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "sfv": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []},
-                           "etc": {"counter": 0, "max": 0, "filelist": [], "loadedfiles": []}}
-
-
-    @set_db_timestamp
     def create_allfile_list(self, nzb, dir0):
         nzbname = nzb.name
         gbdivisor = (1024 * 1024 * 1024)
