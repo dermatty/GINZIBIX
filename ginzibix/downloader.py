@@ -368,25 +368,29 @@ class Downloader(Thread):
         do_mpconnections(self.pipes, "set_tmode_download", None)
         return a_health
 
-    def do_pre_analyze(self, allfileslist, files, infolist, bytescount0, filetypecounter):
+    def do_pre_analyze(self):
 
+        res = self.pwdb.exc("db_nzb_get_allfile_list", [self.nzbname], {})
+        self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = res
         # hier noch:
         #   - filetype ändern
+        self.pwdb.exc("db_msg_insert", [self.nzbname, "Performing NZB pre-analysis for oobfusction detection", "info"], {})
         self.logger.info(whoami() + "performing pre-analysis")
         do_mpconnections(self.pipes, "set_tmode_download", None)
         injects = ["rar", "sfv", "nfo", "etc", "par2", "par2vol"]
-        files, infolist, bytescount0, article_count = self.inject_articles(injects, allfileslist, files, infolist, bytescount0,
-                                                                           filetypecounter, onlyfirstarticle=True)
+        files, infolist, bytescount0, article_count = self.inject_articles(injects, self.allfileslist, {}, {}, 0,
+                                                                           self.filetypecounter, onlyfirstarticle=True)
         artsize0 = do_mpconnections(self.pipes, "len_articlequeue", None)
         self.logger.info(whoami() + "Pre-Analyzing on " + str(artsize0) + " articles")
         nr_articles = 0
-        while True:
+        obfusc_detected = False
+        while not self.event_stopped.isSet():
             try:
                 resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
                 if not resultarticle:
                     continue
-                filename, age, filetype, _, art_nr, _, _, inf0, _ = resultarticle
-                ftype = filetype
+                filename, age, old_filetype, _, art_nr, _, _, inf0, _ = resultarticle
+                ftype = old_filetype
                 try:
                     lastline = inf0[-1].decode("latin-1")
                     m = re.search('size=(.\d+?) ', lastline)
@@ -396,7 +400,7 @@ class Downloader(Thread):
                     self.logger.warning(whoami() + str(e) + ", guestimate size ...")
                     size = int(sum(len(i) for i in inf0.lines) * 1.1)
                 try:
-                    decoded, _, _, _, _ = ginzyenc.decode_usenet_chunks(inf0, size) 
+                    decoded, _, _, _, _ = ginzyenc.decode_usenet_chunks(inf0, size)
                 except Exception:
                     continue
                 if decoded[:4] == b"Rar!":
@@ -408,9 +412,28 @@ class Downloader(Thread):
                         ftype = "par2"
                     elif bstr0 in decoded and bstr1 not in decoded:
                         ftype = "par2vol"
-                print(filename, ftype, nr_articles, art_nr)
-                print(decoded[:20])
-                print("-" * 80)
+                if ftype != old_filetype:
+                    obfusc_detected = True
+                    self.logger.info(whoami() + filename + ": setting type from " + old_filetype + " to " + ftype)
+                    self.pwdb.exc("db_file_set_file_type", [filename, ftype], {})
+                    # update filetypecounter
+                    self.filetypecounter[old_filetype]["filelist"].remove(filename)
+                    self.filetypecounter[ftype]["filelist"].append(filename)
+                    self.filetypecounter[old_filetype]["max"] -= 1
+                    self.filetypecounter[ftype]["max"] += 1
+                    # update allfileslist
+                    for i, o_lists in enumerate(self.allfileslist):
+                        o_orig_name, o_age, o_type, o_nr_articles = o_lists[0]
+                        if o_orig_name == filename:
+                            self.allfileslist[i][0] = (filename, o_age, ftype, o_nr_articles)
+                            break
+                    # overall_size_wparvol
+                    if old_filetype == "par2vol" or ftype == "par2vol":
+                        fsize = self.pwdb.exc("db_file_getsize", [filename], {})
+                        if ftype == "par2vol":
+                            self.overall_size_wparvol += fsize
+                        if old_filetype == "par2vol":
+                            self.overall_size_wparvol -= fsize
                 nr_articles += 1
                 if do_mpconnections(self.pipes, "queues_empty", None):
                     break
@@ -418,7 +441,16 @@ class Downloader(Thread):
                 continue
         do_mpconnections(self.pipes, "clear_articlequeue", None)
         do_mpconnections(self.pipes, "clear_resultqueue", None)
-        return
+        if self.event_stopped.isSet():
+            return
+        self.pwdb.exc("db_nzb_set_preanalysis_status", [self.nzbname, 1], {})
+        if obfusc_detected:
+            self.pwdb.exc("db_nzb_store_allfile_list", [self.nzbname, self.allfileslist, self.filetypecounter, self.overall_size,
+                                                        self.overall_size_wparvol, self.p2], {})
+            self.pwdb.exc("db_msg_insert", [self.nzbname, "Obfuscations detected - setting new file types", "info"], {})
+
+            self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = self.pwdb.exc(
+                "db_nzb_get_allfile_list", [self.nzbname], {})
 
     # main download routine
     def run(self):
@@ -436,11 +468,16 @@ class Downloader(Thread):
         return_reason = None
         article_count = 0
 
-        res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
-        self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = res
-
-        # do pre analysis
-        self.do_pre_analyze(self.allfileslist, {}, {}, 0, self.filetypecounter)
+        # if preanalysed:
+        if self.pwdb.exc("db_nzb_get_preanalysis_status", [nzbname], {}) == 1:
+            res = self.pwdb.exc("db_nzb_get_allfile_list", [nzbname], {})
+            self.allfileslist, self.filetypecounter, self.overall_size, self.overall_size_wparvol, self.already_downloaded_size, self.p2 = res
+        else:
+            # do pre analysis
+            self.do_pre_analyze()
+            if self.event_stopped.isSet():
+                sys.exit()
+            print(self.filetypecounter)
 
         bytescount0 = self.getbytescount(self.allfileslist)
         sanity0 = -1
