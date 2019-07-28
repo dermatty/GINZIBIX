@@ -64,6 +64,7 @@ class PWDB():
         try:
             self.db_file = CSqliteExtDatabase(self.db_file_name)
             self.db = CSqliteExtDatabase(":memory:")
+
         except Exception as e:
             self.logger.warning(whoami() + str(e))
 
@@ -235,6 +236,16 @@ class PWDB():
     def get_db_timestamp(self):
         return self.db_timestamp
 
+    def db_save_to_file(self):
+        try:
+            self.db.backup(self.db_file)
+            self.logger.info(whoami() + ": saved db to file!")
+            return 1
+        except Exception as e:
+            print(str(e))
+            self.logger.error(whoami() + str(e) + ": cannot save db file!")
+            return -1
+
     def do_loop(self):
         self.wrapper_socket.setsockopt(zmq.RCVTIMEO, 1000)
         while not TERMINATED:
@@ -249,9 +260,7 @@ class PWDB():
             except Exception as e:
                 self.logger.debug(whoami() + str(e) + ": " + funcstr)
                 continue
-            #t00 = time.time()
             ret = eval("self." + funcstr + "(*args0, **kwargs0)")
-            #print(time.time() - t00, funcstr)
             try:
                 self.wrapper_socket.send_pyobj(ret)
             except Exception as e:
@@ -1496,10 +1505,12 @@ class PWDB():
             deletednzb = nzb.name
             self.db_nzb_delete(deletednzb)
             try:
-                os.remove(nzbdir + deletednzb)
-                self.logger.debug(whoami() + ": deleted NZB " + deletednzb + " from NZB dir")
+                os.rename(nzbdir + deletednzb, nzbdir + deletednzb + ".bak")
+                self.logger.debug(whoami() + ": renamed NZB " + deletednzb + " to .bak")
             except Exception as e:
                 self.logger.warning(whoami() + str(e))
+        if nzbs:
+            self.db_save_to_file()
 
     set_db_timestamp = staticmethod(set_db_timestamp)
 
@@ -1517,10 +1528,12 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
     pwwt.do_loop()
 
     try:
+        pwwt.db.execute_sql('VACUUM')        # shrink db to minimum size required
         pwwt.db.backup(pwwt.db_file)
         pwwt.db_drop()
         pwwt.db_close()
     except Exception as e:
+        print(str(e))
         logger.warning(whoami() + str(e))
 
     logger.debug(whoami() + "exited!")

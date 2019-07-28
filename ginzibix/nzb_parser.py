@@ -133,8 +133,7 @@ def decompose_nzb(nzb, logger):
                             nr_add += 1
                     if nr_add > 0:
                         age_old, i_old = filedic[hn][0]
-                        filedic[hn][0] = (age_old, i_old + nr_add)
-                    
+                        filedic[hn][0] = (age_old, i_old + nr_add)   
     filedic_new = {}
     # sort to avoid random downloading
     if filedic:
@@ -151,7 +150,8 @@ def get_inotify_events(inotify):
         str0 = event.name
         flgs0 = []
         for flg in inotify_simple.flags.from_mask(event.mask):
-            if ("flags.CREATE" in str(flg) or "flags.MODIFY" in str(flg)) and "flags.ISDIR" not in str(flg):
+            if ("flags.CREATE" in str(flg) or "flags.MODIFY" in str(flg) or "flags.MOVED_TO" in str(flg)) \
+               and "flags.ISDIR" not in str(flg):
                 flgs0.append(str(flg))
                 is_created_file = True
         if not is_created_file:
@@ -161,7 +161,7 @@ def get_inotify_events(inotify):
     return events
 
 
-def ParseNZB(cfg, dirs, mp_loggerqueue):
+def ParseNZB(cfg, dirs, lock, mp_loggerqueue):
     setproctitle("gzbx." + os.path.basename(__file__))
     logger = mplogging.setup_logger(mp_loggerqueue, __file__)
     nzbdir = dirs["nzb"]
@@ -248,7 +248,7 @@ def ParseNZB(cfg, dirs, mp_loggerqueue):
                         logger.debug(whoami() + "Added NZB: " + infostr + " to GUI")
                         pwdb.exc("store_sorted_nzbs", [], {})
                         pwdb.exc("create_allfile_list_via_name", [nzb0, incompletedir], {})
-            time.sleep(0.25)
+                    time.sleep(0.25)
             isfirstrun = False
         else:
             time.sleep(0.25)

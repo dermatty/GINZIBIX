@@ -19,6 +19,7 @@ from ginzibix import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, 
     clear_postproc_dirs, get_server_config, get_configured_servers, get_config_for_server, get_free_server_cfg, is_port_in_use, do_mpconnections,\
     kill_mpp
 
+
 GB_DIVISOR = (1024 * 1024 * 1024)
 
 
@@ -247,8 +248,8 @@ def remove_nzbdirs(deleted_nzbs, dirs, pwdb, logger, removenzbfile=True):
         if removenzbfile:
             # delete nzb from .ginzibix/nzb
             try:
-                os.remove(dirs["nzb"] + deleted_nzb)
-                logger.debug(whoami() + ": deleted NZB " + deleted_nzb + " from NZB dir")
+                os.rename(dirs["nzb"] + deleted_nzb, dirs["nzb"] + deleted_nzb + ".bak")
+                logger.debug(whoami() + ": renamed NZB " + deleted_nzb + " to .bak")
             except Exception as e:
                 logger.warning(whoami() + str(e))
         # remove incomplete/$nzb_name
@@ -330,7 +331,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     # start nzb parser mpp
     logger.info(whoami() + "starting nzbparser process ...")
-    mpp_nzbparser = mp.Process(target=nzb_parser.ParseNZB, args=(cfg, dirs, mp_loggerqueue, ))
+    mpp_nzbparser = mp.Process(target=nzb_parser.ParseNZB, args=(cfg, dirs, filewrite_lock, mp_loggerqueue, ))
     mpp_nzbparser.start()
     mpp["nzbparser"] = mpp_nzbparser
 
@@ -640,6 +641,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     nzbname = None
                     pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    pwdb.exc("db_save_to_file", [], {})
                 # if download ok -> postprocess
                 elif stat0 == 3 and not mpp_is_alive(mpp, "post"):
                     article_health = 0
@@ -666,6 +668,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     nzbname = None
                     pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    pwdb.exc("db_save_to_file", [], {})
                 # if postproc failed
                 elif stat0 == -4:
                     logger.error(whoami() + "postprocessor failed for NZB " + nzbname)
@@ -684,6 +687,7 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                     nzbname = None
                     pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
                     pwdb.exc("store_sorted_nzbs", [], {})
+                    pwdb.exc("db_save_to_file", [], {})
     except Exception as e:
         if DEBUGPRINT:
             print(str(e))
