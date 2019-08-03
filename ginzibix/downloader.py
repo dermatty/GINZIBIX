@@ -384,12 +384,14 @@ class Downloader(Thread):
         nr_articles = 0
         obfusc_detected = False
         status = 1
-        while not self.event_stopped.isSet():
+        gbdivisor = (1024 * 1024 * 1024)
+        while not self.event_stopped.isSet() and (nr_articles < artsize0):
             try:
                 resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
                 if not resultarticle:
                     continue
                 filename, age, old_filetype, _, art_nr, _, status_article, inf0, _ = resultarticle
+                nr_articles += 1
                 if status_article == "failed":
                     status = -1
                     continue
@@ -434,14 +436,13 @@ class Downloader(Thread):
                     if old_filetype == "par2vol" or ftype == "par2vol":
                         fsize = self.pwdb.exc("db_file_getsize", [filename], {})
                         if ftype == "par2vol":
-                            self.overall_size_wparvol += fsize
+                            self.overall_size_wparvol += fsize / gbdivisor
                         if old_filetype == "par2vol":
-                            self.overall_size_wparvol -= fsize
-                nr_articles += 1
-                if do_mpconnections(self.pipes, "queues_empty", None):
-                    break
+                            self.overall_size_wparvol -= fsize / gbdivisor
             except (queue.Empty, EOFError, IndexError):
                 continue
+            except Exception as e:
+                self.logger.warning(whoami() + str(e))
         do_mpconnections(self.pipes, "clear_articlequeue", None)
         do_mpconnections(self.pipes, "clear_resultqueue", None)
         if self.event_stopped.isSet():

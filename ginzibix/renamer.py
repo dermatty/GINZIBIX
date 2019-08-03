@@ -412,25 +412,33 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                             p2 = par2lib.Par2File(fnfull)
                             if p2:
                                 oldft = pwdb.exc("db_file_get_orig_filetype", [fnshort], {})
-                                try:
-                                    shutil.copyfile(fnfull, dest_dir + fnshort)
-                                    pwdb.exc("db_file_set_renamed_name", [fnshort, fnshort], {})
-                                except Exception as e:
-                                    print(str(e))
                                 if p2.is_par2():
                                     rarfiles = [(fn, md5) for fn, md5 in p2.md5_16khash()]
                                     p2list.append((p2, fnshort,  dest_dir + fnshort, rarfiles))
                                     pwdb.exc("db_p2_insert_p2", [nzbname, p2, fnshort, dest_dir + fnshort, rarfiles], {})
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2"], {})
-                                    renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2", fnshort, oldft))
+                                    try:
+                                        newshortname = fnshort.split(".par2")[0] + ".par2"
+                                        shutil.copyfile(source_dir + fnshort, dest_dir + newshortname)
+                                        pwdb.exc("db_file_set_renamed_name", [fnshort, newshortname], {})
+                                        renamer_result_queue.put((newshortname, dest_dir + newshortname, "par2", fnshort, oldft))
+                                    except Exception as e:
+                                        logger.error(whoami() + str(e) + ": cannot rename par2 file!")
+                                    
                                 # par2vol
                                 elif p2.is_par2vol():
                                     pwdb.exc("db_file_set_file_type", [fnshort, "par2vol"], {})
-                                    renamer_result_queue.put((fnshort, dest_dir + fnshort, "par2vol", fnshort, oldft))
+                                    try:
+                                        newshortname = fnshort.split(".PAR2")[0] + ".PAR2"
+                                        shutil.copyfile(source_dir + fnshort, dest_dir + newshortname)
+                                        pwdb.exc("db_file_set_renamed_name", [fnshort, newshortname], {})
+                                        renamer_result_queue.put((newshortname, dest_dir + newshortname, "par2vol", fnshort, oldft))
+                                    except Exception as e:
+                                        logger.error(whoami() + str(e) + ": cannot rename par2 file!")
                                     # could set # of blocks here in gpeewee
                                 try:
                                     os.remove(fnfull)
-                                except Exception:
+                                except Exception as e:
                                     pass
                             else:
                                 notrenamedfiles.append((fnfull, fnshort, par2lib.calc_file_md5hash_16k(fnfull)))
