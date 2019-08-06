@@ -34,7 +34,7 @@ class SigHandler_Unrar:
 
 def check_double_packed(unpack_dir):
     is_double_packed = False
-    for f0 in glob.glob(unpack_dir + "*"):
+    for f0 in glob.glob(unpack_dir + "*") + glob.glob(unpack_dir + ".*"):
         if par2lib.check_for_rar_filetype(f0) == 1:
             is_double_packed = True
             break
@@ -43,14 +43,14 @@ def check_double_packed(unpack_dir):
 
 def get_rar_files(directory):
     rarlist = []
-    for rarf in glob.glob("*.rar"):
+    for rarf in glob.glob("*.rar") + glob.glob(".*.rar"):
         gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
         rarlist.append((int(gg.group().split(".")[0]), rarf))
     return rarlist
 
 
 def delete_all_rar_files(unpack_dir, logger):
-    for f0 in glob.glob(unpack_dir + "*"):
+    for f0 in glob.glob(unpack_dir + "*") + glob.glob(unpack_dir + ".*"):
         if par2lib.check_for_rar_filetype(f0) == 1:
             try:
                 os.remove(f0)
@@ -58,8 +58,17 @@ def delete_all_rar_files(unpack_dir, logger):
                 break
 
 
+def folder_size(path='.'):
+    total = 0
+    for entry in os.scandir(path):
+        if entry.is_file():
+            total += entry.stat().st_size
+        elif entry.is_dir():
+            total += folder_size(entry.path)
+    return total
+
+
 def process_next_unrar_child_pass(event_idle, child, logger):
-    # event_idle.set()
     str0 = ""
     while True:
         try:
@@ -91,7 +100,6 @@ def process_next_unrar_child_pass(event_idle, child, logger):
         if "All OK" in str0:
             status = 0
             statmsg = "All OK"
-    #event_idle.clear()
     return status, statmsg, str0
 
 
@@ -128,6 +136,7 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
         logger.info(whoami() + "terminated!")
         return
     rar_sortedlist = []
+    # das muss besser gehen!!! mit rarlist als parameter von main/postproc
     for r1, r2 in rar_sortedlist0:
         try:
             rar_sortedlist.append((r1, r2.split("/")[-1]))
@@ -189,10 +198,16 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
 
         child = pexpect.spawn(cmd)
         status = 1      # 1 ... running, 0 ... exited ok, -1 ... rar corrupt, -2 ..missing rar, -3 ... unknown error
-
+        
         while not TERMINATED:
             oldnextrarname = nextrarname.split("/")[-1]
+            #oldfoldersize = folder_size(path=unpack_dir)
+            #old_t0 = time.time()
             status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
+            #newfoldersize = folder_size(path=unpack_dir)
+            #delta_size = (newfoldersize - oldfoldersize) / (1024 * 1024)
+            #delta_t = time.time() - old_t0
+            #print(delta_size / delta_t, "M decompressed per sec")
             if status < 0:
                 logger.info(whoami() + nextrarname + ": " + statmsg)
                 pwdb.exc("db_msg_insert", [nzbname, "unrar " + oldnextrarname + " failed!", "error"], {})
@@ -210,7 +225,7 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
                     pwdb.exc("db_msg_insert", [nzbname, "rars are double packed, starting unrar 2nd run", "warning"], {})
                     cmd = "unrar x -y -o+ '" + fn + "' '" + unpack_dir + "'"
                     logger.debug(whoami() + "rars are double packed, executing " + cmd)
-                    # unrar without pausing! 
+                    # unrar without pausing!
                     child = pexpect.spawn(cmd)
                     status, statmsg, str0 = process_next_unrar_child_pass(event_idle, child, logger)
                     if status < 0:
@@ -270,12 +285,12 @@ def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, even
             event_idle.set()
             while not gotnextrar and not TERMINATED:
                 time.sleep(1)
-                for f0 in glob.glob(directory + "*"):
+                for f0 in glob.glob(directory + "*") + glob.glob(directory + ".*"):
                     if nextrarname == f0:
                         gotnextrar = True
                 # now check if we waited too long for next rar0 - but how?
                 if not gotnextrar and nextrar_number != -1:
-                    for f0 in glob.glob(directory + "*"):
+                    for f0 in glob.glob(directory + "*") + glob.glob(directory + ".*"):
                         f0_number = -1
                         f0_wo_number = f0
                         try:

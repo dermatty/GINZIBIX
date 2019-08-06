@@ -189,7 +189,7 @@ def ParseNZB(cfg, dirs, lock, mp_loggerqueue):
                 logger.debug(whoami() + "scanning nzb dir ...")
             else:
                 logger.debug(whoami() + "got event in nzb_dir")
-            for nzb in glob.glob("*.nzb"):
+            for nzb in glob.glob("*.nzb") + glob.glob(".*.nzb"):
                 if TERMINATED:
                     break
                 nzb0 = nzb.split("/")[-1]

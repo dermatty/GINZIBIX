@@ -426,6 +426,7 @@ class Downloader(Thread):
                     self.filetypecounter[ftype]["filelist"].append(filename)
                     self.filetypecounter[old_filetype]["max"] -= 1
                     self.filetypecounter[ftype]["max"] += 1
+                    # self.filetypecounter[ftype]["filelist"].sort()
                     # update allfileslist
                     for i, o_lists in enumerate(self.allfileslist):
                         o_orig_name, o_age, o_type, o_nr_articles = o_lists[0]
@@ -692,7 +693,8 @@ class Downloader(Thread):
                     self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
                     kill_mpp(self.mpp, "unrarer")
                     self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                              nzbname, self.mp_loggerqueue, None, self.event_unrareridle, self.cfg, ))
+                                                                                            nzbname, self.mp_loggerqueue, None, self.event_unrareridle,
+                                                                                            self.cfg, ))
                     self.mpp_unrarer.start()
                     self.mpp["unrarer"] = self.mpp_unrarer
                 elif unrarstatus == 0:    # if unrarer should be state 0 but running -> kill!

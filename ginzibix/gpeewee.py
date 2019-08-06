@@ -1253,13 +1253,13 @@ class PWDB():
     def get_downloaded_file_full_path(self, file0, dir0):
         file_already_exists = False
         # self.logger.info(whoami() + dir0 + "*")
-        for fname0 in glob.glob(dir0 + "*"):
+        for fname0 in glob.glob(dir0 + "*") + glob.glob(dir0 + ".*"):
             short_fn = fname0.split("/")[-1]
             if short_fn == file0.orig_name or short_fn == file0.renamed_name:
                 file_already_exists = True
                 break
         return dir0 + file0.orig_name, file_already_exists
-    
+
     @set_db_timestamp
     def nzb_reset(self, nzbname, incompletedir, nzbdir):
         # delete nzb + files + articles in db
@@ -1447,7 +1447,7 @@ class PWDB():
             # check consistency: verified
             self.logger.debug(whoami() + "checking verified_rars consistency")
             verified_files = [f0.renamed_name for f0 in files if f0.parverify_state == 1]
-            rars_in_verified_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_verified + "*")]
+            rars_in_verified_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_verified + "*") + glob.glob(dir_verified + ".*")]
             if not lists_are_equal(verified_files, rars_in_verified_dir):
                 self.logger.warning(whoami() + "inconsistency in verified rars, deleting nzb in db")
                 self.nzb_reset(nzbname, incompletedir, nzbdir)
@@ -1455,7 +1455,7 @@ class PWDB():
             # check consistency: renamed
             self.logger.debug(whoami() + "verified_dir consistent, checking renamed_dir")
             renamed_files = [f0.renamed_name for f0 in files if f0.renamed_name != "N/A"]
-            files_in_renamed_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_renamed + "*")]
+            files_in_renamed_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_renamed + "*") + glob.glob(dir_renamed + ".*")]
             files_in_renamed_dir = [f0 for f0 in files_in_renamed_dir if f0[-6:-2] != ".rar."]
             if not lists_are_equal(renamed_files, files_in_renamed_dir):
                 self.logger.warning(whoami() + "inconsistency in renamed_dir, deleting nzb in db/filesystem")
@@ -1463,7 +1463,7 @@ class PWDB():
                 return None
             # check if all downloaded files exist in _renamed or _downloaded0
             self.logger.debug(whoami() + "renamed_dir consistent, checking if all downloaded files exist")
-            files_in_downloaded_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_downloaded + "*")]
+            files_in_downloaded_dir = [fname0.split("/")[-1] for fname0 in glob.glob(dir_downloaded + "*") + glob.glob(dir_downloaded + ".*")]
             inconsistent = False
             for f0 in files:
                 if f0.status == 2:

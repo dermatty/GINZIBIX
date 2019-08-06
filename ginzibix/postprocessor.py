@@ -323,7 +323,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed!", "error"], {})
         sys.exit()
     # move all non-rar/par2/par2vol files from renamed to complete
-    for f00 in glob.glob(rename_dir + "*"):
+    for f00 in glob.glob(rename_dir + "*") + glob.glob(rename_dir + ".*"):
         logger.debug(whoami() + "renamed_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
         if os.path.isdir(f00):
             logger.debug(f00 + "is a directory, skipping")
@@ -372,7 +372,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         logger.warning(whoami() + str(e) + ": cannot remove download_dir!")
     # move content of unpack dir to complete
     logger.debug(whoami() + "moving unpack_dir to complete: " + unpack_dir)
-    for f00 in glob.glob(unpack_dir + "*"):
+    for f00 in glob.glob(unpack_dir + "*") + glob.glob(unpack_dir + ".*"):
         logger.debug(whoami() + "unpack_dir: checking " + f00 + " / " + str(os.path.isdir(f00)))
         d0 = f00.split("/")[-1]
         logger.debug(whoami() + "Does " + complete_dir + d0 + " already exist?")

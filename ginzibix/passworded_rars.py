@@ -14,7 +14,7 @@ def get_sorted_rar_list(directory):
     rarlist = []
     minnr = -1000
     i = 1
-    for rarf in glob.glob(directory + "*"):
+    for rarf in glob.glob(directory + "*") + glob.glob(directory + ".*"):
         ftype = par2lib.get_file_type(rarf)
         # gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
         if ftype == "rar":

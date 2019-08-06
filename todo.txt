@@ -1,3 +1,9 @@
+# pass rarlist to partial_unrar -> und dort nach Reihenfolge abarbeiten!
+	filetypecounter["rar]
+	- unrarer vor start auf erstes rar warten
+	- erst beenden mit letztem rar
+	
+
 # download_only not necessary -> now with p2list!!!!
 # unrar % status anzeigen -> check file size fs file max. size!!!!
 

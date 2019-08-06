@@ -158,7 +158,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                 except Exception as e:
                     logger.debug(whoami() + str(e))
             if pvmode == "verify" and p2:
-                for rar in glob.glob(renamed_dir + "*"):
+                for rar in glob.glob(renamed_dir + "*") + glob.glob(renamed_dir + ".*"):
                     rar0 = rar.split("/")[-1]
                     f0 = pwdb.exc("db_file_get_renamed", [rar0], {})
                     if not f0:
@@ -184,7 +184,7 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
             # free rars or copy mode?
             elif (pvmode == "verify" and not p2) or (pvmode == "copy"):
                 # maybe we can check via sfv file?
-                for file0full in glob.glob(renamed_dir + "*"):
+                for file0full in glob.glob(renamed_dir + "*") + glob.glob(renamed_dir + ".*"):
                     file0short = file0full.split("/")[-1]
                     ft = pwdb.exc("db_file_getftype_renamed", [file0short], {})
                     if ft == "rar":
@@ -271,7 +271,7 @@ def multipartrar_test(directory, rarname0, logger):
     sortedrarnames = []
     cwd0 = os.getcwd()
     os.chdir(directory)
-    for r in glob.glob("*.rar"):
+    for r in glob.glob("*.rar") + glob.glob(".*.rar"):
         rarnames.append(r)
     for r in rarnames:
         rarnr = r.split(".part")[-1].split(".rar")[0]

@@ -30,7 +30,7 @@ class SigHandler_Renamer:
 def get_not_yet_renamed_files(source_dir, filewrite_lock):
     nrf = []
     with filewrite_lock:
-        for fn in glob.glob(source_dir + "*"):
+        for fn in glob.glob(source_dir + "*") + glob.glob(source_dir + ".*"):
             fn0 = fn.split("/")[-1]
             if not fn0.endswith(".renamed"):
                 nrf.append((fn0, par2lib.calc_file_md5hash_16k(fn0)))
@@ -44,7 +44,7 @@ def scan_renamed_dir(renamed_dir, p2obj, filewrite_lock, logger):
         rn = []
         p2obj0 = p2obj
         p2basename0 = None
-        for fn in glob.glob(renamed_dir + "*"):
+        for fn in glob.glob(renamed_dir + "*") + glob.glob(renamed_dir + ".*"):
             fn0 = fn.split("/")[-1]
 
             ptype0 = par2lib.check_for_par_filetype(fn)
@@ -326,7 +326,7 @@ def rename_and_move_rarandremainingfiles(p2list, notrenamedfiles, source_dir, de
 def get_not_yet_renamed_files_new(dir0, pwdb, filewrite_lock, logger):
     nrf = []
     with filewrite_lock:
-        for fn in glob.glob(dir0 + "*"):
+        for fn in glob.glob(dir0 + "*") + glob.glob(dir0 + ".*"):
             fn0 = fn.split("/")[-1]
             rn = pwdb.exc("db_file_get_renamed_name", [fn0], {})
             is_renamed = rn and (rn != "N/A")
@@ -334,7 +334,7 @@ def get_not_yet_renamed_files_new(dir0, pwdb, filewrite_lock, logger):
                 nrf.append((fn0, par2lib.calc_file_md5hash_16k(fn0)))
     p2list = []
     with filewrite_lock:
-        for fn in glob.glob(dir0 + "*"):
+        for fn in glob.glob(dir0 + "*") + fn in glob.glob(dir0 + ".*"):
             fn0 = fn.split("/")[-1]
             ptype0 = par2lib.check_for_par_filetype(fn)
             if ptype0 == 1:
@@ -404,7 +404,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                 logger.debug(whoami() + "reading not yet downloaded files in _downloaded0")
                 notrenamedfiles = []
                 with filewrite_lock:
-                    for fnfull in glob.glob(source_dir + "*"):
+                    for fnfull in glob.glob(source_dir + "*") + glob.glob(source_dir + ".*"):
                         fnshort = fnfull.split("/")[-1]
                         rn = pwdb.exc("db_file_get_renamed_name", [fnshort], {})
                         is_renamed = rn and (rn != "N/A")
