@@ -238,6 +238,7 @@ def ParseNZB(cfg, dirs, lock, mp_loggerqueue):
                                     fn, no, size = it
                                     fsize += size
                                     data.append((fn, newfile, size, no, time.time()))
+                            data.sort(key=lambda tup: tup[3])
                             pwdb.exc("db_file_update_size", [key, fsize], {})
                             pwdb.exc("db_article_insert_many", [data], {})
                             # if there are nzbs in the download queue, pause after insert

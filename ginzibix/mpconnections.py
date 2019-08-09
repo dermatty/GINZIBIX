@@ -226,12 +226,12 @@ class ConnectionWorker(Thread):
             if not self.nntpobj:
                 self.retry_connect()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
+            if not remaining_servers1:
+                self.resultqueue.append(article + (None,))
+                continue
             if self.name not in remaining_servers1[0] or not self.nntpobj:
                 self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1))
                 time.sleep(0.1)
-                continue
-            if not remaining_servers1:
-                self.resultqueue.append(article + (None,))
                 continue
             if not self.nntpobj:
                 self.wait_running(3)
@@ -323,6 +323,18 @@ class ConnectionThreads:
                 except Exception:
                     result[servername] = bdl
         return result
+
+    def get_bytesdownloaded(self):
+        if self.threads:
+            try:
+                bdl = sum([t.bytesdownloaded for t, _ in self.threads])
+            except Exception:
+                bdl = 0
+            if (not isinstance(bdl, int)) and (not isinstance(bdl, float)):
+                bdl = 0
+            return bdl
+        else:
+            return 0
 
     def start_threads(self):
         if not self.threads:
@@ -428,7 +440,7 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                "get_downloaded_per_server", "exit", "clearqueues", "connection_thread_health", "get_server_config",
                "set_tmode_sanitycheck", "set_tmode_download", "get_level_servers", "clear_articlequeue",
                "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue",
-               "push_entire_articlequeue", "pull_entire_resultqueue")
+               "push_entire_articlequeue", "pull_entire_resultqueue", "get_bytesdownloaded")
 
     while not TERMINATED:
 
@@ -466,6 +478,8 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                 ct.start_threads()
             elif cmd == "queues_empty":
                 result = (len(ct.articlequeue) == 0) and (len(ct.resultqueue) == 0)
+            elif cmd == "get_bytesdownloaded":
+                result = ct.get_bytesdownloaded()
             elif cmd == "len_articlequeue":
                 result = len(ct.articlequeue)
             elif cmd == "clear_articlequeue":

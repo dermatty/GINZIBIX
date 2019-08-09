@@ -385,14 +385,16 @@ class Downloader(Thread):
         obfusc_detected = False
         status = 1
         gbdivisor = (1024 * 1024 * 1024)
-        while not self.event_stopped.isSet() and (nr_articles < artsize0):
+        tt_idle_start = time.time()
+        while not self.event_stopped.isSet() and (nr_articles < artsize0) and not(time.time() - tt_idle_start > self.connection_idle_timeout):
             try:
                 resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None)
                 if not resultarticle:
                     continue
-                filename, age, old_filetype, _, art_nr, _, status_article, inf0, _ = resultarticle
+                tt_idle_start = time.time()
+                filename, age, old_filetype, _, art_nr, _, _, inf0, _ = resultarticle
                 nr_articles += 1
-                if status_article == "failed":
+                if inf0 == "failed":
                     status = -1
                     continue
                 ftype = old_filetype
@@ -402,7 +404,7 @@ class Downloader(Thread):
                     if m:
                         size = int(m.group(1))
                 except Exception as e:
-                    self.logger.warning(whoami() + str(e) + ", guestimate size ...")
+                    self.logger.warning(whoami() + str(e) + ", now estimating size ...")
                     size = int(sum(len(i) for i in inf0.lines) * 1.1)
                 try:
                     decoded, _, _, _, _ = ginzyenc.decode_usenet_chunks(inf0, size)
@@ -949,14 +951,25 @@ class Downloader(Thread):
                     break
 
             # check not getnextnzb & speed = 0 -> stuck, downloadstatus = -2
+            # achtung hier checken ob speed wirklich = 0!!!!
             dl_stuck = False
             if not getnextnzb and self.all_queues_are_empty():
+                # hier noch if speed = 0
                 if not self.tt_wait_for_completion:
                     self.tt_wait_for_completion = time.time()
+                    self.tt_bytes_downloaded = do_mpconnections(self.pipes, "get_bytesdownloaded", None)
+                    self.tt_msg_issued = False
                 else:
-                    if time.time() - self.tt_wait_for_completion > self.connection_idle_timeout:
+                    dtt_bytes_dl = do_mpconnections(self.pipes, "get_bytesdownloaded", None) - self.tt_bytes_downloaded
+                    dtt_wait = time.time() - self.tt_wait_for_completion
+                    if not self.tt_msg_issued and dtt_wait > 2:
+                        self.pwdb.exc("db_msg_insert", [nzbname, "download slow!", "warning"], {})
+                        self.tt_msg_issued = True
+                    if dtt_wait > self.connection_idle_timeout and dtt_bytes_dl <= 0:
                         dl_stuck = True
             elif not getnextnzb:
+                self.tt_msg_issued = False
+                self.tt_bytes_downloaded = 0
                 self.tt_wait_for_completion = None
 
             # all downloaded but unrarer still running(stuck?)
