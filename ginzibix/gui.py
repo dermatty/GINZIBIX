@@ -1578,10 +1578,12 @@ class Handler:
             icon = Gio.ThemedIcon(name="media-playback-pause")
             image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
             button.set_image(image)
+            button.set_label("Pause")
         else:
             icon = Gio.ThemedIcon(name="media-playback-start")
             image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
             button.set_image(image)
+            button.set_label("Resume")
         self.gui.update_liststore_dldata()
         self.gui.update_liststore()
 

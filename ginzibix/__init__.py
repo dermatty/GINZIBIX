@@ -113,18 +113,19 @@ def setup_dirs():
 
 
 def do_mpconnections(pipes, cmd, param):
-    res = None
-    pipes["mpconnector"][2].acquire()
-    try:
-        pipes["mpconnector"][0].send((cmd, param))
-        if pipes["mpconnector"][0].poll(timeout=3):
-            res = pipes["mpconnector"][0].recv()
-        else:
-            res = None
-    except Exception:
+    with pipes["mpconnector"][2]:
         res = None
-    pipes["mpconnector"][2].release()
-    return res
+        try:
+            print("send " + cmd)
+            tt0 = time.time()
+            pipes["mpconnector"][0].send((cmd, param))
+            res = pipes["mpconnector"][0].recv()
+            print("recd ", time.time() - tt0)
+            print("-" * 80)
+        except Exception:
+            print("Exception in do_mpconnections")
+            res = None
+        return res
 
 
 def clear_postproc_dirs(nzbname, dirs):

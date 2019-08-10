@@ -139,14 +139,14 @@ class ConnectionWorker(Thread):
 
     def wait_running(self, sec):
         tt0 = time.time()
-        while time.time() - tt0 < sec and self.running:
+        while time.time() - tt0 < sec and self.running and not self.paused:
             time.sleep(0.1)
         return
 
     def retry_connect(self):
         idx = 0
         self.logger.debug(whoami() + "Server " + self.idn + " connecting ...")
-        while idx < 5 and self.running:
+        while idx < 5 and self.running and not self.paused:
             try:
                 self.servers.close_connection(self.name, self.conn_nr)
             except Exception as e:
@@ -163,7 +163,7 @@ class ConnectionWorker(Thread):
                 return
             self.logger.warning(whoami() + "Could not connect to server " + self.idn + ", will retry in 5 sec.")
             self.wait_running(2)
-            if not self.running:
+            if not self.running or self.paused:
                 break
             idx += 1
         if not self.running:
@@ -481,7 +481,10 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
             elif cmd == "get_bytesdownloaded":
                 result = ct.get_bytesdownloaded()
             elif cmd == "len_articlequeue":
-                result = len(ct.articlequeue)
+                try:
+                    result = int(len(ct.articlequeue))
+                except Exception:
+                    result = 0
             elif cmd == "clear_articlequeue":
                 ct.articlequeue.clear()
             elif cmd == "clear_resultqueue":
@@ -510,15 +513,18 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                     t.mode = "download"
             elif cmd == "get_level_servers":
                 le_serv0 = []
-                retention = param
-                for level, serverlist in ct.level_servers.items():
-                    level_servers = serverlist
-                    le_dic = {}
-                    for le in level_servers:
-                        _, _, _, _, _, _, _, _, age, _ = ct.servers.get_single_server_config(le)
-                        le_dic[le] = age
-                    les = [le for le in level_servers if le_dic[le] > retention * 0.9]
-                    le_serv0.append(les)
+                try:
+                    retention = param
+                    for level, serverlist in ct.level_servers.items():
+                        level_servers = serverlist
+                        le_dic = {}
+                        for le in level_servers:
+                            _, _, _, _, _, _, _, _, age, _ = ct.servers.get_single_server_config(le)
+                            le_dic[le] = age
+                        les = [le for le in level_servers if le_dic[le] > retention * 0.9]
+                        le_serv0.append(les)
+                except Exception:
+                    pass
                 result = le_serv0
             elif cmd == "exit":
                 ct.stop_threads()
