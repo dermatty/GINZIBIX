@@ -420,11 +420,13 @@ class Downloader(Thread):
                 if decoded[:4] == b"Rar!":
                     ftype = "rar"
                 else:
+                    decoded0 = decoded[:80]
                     bstr0 = b"PAR2\x00"             # PAR2\x00
                     bstr1 = b"PAR 2.0\x00FileDesc"  # PAR 2.0\x00FileDesc'
-                    if bstr0 in decoded and bstr1 in decoded:
+                    bstr2 = b"PAR 2.0\x00RecvSlic"
+                    if bstr0 in decoded0 and bstr1 in decoded0:
                         ftype = "par2"
-                    elif bstr0 in decoded and bstr1 not in decoded:
+                    elif bstr0 in decoded0 and bstr2 in decoded0:
                         ftype = "par2vol"
                 if ftype != old_filetype:
                     obfusc_detected = True

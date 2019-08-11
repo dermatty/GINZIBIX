@@ -1,3 +1,8 @@
+# unrarer w multiple par2s
+	1. stop unrar if len(p2list) > 1 & postpone to postproc
+	2. in postproc: for r in rarfiles in p2list: unrar(r)
+
+
 # pass rarlist to partial_unrar -> und dort nach Reihenfolge abarbeiten!
 	filetypecounter["rar]
 	- unrarer vor start auf erstes rar warten

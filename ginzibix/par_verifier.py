@@ -164,6 +164,8 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                     if not f0:
                         continue
                     f0_origname, f0_renamedname, f0_ftype = f0
+                    #print(f0_renamedname, " : ", p2.filenames())
+                    #print("-" * 80)
                     if not f0_ftype == "rar":
                         continue
                     if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
@@ -216,18 +218,58 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
         sys.exit()
 
     logger.debug(whoami() + "all rars are checked!")
-    par2name = pwdb.exc("db_get_renamed_par2", [nzbname], {})
     corruptrars = pwdb.exc("get_all_corrupt_rar_files", [nzbname], {})
     if not corruptrars:
         logger.debug(whoami() + "rar files ok, no repair needed, exiting par_verifier")
         pwdb.exc("db_nzb_update_verify_status", [nzbname, 2], {})
-    elif par2name and corruptrars:
+    elif p2list and corruptrars:
         pwdb.exc("db_msg_insert", [nzbname, "repairing rar files", "info"], {})
         logger.info(whoami() + "par2vol files present, repairing ...")
-        res0 = multipartrar_repair(renamed_dir, par2name, pwdb, nzbname, logger)
-        if res0 == 1:
+        allok = True
+        allfound = True
+        corruptrars_1 = [c1 for c1, _ in corruptrars]
+        corruptrars_2 = [c2 for _, c2 in corruptrars]
+        for _, fnshort, fnlong, rarfiles in p2list:
+            rarf_match = [rarf for rarf, _ in rarfiles if rarf in corruptrars_1 or rarf in corruptrars_2]
+            if len(rarf_match) == 0:
+                allfound = False
+                continue
+            lrar = str(len(rarfiles))
+            pwdb.exc("db_msg_insert", [nzbname, "performing par2verify for " + fnshort, "info"], {})
+            ssh = subprocess.Popen(['par2verify', fnlong], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+            sshres = ssh.stdout.readlines()
+            repair_is_required = False
+            repair_is_possible = False
+            for ss in sshres:
+                ss0 = ss.decode("utf-8")
+                if "Repair is required" in ss0:
+                    repair_is_required = True
+                if "Repair is possible" in ss0:
+                    repair_is_possible = True
+            if not repair_is_required:
+                pwdb.exc("db_msg_insert", [nzbname, "par2verify for " + fnshort + ": repair is not required!", "info"], {})
+                res0 = 1
+            elif repair_is_required and not repair_is_possible:
+                pwdb.exc("db_msg_insert", [nzbname, "par2verify for " + fnshort + ": repair is required but not possible", "error"], {})
+                res0 = -1
+            elif repair_is_required and repair_is_possible:
+                pwdb.exc("db_msg_insert", [nzbname, "par2verify for " + fnshort + ": repair is required and possible, repairing files if possible", "info"], {})
+                res0 = multipartrar_repair(renamed_dir, fnshort, pwdb, nzbname, logger)
+            else:
+                res0 = -1
+            if res0 != 1:
+                allok = False
+                logger.error(whoami() + "repair failed for " + lrar + "rarfiles in " + fnshort)
+                pwdb.exc("db_msg_insert", [nzbname, "rar file repair failed for " + lrar + " rarfiles in " + fnshort + "!", "error"], {})
+            else:
+                logger.info(whoami() + "repair success for " + lrar + "rarfiles in " + fnshort)
+                pwdb.exc("db_msg_insert", [nzbname, "rar file repair success for " + lrar + " rarfiles in " + fnshort + "!", "info"], {})
+        if not allfound:
+            allok = False
+            logger.error(whoami() + "cannot attempt one or more par2repairs due to missing par2 file(s)!")
+            pwdb.exc("db_msg_insert", [nzbname, "cannot attempt one or more par2repairs due to missing par2 file(s)!", "error"], {})
+        if allok:
             logger.info(whoami() + "repair success")
-            pwdb.exc("db_msg_insert", [nzbname, "rar file repair success!", "info"], {})
             pwdb.exc("db_nzb_update_verify_status", [nzbname, 2], {})
             # copy all no yet copied rars to verifiedrar_dir
             for c_origname, c_renamedname in corruptrars:
@@ -237,7 +279,6 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                 shutil.copy(renamed_dir + c_renamedname, verifiedrar_dir)
         else:
             logger.error(whoami() + "repair failed!")
-            pwdb.exc("db_msg_insert", [nzbname, "rar file repair failed", "error"], {})
             pwdb.exc("db_nzb_update_verify_status", [nzbname, -1], {})
             for _, c_origname in corruptrars:
                 pwdb.exc("db_file_update_parstatus", [c_origname, -2], {})
@@ -325,7 +366,7 @@ def multipartrar_test(directory, rarname0, logger):
 def multipartrar_repair(directory, parvolname, pwdb, nzbname, logger):
     cwd0 = os.getcwd()
     os.chdir(directory)
-    logger.info(whoami() + "checking if repair possible")
+    logger.info(whoami() + "checking if repair possible for " + parvolname)
     pwdb.exc("db_msg_insert", [nzbname, "checking if repair is possible", "info"], {})
     ssh = subprocess.Popen(['par2verify', parvolname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
     sshres = ssh.stdout.readlines()

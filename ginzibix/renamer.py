@@ -395,7 +395,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
 
         isfirstrun = True
         p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
-
+        
         while not TERMINATED:
             events = get_inotify_events(inotify, filewrite_lock)
             if isfirstrun or events:  # and events not in eventslist):
@@ -438,7 +438,7 @@ def renamer(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock):
                                     # could set # of blocks here in gpeewee
                                 try:
                                     os.remove(fnfull)
-                                except Exception as e:
+                                except Exception:
                                     pass
                             else:
                                 notrenamedfiles.append((fnfull, fnshort, par2lib.calc_file_md5hash_16k(fnfull)))
