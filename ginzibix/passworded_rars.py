@@ -91,6 +91,12 @@ def is_rar_password_protected(directory, logger):
         return -1
 
 
+def test_password(pw, rarname):
+    ssh = subprocess.Popen(["unrar", "t", "-p" + pw, rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+    ssherr = ssh.stderr.readlines()
+    return (not ssherr)
+
+
 def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     if directory[-1] != "/":
         directory += "/"
@@ -103,15 +109,23 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
 
     logger.debug(whoami() + "trying to get password")
 
+    cwd0 = os.getcwd()
+
     if get_pw_direct:
         gg = re.search(r"}}.nzb$", nzbname0, flags=re.IGNORECASE)
         if gg:
             try:
-                PW = nzbname0[:gg.start()].split("{{")[-1]
-                return PW    # to do: check password
+                pw0 = nzbname0[:gg.start()].split("{{")[-1]
+                os.chdir(directory)
+                if test_password(pw0, rarname):
+                    logger.info(whoami() + "Found PW for NZB " + nzbname + ": " + pw0)
+                    os.chdir(cwd0)
+                    return pw0
+                else:
+                    logger.warning(whoami() + "provided password was not correct!")
             except Exception as e:
                 logger.debug(whoami() + str(e) + ": cannot get pw from nzb string")
-        logger.debug(whoami() + "cannot get pw from nzb string")
+            os.chdir(cwd0)
 
     # PW file format:
     #  a)  pw
@@ -150,9 +164,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
         if fn0 != nzbname:
             continue
         logger.debug(whoami() + "Trying with entry: " + fn0 + " / " + pw0 + " for NZB " + nzbname)
-        ssh = subprocess.Popen(["unrar", "t", "-p" + pw0, rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-        ssherr = ssh.stderr.readlines()
-        if not ssherr:
+        if test_password(pw0, rarname):
             PW = pw0
             logger.info(whoami() + "Found PW for NZB " + nzbname + ": " + PW)
             break
@@ -165,9 +177,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     for pw in pwlist:
         if "<:::>" in pw:
             continue
-        ssh = subprocess.Popen(["unrar", "t", "-p" + pw, rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
-        ssherr = ssh.stderr.readlines()
-        if not ssherr:
+        if test_password(pw, rarname):
             PW = pw
             logger.info(whoami() + "Found PW for NZB " + nzbname + ": " + PW)
             break

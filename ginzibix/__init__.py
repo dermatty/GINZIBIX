@@ -116,14 +116,9 @@ def do_mpconnections(pipes, cmd, param):
     with pipes["mpconnector"][2]:
         res = None
         try:
-            print("send " + cmd)
-            tt0 = time.time()
             pipes["mpconnector"][0].send((cmd, param))
             res = pipes["mpconnector"][0].recv()
-            print("recd ", time.time() - tt0)
-            print("-" * 80)
         except Exception:
-            print("Exception in do_mpconnections")
             res = None
         return res
 
@@ -577,10 +572,10 @@ class GUI_Poller(Thread):
                         continue
                     elif datatype == "DL_DATA":
                         data, server_config, dl_running, nzb_status_string, \
-                            article_health, connection_health, dlconfig, gb_downloaded, server_ts = datarec
+                            article_health, dlconfig, gb_downloaded, server_ts = datarec
                         try:
                             GLib.idle_add(self.update_mainwindow, data, server_config, dl_running, nzb_status_string,
-                                          article_health, connection_health, dlconfig, gb_downloaded, server_ts)
+                                          article_health, dlconfig, gb_downloaded, server_ts)
                             continue
                         except Exception as e:
                             self.logger.debug(whoami() + str(e))

@@ -6,7 +6,7 @@
 
 # download_only not necessary -> now with p2list!!!!
 # unrar % status anzeigen -> check file size fs file max. size!!!!
-
+# nzb file empty document?
 
 
 

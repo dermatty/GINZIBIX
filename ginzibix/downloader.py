@@ -277,6 +277,13 @@ class Downloader(Thread):
                 except Exception:
                     break
 
+                # check if articles belongs to files of current nzb
+                try:
+                    assert(files[filename])
+                except Exception:
+                    self.logger.warning(whoami() + "got article for file " + filename + ", skipping ...")
+                    continue
+
                 updatedlist.append(art_name)
                 if inf0 == 0:
                     continue

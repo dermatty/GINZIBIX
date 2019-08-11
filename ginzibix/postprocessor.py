@@ -228,6 +228,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
         else:
             pw = pwdb.exc("db_nzb_get_password", [nzbname], {})
         if not pw:
+            pwdb.exc("db_msg_insert", [nzbname, "Provided password was not correct / no password found in PW file! ", "error"], {})
             logger.error(whoami() + "Cannot find password for NZB " + nzbname + "in postprocess, exiting ...")
             pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
             mpp["unrarer"] = None

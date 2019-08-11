@@ -352,7 +352,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
     pwdb.exc("db_nzb_set_current_nzbobj", [nzbname], {})
     paused = False
     article_health = 0
-    connection_health = 0
 
     dl_running = True
     applied_datarec = None
@@ -377,10 +376,8 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 elif stat0 == -4:
                     statusmsg = "failed"
                 # send data to gui
-                connection_health = do_mpconnections(pipes, "connection_thread_health", None)
             else:
                 article_health = 0
-                connection_health = 0
                 statusmsg = ""
 
             msg = None
@@ -429,12 +426,11 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                         if DEBUGPRINT:
                             print(">>>> #4 main:", time.time(), msg)
                         getdata = downloaddata_gc, serverconfig, dl_running, statusmsg,\
-                            article_health, connection_health, dl.serverhealth(),\
-                            gb_downloaded, server_ts
+                            article_health, dl.serverhealth(), gb_downloaded, server_ts
                     else:
                         downloaddata_gc = None, None, None, None, None, None, None, None
                         getdata = downloaddata_gc, serverconfig, dl_running, statusmsg, \
-                            0, 0, None, 0, server_ts
+                            0, 0, 0, server_ts
                         # if one element in getdata != None - send:
                     if getdata.count(None) != len(getdata) or downloaddata_gc.count(None) != len(downloaddata_gc):
                         sendtuple = ("DL_DATA", getdata)
@@ -469,7 +465,10 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 try:
                     if not paused:
                         paused = True
-                        logger.info(whoami() + "download paused for NZB " + nzbname)
+                        if nzbname:
+                            logger.info(whoami() + "download paused for NZB " + nzbname)
+                        else:
+                            logger.info(whoami() + "download paused!")
                         do_mpconnections(pipes, "pause", None)
                         if dl:
                             dl.pause()
@@ -645,7 +644,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
                 # if download ok -> postprocess
                 elif stat0 == 3 and not mpp_is_alive(mpp, "post"):
                     article_health = 0
-                    connection_health = 0
                     logger.info(whoami() + "download success, postprocessing NZB " + nzbname)
                     pwdb.exc("db_msg_insert", [nzbname, "downloaded ok, starting postprocess", "success"], {})
                     mpp_post = mp.Process(target=postprocessor.postprocess_nzb, args=(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mpp, mp_events, cfg,

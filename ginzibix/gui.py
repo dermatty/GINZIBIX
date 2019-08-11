@@ -622,7 +622,7 @@ class ApplicationGui(Gtk.Application):
                 self.appdata.sortednzbhistorylist = sortednzbhistorylist0[:]
 
     def update_mainwindow(self, data, server_config, dl_running, nzb_status_string,
-                          article_health, connection_health, dlconfig, gb_downloaded, server_ts):
+                          article_health, dlconfig, gb_downloaded, server_ts):
 
         # check if connection_tester has completed -> if yes, join tester thread, stop spinner etc.
         # !! can only be called from a Glib.idle_add !!
@@ -1868,7 +1868,6 @@ class AppData:
         self.dldata = None
         self.logdata = None
         self.article_health = 0
-        self.connection_health = 0
         self.closeall = False
         self.nzbs_history = []
         self.download_logs = []

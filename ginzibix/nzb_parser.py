@@ -258,7 +258,7 @@ def ParseNZB(cfg, dirs, lock, mp_loggerqueue):
 
 
 '''import logging
-nzb = "/home/stephan/.ginzibix/nzb/4UBn5DJVdHQWZI{{CzsVRQWFxISqLU}}.nzb"
+nzb = "/home/stephan/.ginzibix/nzb/(01_20)_-__The.Simpsons.S30E04.Treehouse.of.Horror.XXIX.720p.iT.WEB-DL.DD5.1.H.264-Tooncore.par2_.nzb"
 logger = logging.getLogger(__name__)
 filedic, bytescount0 = decompose_nzb(nzb, logger)
 for key, elem in filedic.items():
