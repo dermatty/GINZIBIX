@@ -296,6 +296,14 @@ class PWDB():
             self.logger.warning(whoami() + str(e))
             pass
 
+    def db_p2_get_len_p2list(self, nzbname0):
+        try:
+            p2s0 = self.P2.select().where(self.P2.nzbname == nzbname0)
+            return len(p2s0)
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return 0
+
     def db_p2_get_p2list(self, nzbname0):
         try:
             p2s0 = self.P2.select().where(self.P2.nzbname == nzbname0)

@@ -103,6 +103,10 @@ def process_next_unrar_child_pass(event_idle, child, logger):
     return status, statmsg, str0
 
 
+def partial_unrar_multiple_p2s():
+    pass
+
+
 def partial_unrar(directory, unpack_dir, nzbname, mp_loggerqueue, password, event_idle, cfg):
 
     setproctitle("gzbx." + os.path.basename(__file__))

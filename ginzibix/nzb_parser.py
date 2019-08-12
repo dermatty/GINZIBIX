@@ -59,7 +59,8 @@ def decompose_nzb(nzb, logger):
     for r in nzbroot:
         headers = r.attrib
         try:
-            date = headers["date"]
+            # date = headers["date"]
+            date = re.search(r"\d{10}$", headers["date"])[0]
             age = int((time.time() - float(date))/(24 * 3600))
             subject = headers["subject"]
             # 1. Rule: search for quotation marks
@@ -258,7 +259,7 @@ def ParseNZB(cfg, dirs, lock, mp_loggerqueue):
 
 
 '''import logging
-nzb = "/home/stephan/.ginzibix/nzb/(01_20)_-__The.Simpsons.S30E04.Treehouse.of.Horror.XXIX.720p.iT.WEB-DL.DD5.1.H.264-Tooncore.par2_.nzb"
+nzb = "/home/stephan/.ginzibix/nzb/Alles_eine_Frage_der_Zeit_(2013).BluRay-NoGroup.nzb"
 logger = logging.getLogger(__name__)
 filedic, bytescount0 = decompose_nzb(nzb, logger)
 for key, elem in filedic.items():
@@ -269,5 +270,7 @@ for key, elem in filedic.items():
         if i == 0:
             continue
         s += e[2]
-    print(key, nr, len(elem), age, s)'''
+    if ".par2" in key:
+        print(key)
+    # print(key, nr, len(elem), age, s)'''
 

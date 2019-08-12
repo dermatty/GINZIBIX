@@ -1,6 +1,10 @@
 # unrarer w multiple par2s
 	1. stop unrar if len(p2list) > 1 & postpone to postproc
 	2. in postproc: for r in rarfiles in p2list: unrar(r)
+	3. test pw per par2!!!! -> am besten im unrarer
+
+
+# wo gibt es dies pausen: process_resultqueue -> profilen, evtl
 
 
 # pass rarlist to partial_unrar -> und dort nach Reihenfolge abarbeiten!

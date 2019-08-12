@@ -645,6 +645,8 @@ class Downloader(Thread):
 
         while self.stopped_counter < stopped_max_counter:
 
+            len_p2list = self.pwdb.exc("db_p2_get_len_p2list", [self.nzbname], {})
+
             # monitor idle times of unrarer to avoid deadlock further down
             if unrarer_idle_starttime == sys.maxsize and self.event_unrareridle.is_set():
                 unrarer_idle_starttime = time.time()
@@ -682,9 +684,13 @@ class Downloader(Thread):
                 kill_mpp(self.mpp, "unrarer")
             if not self.event_stopped.isSet():
                 unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
+                # if len p2list > 1: stop unrarer
+                if mpp_is_alive(self.mpp, "unrarer") and len_p2list > 1:
+                    kill_mpp(self.mpp, "unrarer")
+                    self.logger.info(whoami() + "killing unrarer due to multiple par2 files!")
+                    self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
                 if unrarstatus == 1:    # if unrarer is busy, does it hang?
-                    if not mpp_is_alive(self.mpp, "unrarer"):   # or\
-                        # (time.time() - unrarer_idle_starttime > 5 and last_rar_downloadedtime >= unrarer_idle_starttime + 10):
+                    if not mpp_is_alive(self.mpp, "unrarer") and len_p2list < 2:
                         self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
                         kill_mpp(self.mpp, "unrarer")
                         self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
@@ -700,7 +706,7 @@ class Downloader(Thread):
                     if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
                         self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
                         kill_mpp(self.mpp, "unrarer")
-                elif unrarstatus == -2:  # failed bcause wrong first rar -> restart
+                elif unrarstatus == -2 and len_p2list < 2:  # failed bcause wrong first rar -> restart
                     self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
                     kill_mpp(self.mpp, "unrarer")
                     self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
@@ -840,7 +846,7 @@ class Downloader(Thread):
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, True], {})
                         self.pwdb.exc("db_msg_insert", [nzbname, "rar archive is password protected", "warning"], {})
                         self.logger.info(whoami() + "rar archive is pw protected, postponing unrar to postprocess ...")
-                    elif is_pwp == -1:
+                    elif is_pwp == -1 and len_p2list < 2:
                         # if not pw protected -> normal unrar
                         self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
                         verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})

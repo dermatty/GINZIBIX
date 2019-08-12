@@ -235,6 +235,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             # sighandler.mpp = mpp
             sys.exit()
         event_unrareridle = mp.Event()
+        # passing p2list to unrarer
         mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, mp_loggerqueue, pw, event_unrareridle, cfg, ))
         unrarernewstarted = True
         mpp_unrarer.start()
@@ -253,6 +254,7 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
             try:
                 logger.debug(whoami() + "unrarer passiv until now, starting ...")
                 event_unrareridle = mp.Event()
+                # passing p2list to unrarer
                 mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(verifiedrar_dir, unpack_dir, nzbname, mp_loggerqueue, None,
                                                                                    event_unrareridle, cfg, ))
                 unrarernewstarted = True

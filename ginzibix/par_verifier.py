@@ -164,25 +164,40 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                     if not f0:
                         continue
                     f0_origname, f0_renamedname, f0_ftype = f0
-                    #print(f0_renamedname, " : ", p2.filenames())
-                    #print("-" * 80)
                     if not f0_ftype == "rar":
                         continue
                     if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
                         f_short = f0_renamedname.split("/")[-1]
                         md5 = calc_file_md5hash(renamed_dir + rar0)
                         md5match = [(pmd5 == md5) for pname, pmd5 in p2.filenames() if pname == f0_renamedname]
-                        if False in md5match:
+                        #print(f0_renamedname, md5, " : ", p2.filenames())
+                        #print(md5match)
+                        #print("-" * 80)
+                        if True in md5match:
+                            logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
+                            pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
+                            shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
+                            pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
+                        elif False in md5match:
                             logger.warning(whoami() + "error in md5 hash match for file " + f_short)
                             pwdb.exc("db_msg_insert", [nzbname, "error in md5 hash match for file " + f_short, "warning"], {})
                             pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
                             pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
                             child_pipe.send(True)
-                        else:
-                            logger.info(whoami() + f_short + " md5 hash match ok, copying to verified_rar dir")
-                            pwdb.exc("db_msg_insert", [nzbname, f_short + " md5 hash match ok, copying to verified_rar dir ", "info"], {})
-                            shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
-                            pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
+                        else:    # if no match at all in p2list -> try sfvcheck / or just copy
+                            sfvcheck = pwdb.exc("db_nzb_check_sfvcrc32", [nzbname, renamed_dir, rar], {})
+                            if sfvcheck == -1:
+                                logger.warning(whoami() + " error in crc32 check for file " + rar0)
+                                pwdb.exc("db_msg_insert", [nzbname, "error in crc32 check for file " + rar0, "warning"], {})
+                                pwdb.exc("db_nzb_update_verify_status", [nzbname, -2], {})
+                                pwdb.exc("db_file_update_parstatus", [f0_origname, -1], {})
+                                child_pipe.send(True)
+                                continue
+                            if pwdb.exc("db_file_getparstatus", [rar0], {}) == 0 and f0_renamedname != "N/A":
+                                logger.debug(whoami() + "no md5 check, copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir")
+                                pwdb.exc("db_msg_insert", [nzbname, "no md5 check, copying " + f0_renamedname.split("/")[-1] + " to verified_rar dir", "info"], {})
+                                shutil.copy(renamed_dir + f0_renamedname, verifiedrar_dir)
+                                pwdb.exc("db_file_update_parstatus", [f0_origname, 1], {})
             # free rars or copy mode?
             elif (pvmode == "verify" and not p2) or (pvmode == "copy"):
                 # maybe we can check via sfv file?
