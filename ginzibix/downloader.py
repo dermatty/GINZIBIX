@@ -244,6 +244,7 @@ class Downloader(Thread):
         return (articlequeue_empty and resultqueue_empty and mpworkqueue_empty)
 
     def process_resultqueue(self, avgmiblist00, infolist00, files00):
+        t0 = time.time()
         global empty_yenc_article
         # read resultqueue + distribute to files
         newresult = False
@@ -255,6 +256,7 @@ class Downloader(Thread):
         updatedlist = []
 
         resultlist = do_mpconnections(self.pipes, "pull_entire_resultqueue", None)
+        dt = time.time() - t0
         ri = 0
         len_resultlist = 0
         if resultlist:
@@ -323,6 +325,7 @@ class Downloader(Thread):
         if len(avgmiblist) > 50:
             avgmiblist = avgmiblist[:50]
         self.pwdb.exc("db_article_set_status", [updatedlist, 1], {})
+        print(time.time() - t0, dt, ri)
         return newresult, avgmiblist, infolist, files, failed
 
     def clear_queues_and_pipes(self, onlyarticlequeue=False):

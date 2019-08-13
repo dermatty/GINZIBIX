@@ -197,8 +197,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
             if pipes["mpconnector"]:
                 logger.debug(whoami() + "starting shutdown of mpconnector")
                 do_mpconnections(pipes, "exit", None)
-                mpp["mpconnector"].join(timeout=5)
-                kill_mpp(mpp, "mpconnector")
+                kill_mpp(mpp, "mpconnector", timeout=0)     # kill immediately w SIGKILL because mpconnector hangs at shutdown
                 logger.info(whoami() + "mpconnector terminated!")
             else:
                 if mpp_is_alive(mpp, "mpconnector"):

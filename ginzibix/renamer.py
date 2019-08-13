@@ -190,7 +190,7 @@ def renamer_old(child_pipe, renamer_result_queue, mp_loggerqueue, filewrite_lock
 
     logger = mplogging.setup_logger(mp_loggerqueue, __file__)
     logger.debug(whoami() + "starting renamer process")
-    
+
     sh = SigHandler_Renamer(logger)
     signal.signal(signal.SIGINT, sh.sighandler_renamer)
     signal.signal(signal.SIGTERM, sh.sighandler_renamer)
