@@ -1534,6 +1534,7 @@ def wrapper_main(cfg, dirs, mp_loggerqueue):
     pwwt.signal_ign_sigterm = signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     pwwt.do_loop()
+    logger.debug(whoami() + "gpeewee loop joined!")
 
     try:
         pwwt.db.execute_sql('VACUUM')        # shrink db to minimum size required
