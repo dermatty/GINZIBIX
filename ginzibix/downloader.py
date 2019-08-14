@@ -270,7 +270,7 @@ class Downloader(Thread):
                 if ri >= len_resultlist:
                     break
                 # resultarticle = do_mpconnections(self.pipes, "pull_resultqueue", None) 
-                resultarticle = resultlist[ri]
+                resultarticle = pickle.loads(resultlist[ri])
                 ri += 1
                 if not resultarticle:
                     break
@@ -325,7 +325,6 @@ class Downloader(Thread):
         if len(avgmiblist) > 50:
             avgmiblist = avgmiblist[:50]
         self.pwdb.exc("db_article_set_status", [updatedlist, 1], {})
-        print(time.time() - t0, dt, ri)
         return newresult, avgmiblist, infolist, files, failed
 
     def clear_queues_and_pipes(self, onlyarticlequeue=False):

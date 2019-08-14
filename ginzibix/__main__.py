@@ -27,12 +27,16 @@ class SigHandler_Ginzibix:
     def sighandler_ginzibix(self, a, b):
         self.shutdown()
 
-    def shutdown(self, exit_status=3):
-        # wait until main is joined
+    def get_trstr(self, exit_status):
         if exit_status == 3:
             trstr = str(datetime.datetime.now()) + ": RESTART - "
         else:
             trstr = str(datetime.datetime.now()) + ": SHUTDOWN - "
+        return trstr
+
+    def shutdown(self, exit_status=3):
+        # wait until main is joined
+        trstr = self.get_trstr(exit_status)
         # shutdown mpp_main
         if self.mpp_main:
             if self.mpp_main.pid:
@@ -45,6 +49,7 @@ class SigHandler_Ginzibix:
             self.pwdb.exc("set_exit_goodbye_from_main", [], {})
         except Exception:
             pass
+        trstr = self.get_trstr(exit_status)
         # shutdown mpp_wrapper
         if self.mpp_wrapper:
             if self.mpp_wrapper.pid:
@@ -53,6 +58,7 @@ class SigHandler_Ginzibix:
                 if self.mpp_wrapper.is_alive():
                     print(trstr + "killing mpp_wrapper")
                     os.kill(self.mpp_wrapper.pid, signal.SIGKILL)
+        trstr = self.get_trstr(exit_status)
         # shutdown loglistener
         if self.mp_loglistener:
             if self.mp_loglistener.pid:

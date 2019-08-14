@@ -11,6 +11,7 @@ import signal
 import zmq
 import sys
 from zmq.devices.basedevice import ProcessDevice, ThreadDevice
+import pickle
 
 from ginzibix.mplogging import whoami
 from ginzibix import mplogging
@@ -219,7 +220,6 @@ class ConnectionWorker(Thread):
                 self.tt_pause_started = None
             if not self.running:
                 break
-            # articlequeue = (filename, age, filetype, nr_articles, art_nr, art_name, level_servers)
             try:
                 article = self.articlequeue.pop()
             except (queue.Empty, EOFError, IndexError):
@@ -235,8 +235,7 @@ class ConnectionWorker(Thread):
                 self.retry_connect()
             filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1 = article
             if not remaining_servers1:
-                # self.resultqueue.append(article + (None,))
-                self.socket.send_pyobj(article + (None,))
+                self.socket.send(pickle.dumps(article + (None,)))
                 continue
             if self.name not in remaining_servers1[0] or not self.nntpobj:
                 self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name, remaining_servers1))
@@ -252,12 +251,9 @@ class ConnectionWorker(Thread):
             # if download successfull - put to resultqueue
             elif status == 1:
                 self.last_downloaded_ts = time.time()
-                # self.logger.debug(whoami() + "Downloaded article " + art_name + " on server " + self.idn)
                 timeout = 2
                 self.bytesdownloaded += bytesdownloaded
-                # self.resultqueue.append((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
-                self.socket.send_pyobj((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True))
-                # self.articlequeue.task_done()
+                self.socket.send(pickle.dumps((filename, age, filetype, nr_articles, art_nr, art_name, self.name, info, True)))
             # if 400 error
             elif status == -2:
                 # disconnect
@@ -287,14 +283,11 @@ class ConnectionWorker(Thread):
                 next_servers = self.remove_from_remaining_servers(self.name, remaining_servers1)
                 if not next_servers:
                     self.logger.error(whoami() + "Download finally failed on server " + self.idn + ": for article " + art_name + " " + str(next_servers))
-                    # self.resultqueue.append((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
-                    socket.send_pyobj((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True))
+                    self.socket.send(pickle.dumps((filename, age, filetype, nr_articles, art_nr, art_name, [], "failed", True)))
                 else:
                     self.logger.debug(whoami() + "Download failed on server " + self.idn + ": for article " + art_name + ", queueing: "
                                       + str(next_servers))
                     self.articlequeue.append((filename, age, filetype, nr_articles, art_nr, art_name, next_servers))
-        self.socket.close()
-        self.context.term()
         self.logger.info(whoami() + self.idn + " exited!")
 
 
@@ -436,31 +429,21 @@ class ConnectionThreads:
         return self.servers.server_config
 
 
-def get_from_streamingdevice(socket, onlyfirst=False, timeout=0.0):
+def get_from_streamingdevice(socket, onlyfirst=False):
     result = []
-    errcounter = 0
     while True:
         try:
-            res0 = socket.recv_pyobj(flags=zmq.NOBLOCK)
+            res0 = socket.recv(flags=zmq.NOBLOCK)
             if not onlyfirst:
                 result.append(res0)
             else:
-                result = res0
+                result = pickle.loads(res0)
                 break
         except zmq.ZMQError as e:
-
             if e.errno == zmq.EAGAIN and not onlyfirst:
                 if result == []:
                     result = None
                 break
-                #if errcounter > 5:      # 5 tries if no data, just to make shure
-                #    if result == []:
-                #        result = None
-                #    break
-                #else:
-                #    errcounter += 1
-                #    if timeout > 0:
-                #        time.sleep(timeout)
             else:
                 result = None
                 break
@@ -483,6 +466,7 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     while is_port_in_use(worker_port) or is_port_in_use(connections_port):
         worker_port += 1
         connections_port = worker_port + 1
+    # this is not working with ProcessDevice -> stuck on sys.exit!??
     streamerdevice = ThreadDevice(zmq.STREAMER, zmq.PULL, zmq.PUSH)
     streamerdevice.bind_in("tcp://127.0.0.1:%d" % connections_port)
     streamerdevice.bind_out("tcp://127.0.0.1:%d" % worker_port)
@@ -511,6 +495,8 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                "queues_empty", "clear_resultqueue", "len_articlequeue", "push_articlequeue", "pull_resultqueue",
                "push_entire_articlequeue", "pull_entire_resultqueue", "get_bytesdownloaded")
 
+    quit_via_cmdexit = False
+
     while not TERMINATED:
 
         try:
@@ -532,9 +518,10 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                 except Exception:
                     result = None
             elif cmd == "pull_entire_resultqueue":
-                result = get_from_streamingdevice(socket, onlyfirst=False, timeout=0.0)
+                result = get_from_streamingdevice(socket, onlyfirst=False)
+                logger.debug(whoami() + "len_articlequeue: " + str(len(ct.articlequeue)))
             elif cmd == "pull_resultqueue":
-                result = get_from_streamingdevice(socket, onlyfirst=True, timeout=0.0)
+                result = get_from_streamingdevice(socket, onlyfirst=True)
             elif cmd == "start":
                 ct.start_threads()
             elif cmd == "queues_empty":
@@ -553,7 +540,7 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
             elif cmd == "clear_articlequeue":
                 ct.articlequeue.clear()
             elif cmd == "clear_resultqueue":
-                get_from_streamingdevice(socket, onlyfirst=False, timeout=0.01)
+                get_from_streamingdevice(socket, onlyfirst=False)
             elif cmd == "stop":
                 ct.stop_threads()
             elif cmd == "resume":
@@ -592,18 +579,17 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
                     pass
                 result = le_serv0
             elif cmd == "exit":
-                logger.debug(whoami() + "starting shutdown ...")
-                ct.stop_threads()
-                get_from_streamingdevice(socket, onlyfirst=False, timeout=0.05)
-                socket.close()
-                context.term()
-                logger.debug(whoami() + "... exited! (theoretically)")
-                child_pipe.send(result)  # att'n: no logging after here ... !?
-                sys.exit()
+                quit_via_cmdexit = True
+                break
             elif cmd == "clearqueues":
                 ct.articlequeue.clear()
-                get_from_streamingdevice(socket, onlyfirst=False, timeout=0.01)
+                get_from_streamingdevice(socket, onlyfirst=False)
             child_pipe.send(result)
         else:
             child_pipe.send(None)
+    logger.debug(whoami() + "shutting down ...")
+    ct.stop_threads()
+    get_from_streamingdevice(socket, onlyfirst=False)
+    if quit_via_cmdexit:
+        child_pipe.send(result)
     sys.exit()
