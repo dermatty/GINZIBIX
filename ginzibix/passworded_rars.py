@@ -5,6 +5,9 @@ import logging
 import logging.handlers
 import sys
 import glob
+import pexpect
+import signal
+
 
 from ginzibix.mplogging import whoami
 from ginzibix import par2lib
@@ -92,6 +95,31 @@ def is_rar_password_protected(directory, logger):
 
 
 def test_password(pw, rarname):
+    child = pexpect.spawn("unrar t " + rarname + " -p" + pw)
+    str0 = ""
+    ctr = 0
+    allok = False
+    while True:
+        try:
+            a = child.read_nonblocking().decode("utf-8")
+            str0 += a
+        except pexpect.exceptions.EOF:
+            break
+        if "\r\n" in str0:
+            if "All OK" in str0:
+                allok = True
+                break
+            if "Testing archive" in str0:
+                ctr += 1
+                if ctr > 2:
+                    allok = True
+                    break
+            str0 = ""
+    child.kill(signal.SIGKILL)
+    return allok
+
+
+def test_passwordV1(pw, rarname):
     ssh = subprocess.Popen(["unrar", "t", "-p" + pw, rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
     ssherr = ssh.stderr.readlines()
     return (not ssherr)
@@ -187,7 +215,12 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger("ginzibix")
+    rar = "/home/stephan/.ginzibix/incomplete/Pokemon.-.Der.Film.Du.bist.dran.2017.MULTi.COMPLETE.BLURAY{{4nUTnLgRJgtLXnv}}/_renamed0/P-DFDb15636597614VtJh190720Sha.part001.rar"
+    pw = "4nUTnLgRJgtLXnv"
+    test_password_pexpect(pw, rar)
+
+
+    '''logger = logging.getLogger("ginzibix")
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler("/home/stephan/.ginzibix/logs/ginzibix.log", mode="w")
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -208,15 +241,16 @@ if __name__ == "__main__":
 
     if ipw != 1:
         sys.exit()
-    '''# try passwords
+    
+    # try passwords
     directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_verifiedrars0"
     pw_file = "/home/stephan/.ginzibix/PW_2"
     nzbname0 = "therainS01E01.nzb"
     pw = get_password(directory, pw_file, nzbname0, logger)
-    print("Password: " + str(pw))'''
+    print("Password: " + str(pw))
 
     # test if password protected
-    '''directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_unpack0"
+    directory = "/home/stephan/.ginzibix/incomplete/therainS01E01/_unpack0"
     rarname0 = "0OriJpkzUSAYmK.part1.rar"
     ipw = is_rar_password_protected(directory, rarname0, logger)
     if ipw == 1:

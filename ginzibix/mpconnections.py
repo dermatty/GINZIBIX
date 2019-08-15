@@ -94,7 +94,6 @@ class ConnectionWorker(Thread):
             if resp.startswith("222"):
                 status = 1
                 info0 = [inf + b"\r\n" if not inf.endswith(b"\r\n") else inf for inf in info.lines]
-                # bytesdownloaded = sum(len(i) for i in info0)
                 bytesdownloaded = len(b''.join(info.lines))
             else:
                 self.logger.warning(whoami() + resp + ": could not find " + article_name + " on " + self.idn)
@@ -198,7 +197,6 @@ class ConnectionWorker(Thread):
         # connect to push-socket
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.PUSH)
-        self.socket.linger = 0
         self.socket.connect("tcp://127.0.0.1:%d" % self.port)
         while self.running:
             self.download_done = True
@@ -466,21 +464,20 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     while is_port_in_use(worker_port) or is_port_in_use(connections_port):
         worker_port += 1
         connections_port = worker_port + 1
+    # streamerdevice gathers results downloaded from usenet servers and
+    # keeps them ready to be delivered to mpconnector (which is the only worker).
     # this is not working with ProcessDevice -> stuck on sys.exit!??
     streamerdevice = ThreadDevice(zmq.STREAMER, zmq.PULL, zmq.PUSH)
     streamerdevice.bind_in("tcp://127.0.0.1:%d" % connections_port)
     streamerdevice.bind_out("tcp://127.0.0.1:%d" % worker_port)
     streamerdevice.setsockopt_in(zmq.IDENTITY, b"PULL")
     streamerdevice.setsockopt_out(zmq.IDENTITY, b"PUSH")
-    streamerdevice.setsockopt_in(zmq.LINGER, 0)
-    streamerdevice.setsockopt_out(zmq.LINGER, 0)
     streamerdevice.start()
 
     # setup socket for worker
     context = zmq.Context()
     socket = context.socket(zmq.PULL)
     socket.connect("tcp://127.0.0.1:%d" % worker_port)
-    socket.linger = 0
 
     # poller to check if streamerdevice is empty
     poller = zmq.Poller()
@@ -503,6 +500,7 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
             cmd, param = child_pipe.recv()
         except Exception as e:
             logger.warning(whoami() + str(e))
+            continue
 
         if cmd in cmdlist:
             result = True
@@ -592,4 +590,3 @@ def mpconnector(child_pipe, cfg, server_ts, mp_loggerqueue):
     get_from_streamingdevice(socket, onlyfirst=False)
     if quit_via_cmdexit:
         child_pipe.send(result)
-    sys.exit()

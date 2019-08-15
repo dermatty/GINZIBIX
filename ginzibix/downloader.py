@@ -1041,17 +1041,8 @@ class Downloader(Thread):
 
         self.pwdb.exc("db_nzb_store_allfile_list", [self.nzbname, self.allfileslist, self.filetypecounter, self.overall_size,
                                                     self.overall_size_wparvol, self.p2], {})
-        # save infolist here
         if not return_reason:
             return_reason = "download terminated!"
-            msgtype = "warning"
-        elif return_reason.endswith("failed") or return_reason == "download success, but no postproc. possible!":
-            msgtype = "error"
-        elif return_reason.endswith("success"):
-            msgtype = "success"
-        else:
-            msgtype = "info"
-        # self.pwdb.exc("db_msg_insert", [nzbname, return_reason, msgtype], {})
         self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
                                   self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
                                   self.allfileslist)), return_reason, self.main_dir
