@@ -50,6 +50,42 @@ def get_sorted_rar_list(directory):
         rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
     return rar_sortedlist
 
+# attention:
+#      test if password protected: unrar vt -p- TSaB2G156300048493oCx190713WAY.part01.rar
+#               UNRAR 5.71 beta 1 freeware      Copyright (c) 1993-2019 Alexander Roshal
+#                The specified password is incorrect.
+#                Archive: TSaB2G156300048493oCx190713WAY.part01.rar
+#                Details: RAR 5, encrypted headers
+#      test for corr. password: unrar vt -p7WbVqhchfuxHhth TSaB2G156300048493oCx190713WAY.part01.rar0
+'''              UNRAR 5.71 beta 1 freeware      Copyright (c) 1993-2019 Alexander Roshal
+                 Archive: TSaB2G156300048493oCx190713WAY.part01.rar
+                 Details: RAR 5, volume 1, recovery record, lock, encrypted headers
+
+                         Name: the.sisters.and.brothers.2018.german.dl.1080p.web.h264-wayne.nfo
+                         Type: File
+                         Size: 282
+                  Packed size: 288
+                        Ratio: 102%
+                        mtime: 2019-07-11 22:50:26,000000000
+                   Attributes: -rwxrwx---
+                        CRC32: 984C3E00
+                      Host OS: Unix
+                  Compression: RAR 5.0(v50) -m0 -md=128K
+                        Flags: encrypted 
+
+                         Name: the.sisters.and.brothers.2018.german.dl.1080p.web.h264-wayne.mkv
+                         Type: File
+                         Size: 9271299836
+                  Packed size: 243505850
+                        Ratio: -->
+                        mtime: 2019-07-12 07:34:32,000000000
+                   Attributes: -rwxrwx---
+                   Pack-CRC32: 82EC7A3B
+                      Host OS: Unix
+                  Compression: RAR 5.0(v50) -m0 -md=128K
+                        Flags: encrypted'''
+
+
 
 def is_rar_password_protected(directory, logger):
     # return value:
@@ -74,7 +110,7 @@ def is_rar_password_protected(directory, logger):
         do_restart = False
         for ss in ssherr:
             ss0 = ss.decode("utf-8")
-            if "You need to start from a" in ss0:
+            if "You need to start extraction" in ss0:
                 do_restart = True
                 break
             if "Corrupt file or wrong password" in ss0 or "password is incorrect" in ss0:
@@ -217,7 +253,7 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
 if __name__ == "__main__":
     rar = "/home/stephan/.ginzibix/incomplete/Pokemon.-.Der.Film.Du.bist.dran.2017.MULTi.COMPLETE.BLURAY{{4nUTnLgRJgtLXnv}}/_renamed0/P-DFDb15636597614VtJh190720Sha.part001.rar"
     pw = "4nUTnLgRJgtLXnv"
-    test_password_pexpect(pw, rar)
+    test_password(pw, rar)
 
 
     '''logger = logging.getLogger("ginzibix")

@@ -208,7 +208,25 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     stop_wait(nzbname, dirs, pwdb)
 
     # ---  UNRARER ---
-    # if unrarer not running (if e.g. all files)
+    # already checked if pw protected?
+    is_pw_checked = pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {})
+    if not is_pw_checked:
+        logger.debug(whoami() + "testing if pw protected")
+        ispw = passworded_rars.is_rar_password_protected(verifiedrar_dir, logger)
+        pwdb.exc("db_nzb_set_ispw_checked", [nzbname, True], {})
+        if ispw == 0 or ispw == -2 or ispw == -3:
+            logger.warning(whoami() + "cannot test rar if pw protected, something is wrong: " + str(ispw) + ", exiting ...")
+            pwdb.exc("db_msg_insert", [nzbname, "postprocessing failed due to pw test not possible", "error"], {})
+            pwdb.exc("db_nzb_update_status", [nzbname, -4], {})
+            sys.exit()
+        elif ispw == 1:
+            pwdb.exc("db_nzb_set_ispw", [nzbname, True], {})
+            pwdb.exc("db_msg_insert", [nzbname, "rar archive is password protected", "warning"], {})
+            logger.info(whoami() + "rar archive is pw protected")
+        elif ispw == -1:
+            pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
+            pwdb.exc("db_msg_insert", [nzbname, "rar archive is NOT password protected", "info"], {})
+            logger.info(whoami() + "rar archive is NOT pw protected")
     ispw = pwdb.exc("db_nzb_get_ispw", [nzbname], {})
     unrarernewstarted = False
     if ispw:

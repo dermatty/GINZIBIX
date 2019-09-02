@@ -869,6 +869,7 @@ class Downloader(Thread):
                             self.logger.debug(whoami() + "not starting unrarer due to verifier state = -2")
                     elif is_pwp == -3:
                         self.logger.info(whoami() + ": cannot check for pw protection as first rar not present yet")
+                        self.pwdb.exc("db_nzb_set_ispw_checked", [nzbname, False], {})
                 else:
                     self.logger.debug(whoami() + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
             elif self.filetypecounter["rar"]["counter"] > rarcounter:

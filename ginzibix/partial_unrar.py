@@ -70,36 +70,44 @@ def folder_size(path='.'):
 
 def process_next_unrar_child_pass(event_idle, child, logger):
     str0 = ""
+    timeout = False
     while True:
         try:
             a = child.read_nonblocking(timeout=120).decode("utf-8")
             str0 += a
         except pexpect.exceptions.EOF:
             break
+        except pexpect.exceptions.TIMEOUT:
+            timeout = True
+            break
         except Exception as e:
             logger.warning(whoami() + str(e))
         if str0[-6:] == "[Q]uit":
             break
-    status = 1
-    statmsg = ""
-    if "WARNING: You need to start extraction from a previous volume" in str0:
-        child.close(force=True)
-        statmsg = "WARNING: You need to start extraction from a previous volume"
-        status = -5
-    elif "error" in str0:
-        if "packed data checksum" in str0:
-            statmsg = "packed data checksum error (= corrupt rar!)"
-            status = -1
-        elif "- checksum error" in str0:
-            statmsg = "checksum error (= rar is missing!)"
-            status = -2
-        else:
-            statmsg = "unknown error"
-            status = -3
+    if timeout:
+        statmsg = "pexpect.timeout exceeded"
+        status = -3
     else:
-        if "All OK" in str0:
-            status = 0
-            statmsg = "All OK"
+        status = 1
+        statmsg = ""
+        if "WARNING: You need to start extraction from a previous volume" in str0:
+            child.close(force=True)
+            statmsg = "WARNING: You need to start extraction from a previous volume"
+            status = -5
+        elif "error" in str0:
+            if "packed data checksum" in str0:
+                statmsg = "packed data checksum error (= corrupt rar!)"
+                status = -1
+            elif "- checksum error" in str0:
+                statmsg = "checksum error (= rar is missing!)"
+                status = -2
+            else:
+                statmsg = "unknown error"
+                status = -3
+        else:
+            if "All OK" in str0:
+                status = 0
+                statmsg = "All OK"
     return status, statmsg, str0
 
 
