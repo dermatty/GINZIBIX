@@ -268,8 +268,21 @@ def par_verifier(child_pipe, renamed_dir, verifiedrar_dir, main_dir, mp_loggerqu
                 pwdb.exc("db_msg_insert", [nzbname, "par2verify for " + fnshort + ": repair is required but not possible", "error"], {})
                 res0 = -1
             elif repair_is_required and repair_is_possible:
-                pwdb.exc("db_msg_insert", [nzbname, "par2verify for " + fnshort + ": repair is required and possible, repairing files if possible", "info"], {})
-                res0 = multipartrar_repair(renamed_dir, fnshort, pwdb, nzbname, logger)
+                pwdb.exc("db_msg_insert", [nzbname, "par2verify for " + fnshort + ": repair is required and possible, repairing files", "info"], {})
+                logger.info(whoami() + "repair is required and possible, performing par2repair")
+                # repair
+                ssh = subprocess.Popen(['par2repair', fnlong], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
+                sshres = ssh.stdout.readlines()
+                repair_complete = False
+                for ss in sshres:
+                    ss0 = ss.decode("utf-8")
+                    if "Repair complete" in ss0:
+                        repair_complete = True
+                if not repair_complete:
+                    res0 = -1
+                else:
+                    res0 = 1
+                # res0 = multipartrar_repair(renamed_dir, fnshort, pwdb, nzbname, logger)
             else:
                 res0 = -1
             if res0 != 1:
