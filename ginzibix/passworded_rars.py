@@ -135,11 +135,19 @@ def test_password(pw, rarname):
     str0 = ""
     ctr = 0
     allok = False
+    do2ndtry = False
     while True:
         try:
             a = child.read_nonblocking().decode("utf-8")
             str0 += a
         except pexpect.exceptions.EOF:
+            break
+        except pexpect.exceptions.TIMEOUT:
+            break
+        except Exception:
+            # this is possibly a 'utf-8' cant't decode error
+            # if this happens try with possibly slower approach
+            do2ndtry = True
             break
         if "\r\n" in str0:
             if "All OK" in str0:
@@ -152,6 +160,45 @@ def test_password(pw, rarname):
                     break
             str0 = ""
     child.kill(signal.SIGKILL)
+    if do2ndtry:
+        allok = test_password2(pw, rarname)
+    return allok
+
+
+# if there was a utf-8 can't decode error:
+#        do unrar test for all rars and eval finally
+def test_password2(pw, rarname):
+    child = pexpect.spawn("unrar t " + rarname + " -p" + pw)
+    str0 = ""
+    byt0 = b""
+
+    firstpassok = True
+    while True:
+        try:
+            a_raw = child.read_nonblocking()
+            byt0 += a_raw
+        except pexpect.exceptions.EOF:
+            break
+        except pexpect.exceptions.TIMEOUT:
+            firstpassok = False
+            break
+        except Exception:
+            firstpassok = False
+            break
+
+    child.kill(signal.SIGKILL)
+    allok = False
+
+    if firstpassok:
+        try:
+            str0 = byt0.decode("utf-8")
+            strarr = str0.split("\r\n")
+        except Exception:
+            strarr = []
+        for sa in strarr:
+            if "All OK" in sa:
+                allok = True
+                break
     return allok
 
 
