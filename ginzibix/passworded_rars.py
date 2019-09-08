@@ -13,6 +13,45 @@ from ginzibix.mplogging import whoami
 from ginzibix import par2lib
 
 
+def get_sorted_rar_from_list(rars):
+    rarlist = []
+    minnr = -1000
+    i = 1
+    for rarf in rars:
+        ftype = par2lib.get_file_type(rarf)
+        # gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
+        if ftype == "rar":
+            # first the easy way: *.part01.rar
+            gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
+            if gg:
+                rarlist.append((int(gg.group().split(".")[0]), rarf))
+                continue
+            # then: only .rar
+            gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
+            if gg:
+                rarlist.append((minnr, rarf))
+                minnr += 1
+                continue
+            # then: ".r00"
+            gg = re.search(r"[.]r+[0-9]*", rarf, flags=re.IGNORECASE)
+            if gg:
+                try:
+                    nr = int(gg.group().split(".r")[-1])
+                    rarlist.append((nr, rarf))
+                    continue
+                except Exception:
+                    pass
+            # any other rar-wise file, no idea about sorting, let's hope the best
+            rarlist.append((i, rarf))
+            i += 1
+            # rarlist.append((int(gg.group().split(".")[0]), rarf))
+    rar_sortedlist = []
+    sortedrarlist = []
+    if rarlist:
+        rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
+        sortedrarlist = [r for (i, r) in rar_sortedlist]
+    return sortedrarlist
+
 def get_sorted_rar_list(directory):
     rarlist = []
     minnr = -1000
@@ -48,8 +87,8 @@ def get_sorted_rar_list(directory):
     rar_sortedlist = []
     if rarlist:
         rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
-    return rar_sortedlist
 
+    return rar_sortedlist
 # attention:
 #      test if password protected: unrar vt -p- TSaB2G156300048493oCx190713WAY.part01.rar
 #               UNRAR 5.71 beta 1 freeware      Copyright (c) 1993-2019 Alexander Roshal

@@ -883,6 +883,15 @@ class PWDB():
         res0 = [f0 for f0 in files0 if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status > 0 and f0.nzb.name == nzbname]
         return res0
 
+    def get_all_rar_files(self, nzbname):
+        try:
+            rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files if f0.ftype == "rar"]
+            rarflist = [r.renamed_name for r in rarfiles]
+            return rarflist
+        except Exception as e:
+            self.logger.warning(whoami() + str(e))
+            return None
+
     def get_all_renamed_rar_files(self, nzbname):
         try:
             rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files if f0.ftype == "rar" and f0.parverify_state == 0 and f0.renamed_name != "N/A"]
