@@ -87,7 +87,7 @@ def get_sorted_rar_list(directory):
 
 
 
-def is_rar_password_protected(directory, logger):
+def is_rar_password_protected(directory, logger, rarname_start=None):
     # return value:
     #    1 ... is pw protected
     #    0 ... is not a rar file
@@ -97,11 +97,14 @@ def is_rar_password_protected(directory, logger):
     cwd0 = os.getcwd()
     if directory[-1] != "/":
         directory += "/"
-    rars = get_sorted_rar_list(directory)
-    if not rars:
-        return -2
+    if not rarname_start:
+        rars = get_sorted_rar_list(directory)
+        if not rars:
+            return -2
     os.chdir(directory)
     do_restart = False
+    if rarname_start:
+        rars = [(None, rarname_start)]
     for _, rarname0 in rars:
         rarname = rarname0.split("/")[-1]
         ssh = subprocess.Popen(["unrar", "t", "-p-", rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
@@ -208,14 +211,17 @@ def test_passwordV1(pw, rarname):
     return (not ssherr)
 
 
-def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
+def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False, rarname1=None):
     if directory[-1] != "/":
         directory += "/"
-    rars = get_sorted_rar_list(directory)
-    if not rars:
-        return None
-    rarname0 = rars[0][1]
-    rarname = rarname0.split("/")[-1]
+    if rarname1:
+        rarname = rarname1
+    else:
+        rars = get_sorted_rar_list(directory)
+        if not rars:
+            return None
+        rarname0 = rars[0][1]
+        rarname = rarname0.split("/")[-1]
     nzbname = nzbname0.split(".nzb")[0]
 
     logger.debug(whoami() + "trying to get password")
@@ -295,7 +301,6 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
 
     os.chdir(cwd0)
     return PW
-
 
 if __name__ == "__main__":
     rar = "/home/stephan/.ginzibix/incomplete/Pokemon.-.Der.Film.Du.bist.dran.2017.MULTi.COMPLETE.BLURAY{{4nUTnLgRJgtLXnv}}/_renamed0/P-DFDb15636597614VtJh190720Sha.part001.rar"
