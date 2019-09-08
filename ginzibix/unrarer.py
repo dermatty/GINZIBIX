@@ -14,6 +14,10 @@ from ginzibix import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, 
     clear_postproc_dirs, get_server_config, get_configured_servers, get_config_for_server, get_free_server_cfg, is_port_in_use, do_mpconnections,\
     kill_mpp
 
+# todo:
+#     unrar 2nd pass
+#     direct unrar (UnrarThread_direct)
+
 TERMINATED = False
 
 
@@ -325,6 +329,8 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
     except FileNotFoundError:
         os.mkdir(verified_dir)
 
+    pwdb.exc("db_nzb_update_unrar_status", [nzbname, 1], {})
+
     unrar_threads_started = False
     unrar_threads = []
     freekey = "xx-free1-xx"
@@ -341,7 +347,7 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
             # here comes cmd ifs ...
             pipe.send(True)
             continue
-    
+
         if not unrar_threads_started:
             if os.listdir(verified_dir):
                 p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
@@ -361,7 +367,6 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                 unrar_threads.append((t, freekey, thread_results[freekey], None))
                 t.start()
                 unrar_threads_started = True
-                                     
         else:
             # check if thread should be restarted
             threads_to_be_restarted = []
@@ -387,7 +392,7 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                         t.start()
 
             # check if all threads are done
-            alldone = True   
+            alldone = True
             for ur in unrar_threads:
                 t, tkey, tresult, p2 = ur
                 if tresult in [1, 2]:
@@ -397,4 +402,16 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
         if alldone:
             break
 
-    # if terminated / if stopped  
+    # final works
+    allok = True
+    for ur in unrar_threads:
+        t, tkey, tresult, p2 = ur
+        if tresult != 3:
+            allok = False
+
+    if allok:
+        pwdb.exc("db_nzb_update_unrar_status", [nzbname, 2], {})
+    else:
+        pwdb.exc("db_nzb_update_unrar_status", [nzbname, 1], {})
+
+    logger.info(whoami() + "exited!")
