@@ -479,8 +479,18 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
     unrar_threads = []
     alldone = False
     p2rarlist = []
+    thread_results = {}
 
-    while not TERMINATED:
+    while not True:
+
+        if TERMINATED:
+            for ur in unrar_threads:
+                t, _, _, _ = ur
+                t.stop()
+            for ur in unrar_threads:
+                t, _, _, _ = ur
+                t.join()
+            break
 
         if pipe.poll(timeout=0.5):
             try:
@@ -500,9 +510,10 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
             if cmd == "all_verified":
                 # all articles downloaded!
                 # now we now if there are rars which do not belong to par2 files
-                t = UnrarThread_direct(nzbname, verified_dir, unpack_dir, p2rarlist, pwdb, logger)
+                thread_results["direct"] = 1
+                t = UnrarThread_direct(thread_results["direct"], nzbname, verified_dir, unpack_dir, p2rarlist, pwdb, logger)
+                unrar_threads.append((t, None, thread_results["direct"], None))
                 t.start()
-                t.join()
             pipe.send(True)
             continue
 
@@ -510,7 +521,6 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
             if os.listdir(verified_dir):
                 p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
                 # threads for par2 rarchains
-                thread_results = {}
                 for p2 in p2list:
                     _, fnshort, _, _ = p2
                     thread_results[fnshort] = 1
@@ -544,10 +554,13 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                 t, tkey, tresult, p2 = ur
                 if tresult in [1, 2]:
                     alldone = False
-                    break
+                    t.join()
 
         if alldone:
             break
+
+    if TERMINATED:
+        logger.info(whoami() + "terminated!")
 
     # final works
     allok = True
