@@ -362,8 +362,6 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False, rarn
     #pw = "TVSwoPiBA0PrJaE"
     #print(test_password(pw, rar))
 
-
-
     '''logger = logging.getLogger("ginzibix")
     logger.setLevel(logging.DEBUG)
     fh = logging.FileHandler("/home/stephan/.ginzibix/logs/ginzibix.log", mode="w")
