@@ -137,13 +137,13 @@ class UnrarThread_direct(Thread):
         appeared_rars = []
 
         while self.running:
-            self.status = 4
+            self.idle = True
             rar_sortedlist0 = passworded_rars.get_sorted_rar_list(self.verified_dir)
             if not rar_sortedlist0:
                 time.sleep(1)
                 continue
             appeared_rars = [r2.split("/")[-1] for r1, r2 in rar_sortedlist0]
-            self.status = 1
+            self.idle = False
             first_rar_appeared = (firstrarfile in appeared_rars)
             # if first rar did not appear -> wait for it
             if not first_rar_appeared:
@@ -207,13 +207,14 @@ class UnrarThread_direct(Thread):
                 self.stop()
                 continue
             gotnextrar = False
-            self.status = 4     # running but idle
+            self.idle = True
             while not gotnextrar and self.running:
                 time.sleep(1)
                 for f0 in glob.glob(self.verified_dir + "*") + glob.glob(self.verified_dir + ".*"):
                     if nextrarname == f0:
                         gotnextrar = True
                     time.sleep(1)
+            self.idle = False
             self.status = 2
             if not self.running:
                 child.sendline("Q")
@@ -246,12 +247,12 @@ class UnrarThread_p2chain(Thread):
         self.logger = logger
         self.running = True
         self.appeared_rars = []
+        self.idle = False
         # status:
         #    0 ... idle / externally stopped
         #    1 ... running (init, until stage I)
         #    2 ... /usr/bin/unrar started (stage II)
         #    3 ... finished, OK
-        #    4 ... running, idle
         #    -1 .. finished, error
         #    -2 ... start from previous volume
         self.status = t_result
@@ -275,7 +276,7 @@ class UnrarThread_p2chain(Thread):
         #    if no -> goto II. immediately
         first_rar_appeared = False
         while self.running:
-            self.status = 4      # running but idle
+            self.idle = True
             rar_sortedlist0 = passworded_rars.get_sorted_rar_list(self.verified_dir)
             if not rar_sortedlist0:
                 time.sleep(1)
@@ -287,6 +288,7 @@ class UnrarThread_p2chain(Thread):
             if not first_rar_appeared:
                 time.sleep(1)
                 continue
+            self.idle = False
 
             # first rar appeared -> pw checked?
             if not self.pwdb.exc("db_p2_get_ispw_checked", [self.fnshort], {}):
@@ -437,12 +439,15 @@ class UnrarThread_p2chain(Thread):
                 self.stop()
                 continue
             gotnextrar = False
-            self.status = 4     # running but idle
+
+            self.idle = True
             while not gotnextrar and self.running:
                 for f0 in glob.glob(self.verified_dir + "*") + glob.glob(self.verified_dir + ".*"):
                     if nextrarname == f0:
                         gotnextrar = True
                     time.sleep(1)
+            self.idle = False
+
             self.status = 2
             if not self.running:
                 child.sendline("Q")
@@ -480,6 +485,9 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
     alldone = False
     p2rarlist = []
     thread_results = {}
+    unrar_direct_started = False
+    idle_start = {}
+
 
     while not True:
 
@@ -514,6 +522,7 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                 t = UnrarThread_direct(thread_results["direct"], nzbname, verified_dir, unpack_dir, p2rarlist, pwdb, logger)
                 unrar_threads.append((t, None, thread_results["direct"], None))
                 t.start()
+                unrar_direct_started = True
             pipe.send(True)
             continue
 
@@ -548,13 +557,27 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                         unrar_threads.append((t, fnshort, thread_results[fnshort], p2))
                         t.start()
 
-            # check if all threads are done
-            alldone = True
+            # check if stuck:
             for ur in unrar_threads:
-                t, tkey, tresult, p2 = ur
-                if tresult in [1, 2]:
-                    alldone = False
-                    t.join()
+                if ur.idle:
+                    try:
+                        assert idle_start[ur]
+                    except Exception:
+                        idle_start[ur] = time.time()
+                    
+                    if time.time() - idle_start[ur] > 60:
+                        pass
+                    
+
+            # check if all threads are done
+            if unrar_direct_started:
+                alldone = True
+                for ur in unrar_threads:
+                    t, tkey, tresult, p2 = ur
+                    if tresult in [1, 2]:
+                        alldone = False
+                    else:
+                        t.join()
 
         if alldone:
             break
