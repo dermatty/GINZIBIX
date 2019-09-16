@@ -146,9 +146,6 @@ class PWDB():
             nzbname = CharField()
             p2obj = PickleField()
             rarfiles = PickleField()
-            ispw_checked = BooleanField(default=False)
-            is_passworded = BooleanField(default=False)
-            password = CharField(default="N/A")
 
         class FILE(BaseModel):
             orig_name = CharField()
@@ -315,51 +312,6 @@ class PWDB():
         except Exception as e:
             self.logger.warning(whoami() + str(e))
             return []
-
-    def db_p2_set_ispw_checked(self, p2name, ispw_checked):
-        try:
-            p2 = self.P2.select().where(self.P2.fnshort == p2name)
-            p2.ispw_checked = ispw_checked
-            p2.save()
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-
-    def db_p2_get_ispw_checked(self, p2name):
-        try:
-            p2 = self.P2.select().where(self.P2.fnshort == p2name)
-            return p2.ispw_checked
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-
-    def db_p2_set_ispw(self, p2name, ispw):
-        try:
-            p2 = self.P2.select().where(self.P2.fnshort == p2name)
-            p2.is_passworded = ispw
-            p2.save()
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-
-    def db_p2_get_ispw(self, p2name):
-        try:
-            p2 = self.P2.select().where(self.P2.fnshort == p2name)
-            return p2.is_passworded
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-
-    def db_p2_get_password(self, p2name):
-        try:
-            p2 = self.P2.select().where(self.P2.fnshort == p2name)
-            return p2.password
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-
-    def db_p2_set_password(self, p2name, pw):
-        try:
-            p2 = self.P2.select().where(self.P2.fnshort == p2name)
-            p2.password = pw
-            p2.save()
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
 
     # ---- self.SERVER_TS ----
     def db_sts_insert(self, servername, downloaded):
@@ -882,15 +834,6 @@ class PWDB():
         files0 = self.FILE.select()
         res0 = [f0 for f0 in files0 if f0.ftype not in ["rar", "par2", "par2vol"] and f0.status > 0 and f0.nzb.name == nzbname]
         return res0
-
-    def get_all_rar_files(self, nzbname):
-        try:
-            rarfiles = [f0 for f0 in self.NZB.get(self.NZB.name == nzbname).files if f0.ftype == "rar"]
-            rarflist = [r.renamed_name for r in rarfiles]
-            return rarflist
-        except Exception as e:
-            self.logger.warning(whoami() + str(e))
-            return None
 
     def get_all_renamed_rar_files(self, nzbname):
         try:

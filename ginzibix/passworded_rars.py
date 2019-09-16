@@ -13,45 +13,6 @@ from ginzibix.mplogging import whoami
 from ginzibix import par2lib
 
 
-def get_sorted_rar_from_list(rars):
-    rarlist = []
-    minnr = -1000
-    i = 1
-    for rarf in rars:
-        ftype = par2lib.get_file_type(rarf)
-        # gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
-        if ftype == "rar":
-            # first the easy way: *.part01.rar
-            gg = re.search(r"[0-9]+[.]rar", rarf, flags=re.IGNORECASE)
-            if gg:
-                rarlist.append((int(gg.group().split(".")[0]), rarf))
-                continue
-            # then: only .rar
-            gg = re.search(r"[.]rar", rarf, flags=re.IGNORECASE)
-            if gg:
-                rarlist.append((minnr, rarf))
-                minnr += 1
-                continue
-            # then: ".r00"
-            gg = re.search(r"[.]r+[0-9]*", rarf, flags=re.IGNORECASE)
-            if gg:
-                try:
-                    nr = int(gg.group().split(".r")[-1])
-                    rarlist.append((nr, rarf))
-                    continue
-                except Exception:
-                    pass
-            # any other rar-wise file, no idea about sorting, let's hope the best
-            rarlist.append((i, rarf))
-            i += 1
-            # rarlist.append((int(gg.group().split(".")[0]), rarf))
-    rar_sortedlist = []
-    sortedrarlist = []
-    if rarlist:
-        rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
-        sortedrarlist = [r for (i, r) in rar_sortedlist]
-    return sortedrarlist
-
 def get_sorted_rar_list(directory):
     rarlist = []
     minnr = -1000
@@ -87,8 +48,8 @@ def get_sorted_rar_list(directory):
     rar_sortedlist = []
     if rarlist:
         rar_sortedlist = sorted(rarlist, key=lambda nr: nr[0])
-
     return rar_sortedlist
+
 # attention:
 #      test if password protected: unrar vt -p- TSaB2G156300048493oCx190713WAY.part01.rar
 #               UNRAR 5.71 beta 1 freeware      Copyright (c) 1993-2019 Alexander Roshal
@@ -126,7 +87,7 @@ def get_sorted_rar_list(directory):
 
 
 
-def is_rar_password_protected(directory, logger, rarname_start=None):
+def is_rar_password_protected(directory, logger):
     # return value:
     #    1 ... is pw protected
     #    0 ... is not a rar file
@@ -136,14 +97,11 @@ def is_rar_password_protected(directory, logger, rarname_start=None):
     cwd0 = os.getcwd()
     if directory[-1] != "/":
         directory += "/"
-    if not rarname_start:
-        rars = get_sorted_rar_list(directory)
-        if not rars:
-            return -2
+    rars = get_sorted_rar_list(directory)
+    if not rars:
+        return -2
     os.chdir(directory)
     do_restart = False
-    if rarname_start:
-        rars = [(None, rarname_start)]
     for _, rarname0 in rars:
         rarname = rarname0.split("/")[-1]
         ssh = subprocess.Popen(["unrar", "t", "-p-", rarname], shell=False, stdout=subprocess.PIPE, stderr=subprocess. PIPE)
@@ -173,8 +131,6 @@ def is_rar_password_protected(directory, logger, rarname_start=None):
 
 
 def test_password(pw, rarname):
-    if not pw or not rarname:
-        return False
     child = pexpect.spawn("unrar t " + rarname + " -p" + pw)
     str0 = ""
     ctr = 0
@@ -194,15 +150,12 @@ def test_password(pw, rarname):
             do2ndtry = True
             break
         if "\r\n" in str0:
-            if "The specified password is incorrect" in str0 or "No files to extract" in str0:
-                allok = False
-                break
             if "All OK" in str0:
                 allok = True
                 break
-            if "Testing" in str0:
+            if "Testing archive" in str0:
                 ctr += 1
-                if ctr >= 2:
+                if ctr > 2:
                     allok = True
                     break
             str0 = ""
@@ -213,10 +166,8 @@ def test_password(pw, rarname):
 
 
 # if there was a utf-8 can't decode error:
-#        do unrar test for all rars in dir and eval finally
+#        do unrar test for all rars and eval finally
 def test_password2(pw, rarname):
-    if not pw or not rarname:
-        return False
     child = pexpect.spawn("unrar t " + rarname + " -p" + pw)
     str0 = ""
     byt0 = b""
@@ -244,19 +195,10 @@ def test_password2(pw, rarname):
             strarr = str0.split("\r\n")
         except Exception:
             strarr = []
-        ctr = 0
         for sa in strarr:
-            if "The specified password is incorrect" in sa or "No files to extract" in sa:
-                allok = False
-                break
             if "All OK" in sa:
                 allok = True
                 break
-            if "Testing" in sa:
-                ctr += 1
-                if ctr >= 2:
-                    allok = True
-                    break
     return allok
 
 
@@ -266,17 +208,14 @@ def test_passwordV1(pw, rarname):
     return (not ssherr)
 
 
-def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False, rarname1=None):
+def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False):
     if directory[-1] != "/":
         directory += "/"
-    if rarname1:
-        rarname = rarname1
-    else:
-        rars = get_sorted_rar_list(directory)
-        if not rars:
-            return None
-        rarname0 = rars[0][1]
-        rarname = rarname0.split("/")[-1]
+    rars = get_sorted_rar_list(directory)
+    if not rars:
+        return None
+    rarname0 = rars[0][1]
+    rarname = rarname0.split("/")[-1]
     nzbname = nzbname0.split(".nzb")[0]
 
     logger.debug(whoami() + "trying to get password")
@@ -357,10 +296,12 @@ def get_password(directory, pw_file, nzbname0, logger, get_pw_direct=False, rarn
     os.chdir(cwd0)
     return PW
 
-#if __name__ == "__main__":
-    #rar = "/home/stephan/Dokumente/Hatufim.S01E06.The.Journal.German.DD20.720p.HDTV.x264-TVS{{TVSwoPiBA0PrJaE}}.#150/HSTJG034754511B19H04Z19TVS.part1.rar"
-    #pw = "TVSwoPiBA0PrJaE"
-    #print(test_password(pw, rar))
+
+if __name__ == "__main__":
+    rar = "/home/stephan/.ginzibix/incomplete/Pokemon.-.Der.Film.Du.bist.dran.2017.MULTi.COMPLETE.BLURAY{{4nUTnLgRJgtLXnv}}/_renamed0/P-DFDb15636597614VtJh190720Sha.part001.rar"
+    pw = "4nUTnLgRJgtLXnv"
+    test_password(pw, rar)
+
 
     '''logger = logging.getLogger("ginzibix")
     logger.setLevel(logging.DEBUG)
