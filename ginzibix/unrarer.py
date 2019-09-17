@@ -14,10 +14,6 @@ from ginzibix import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, 
     clear_postproc_dirs, get_server_config, get_configured_servers, get_config_for_server, get_free_server_cfg, is_port_in_use, do_mpconnections,\
     kill_mpp
 
-# todo:
-#     unrar 2nd pass
-#     direct unrar (UnrarThread_direct)
-#     cmd's in unrarer
 
 TERMINATED = False
 
@@ -33,7 +29,7 @@ class SigHandler_Unrar:
             os.chdir(self.wd)
         except Exception as e:
             self.logger.warning(whoami() + str(e))
-        self.logger.info(whoami() + "terminating ...")
+        self.logger.info(whoami() + "sighandler, terminating ...")
         TERMINATED = True
 
 
@@ -113,23 +109,27 @@ class UnrarThread_direct(Thread):
         self.unpack_dir = unpack_dir
         self.running = True
         self.rars_wo_p2 = []
+        self.logger = logger
 
     def stop(self):
         self.running = False
 
     def run(self):
+        self.logger.info(whoami() + "starting direct_unrar")
         allrars = self.pwdb.exc("get_all_rar_files", [self.nzbname], {})
         self.status = 1
         for ar in allrars:
             if ar not in self.p2rarlist:
                 self.rars_wo_p2.append(ar)
         if not self.rars_wo_p2:
+            self.logger.info(whoami() + "no p2-less rars, exiting with status 3")
             self.status = 3
             sys.exit()
         self.sortedrars = passworded_rars.get_sorted_rar_from_list(self.rars_wo_p2)
         try:
             firstrarfile = self.sortedrars[0]
         except Exception:
+            self.logger.error(whoami() + "cannot get first rar from sorted rar list in direct_unrar, exiting with status=-1")
             self.status = -1
             sys.exit()
 
@@ -150,6 +150,7 @@ class UnrarThread_direct(Thread):
                 time.sleep(1)
                 continue
             # att'n: no password on non-par2 rars -> this would be too tricky for me!
+            self.logger.debug(whoami() + "first p2-less rar appeared!")
             break
 
         if not self.running:
@@ -164,6 +165,7 @@ class UnrarThread_direct(Thread):
         # II. step-by-step unrarer
         cmd = "unrar x -y -o+ -vp '" + self.verified_dir + firstrarfile + "' '" + self.unpack_dir + "'"
         child = pexpect.spawn(cmd)
+        self.logger.info(whoami() + "starting direct_unrar: " + cmd)
         self.status = 2
         i = 0
         nextrarname = self.sortedrars[i]
@@ -171,7 +173,7 @@ class UnrarThread_direct(Thread):
         while self.running:
             status, statmsg, str0 = process_next_unrar_child_pass(child, self.logger)
             if status < 0:
-                self.logger.info(whoami() + nextrarname + ": " + statmsg)
+                self.logger.error(whoami() + "direct_unrar failed! - " + nextrarname + " / " + statmsg)
                 self.pwdb.exc("db_msg_insert", [self.nzbname, "unrar " + nextrarname + " failed!", "error"], {})
                 if status == -5:
                     self.status = -2
@@ -179,7 +181,11 @@ class UnrarThread_direct(Thread):
                     self.status = -1
                 self.stop()
                 continue
+            self.logger.info(whoami() + "unrar success for " + nextrarname)
+            self.pwdb.exc("db_msg_insert", [self.nzbname, "unrar " + nextrarname + " success!", "info"], {})
             if status == 0:
+                self.logger.info(whoami() + "direct_unrar finished ok, stopping")
+                self.pwdb.exc("db_msg_insert", [self.nzbname, "unrar success for all rar files!", "info"], {})
                 # no check for double packed rars here!
                 self.status = 3
                 self.stop()
@@ -190,7 +196,7 @@ class UnrarThread_direct(Thread):
                 gend = gg.span()[1]
                 nextrarname_new = str0[gend:-19]
             except Exception as e:
-                self.logger.warning(whoami() + str(e) + ", unknown error")
+                self.logger.error(whoami() + str(e) + ", unknown error, exiting with status -1")
                 self.status = -1
                 self.pwdb.exc("db_msg_insert", [self.nzbname, "unrar " + self.sortedrars[i] + " failed!", "error"], {})
                 self.stop()
@@ -201,13 +207,14 @@ class UnrarThread_direct(Thread):
                 if nextrarname != nextrarname_new:
                     raise
             except Exception:
-                self.logger.error(whoami() + "cannot get next rarname: " + nextrarname + " / " + nextrarname_new)
+                self.logger.error(whoami() + "cannot get next rarname: " + nextrarname + " / " + nextrarname_new + ", exiting w status -1")
                 self.pwdb.exc("db_msg_insert", [self.nzbname, "unrar cannot get next rar file " + nextrarname_new, "error"], {})
                 self.status = -1
                 self.stop()
                 continue
             gotnextrar = False
             self.idle = True
+            self.logger.debug(whoami() + "direct_unrar waiting for next rar file")
             while not gotnextrar and self.running:
                 time.sleep(1)
                 for f0 in glob.glob(self.verified_dir + "*") + glob.glob(self.verified_dir + ".*"):
@@ -261,12 +268,14 @@ class UnrarThread_p2chain(Thread):
         self.running = False
 
     def run(self):
+        self.logger.info(whoami() + "unrar thread starting for " + self.fnshort)
         self.status = 1   # running
 
         # if no p2 rarfiles -> exit
         try:
             firstrarfile = self.rarfiles[0]
         except Exception:
+            self.logger.info(whoami() + "no p2-rars, exiting with status -1")
             self.status = -1
             sys.exit()
 
@@ -289,6 +298,7 @@ class UnrarThread_p2chain(Thread):
                 time.sleep(1)
                 continue
             self.idle = False
+            self.logger.info(whoami() + "unrar " + self.fnshort + ": first rar appeared")
 
             # first rar appeared -> pw checked?
             if not self.pwdb.exc("db_p2_get_ispw_checked", [self.fnshort], {}):
@@ -359,6 +369,7 @@ class UnrarThread_p2chain(Thread):
         else:
             cmd = "unrar x -y -o+ -vp '" + self.verified_dir + firstrarfile + "' '" + self.unpack_dir + "'"
         child = pexpect.spawn(cmd)
+        self.logger.info(whoami() + "starting unrar " + self.fnshort + ": " + cmd)
         self.status = 2
 
         i = 0
@@ -375,6 +386,8 @@ class UnrarThread_p2chain(Thread):
                     self.status = -1
                 self.stop()
                 continue
+            self.logger.info(whoami() + "unrar success for " + nextrarname)
+            self.pwdb.exc("db_msg_insert", [self.nzbname, "unrar " + nextrarname + " success!", "info"], {})
             if status == 0:
                 # check for double packed!
                 self.pwdb.exc("db_msg_insert", [self.nzbname, "checking for double packed rars", "info"], {})
@@ -441,6 +454,7 @@ class UnrarThread_p2chain(Thread):
             gotnextrar = False
 
             self.idle = True
+            self.logger.debug(whoami() + "unrar waiting for next rar file")
             while not gotnextrar and self.running:
                 for f0 in glob.glob(self.verified_dir + "*") + glob.glob(self.verified_dir + ".*"):
                     if nextrarname == f0:
@@ -461,7 +475,17 @@ class UnrarThread_p2chain(Thread):
         self.logger.info(whoami() + "exited!")
 
 
+def stop_unrar_threads(unrar_threads):
+    for ur in unrar_threads:
+        t, _, _, _ = ur
+        t.stop()
+    for ur in unrar_threads:
+        t, _, _, _ = ur
+        t.join()
+
+
 def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_file):
+    global TERMINATED
 
     setproctitle("gzbx." + os.path.basename(__file__))
     logger = mplogging.setup_logger(mp_loggerqueue, __file__)
@@ -487,17 +511,13 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
     thread_results = {}
     unrar_direct_started = False
     idle_start = {}
-
+    unrar_timeout = None
 
     while not True:
 
         if TERMINATED:
-            for ur in unrar_threads:
-                t, _, _, _ = ur
-                t.stop()
-            for ur in unrar_threads:
-                t, _, _, _ = ur
-                t.join()
+            logger.debug(whoami() + "received TERMINATE, stopping threads")
+            stop_unrar_threads(unrar_threads)
             break
 
         if pipe.poll(timeout=0.5):
@@ -509,25 +529,26 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                 continue
             # here comes cmd ifs ...
             if cmd == "stop":
-                for ur in unrar_threads:
-                    t, _, _, _ = ur
-                    t.stop()
-                for ur in unrar_threads:
-                    t, _, _, _ = ur
-                    t.join()
+                logger.debug(whoami() + "received STOP, stopping threads")
+                stop_unrar_threads(unrar_threads)
+                break
             if cmd == "all_verified":
                 # all articles downloaded!
                 # now we now if there are rars which do not belong to par2 files
+                logger.debug(whoami() + "received ALL_VERIFIED, starting direct_unrar")
                 thread_results["direct"] = 1
                 t = UnrarThread_direct(thread_results["direct"], nzbname, verified_dir, unpack_dir, p2rarlist, pwdb, logger)
                 unrar_threads.append((t, None, thread_results["direct"], None))
                 t.start()
                 unrar_direct_started = True
+                unrar_threads_started = True
+                unrar_timeout = 15
             pipe.send(True)
             continue
 
         if not unrar_threads_started:
             if os.listdir(verified_dir):
+                logger.debug(whoami() + "first verified rar appeared, starting p2 unrar threads")
                 p2list = pwdb.exc("db_p2_get_p2list", [nzbname], {})
                 # threads for par2 rarchains
                 for p2 in p2list:
@@ -547,6 +568,7 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                     t.join()
                     threads_to_be_restarted.append((p2, ur))
             if threads_to_be_restarted:
+                logger.info(whoami() + "there are threads to be restarted, restarting ...")
                 for ttbr in threads_to_be_restarted:
                     p2, ur = ttbr
                     unrar_threads.remove(ur)
@@ -558,16 +580,22 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                         t.start()
 
             # check if stuck:
-            for ur in unrar_threads:
-                if ur.idle:
-                    try:
-                        assert idle_start[ur]
-                    except Exception:
-                        idle_start[ur] = time.time()
-                    
-                    if time.time() - idle_start[ur] > 60:
-                        pass
-                    
+            if unrar_timeout:
+                unrarer_is_stuck = False
+                for ur in unrar_threads:
+                    if ur.idle:
+                        try:
+                            assert idle_start[ur]
+                        except Exception:
+                            idle_start[ur] = time.time()
+                        if time.time() - idle_start[ur] > 60:
+                            unrarer_is_stuck = True
+                            break
+                if unrarer_is_stuck:
+                    logger.debug(whoami() + "unrarer stuck, terminating ...")
+                    pwdb.exc("db_msg_insert", [nzbname, "unrar stuck!", "error"], {})
+                    stop_unrar_threads(unrar_threads)
+                    break
 
             # check if all threads are done
             if unrar_direct_started:
@@ -580,6 +608,7 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                         t.join()
 
         if alldone:
+            logger.info(whoami() + "all unrar threads finished, terminating ...")
             break
 
     if TERMINATED:
@@ -593,8 +622,12 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
             allok = False
 
     if allok:
+        logger.info(whoami() + "unrarer exiting with status ALLOK!")
         pwdb.exc("db_nzb_update_unrar_status", [nzbname, 2], {})
+        pwdb.exc("db_msg_insert", [nzbname, "unrar finall SUCCESS!", "info"], {})
     else:
-        pwdb.exc("db_nzb_update_unrar_status", [nzbname, 1], {})
+        pwdb.exc("db_nzb_update_unrar_status", [nzbname, -1], {})
+        logger.error(whoami() + "unrarer exiting with status FAILURE!")
+        pwdb.exc("db_msg_insert", [nzbname, "unrar finally FAILED!", "error"], {})
 
     logger.info(whoami() + "exited!")
