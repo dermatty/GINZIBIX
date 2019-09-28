@@ -103,7 +103,6 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     stop_wait(nzbname, dirs, pwdb)
 
     event_verifieridle = mp_events["verifier"]
-    event_unrareridle = mp_events["unrarer"]
 
     pwdb.exc("db_msg_insert", [nzbname, "starting postprocess", "info"], {})
     logger.debug(whoami() + "starting clearing queues & pipes")
@@ -152,6 +151,8 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     renamed_rar_files = pwdb.exc("get_all_renamed_rar_files", [nzbname], {})
     # verifier not running, status = 0 --> start & wait
     if not mpp_is_alive(mpp, "verifier") and verifystatus == 0 and not all_rars_are_verified and renamed_rar_files:
+        if mpp_is_alive(mpp, "unrarer"):
+            do_unrarconnections(pipes, "stop", None)
         logger.info(whoami() + "there are files to check by par_verifier, starting par_verifier ...")
         p2 = pwdb.exc("get_renamed_p2", [rename_dir, nzbname], {})
         if p2:
@@ -208,6 +209,14 @@ def postprocess_nzb(nzbname, articlequeue, resultqueue, mp_work_queue, pipes, mp
     stop_wait(nzbname, dirs, pwdb)
 
     # ---  UNRARER ---
+    # if verifier success
+    #     if alive unrarer -> start
+    #     if not alive: start/wait 1 sec & all_verified
+    verifystatus = pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
+    unrarstatus = pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
+
+    if verifystatus
+
     # already checked if pw protected?
     is_pw_checked = pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {})
     if not is_pw_checked:

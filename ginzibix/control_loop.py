@@ -17,7 +17,7 @@ from ginzibix.mplogging import whoami
 from ginzibix import renamer, nzb_parser, postprocessor, mplogging, downloader, mpconnections
 from ginzibix import PWDBSender, make_dirs, mpp_is_alive, mpp_join, GUI_Poller, get_cut_nzbname, get_cut_msg, get_bg_color, get_status_name_and_color,\
     clear_postproc_dirs, get_server_config, get_configured_servers, get_config_for_server, get_free_server_cfg, is_port_in_use, do_mpconnections,\
-    kill_mpp
+    kill_mpp, do_unrarconnections
 
 
 GB_DIVISOR = (1024 * 1024 * 1024)
@@ -160,6 +160,7 @@ def clear_download(nzbname, pwdb, articlequeue, resultqueue, mp_work_queue, dl, 
     logger.info(whoami() + "mp_work_queue cleared!")
     # 5. kill unrarer
     logger.debug(whoami() + "terminating unrarer")
+    do_unrarconnections(pipes, "exit", None)
     kill_mpp(mpp, "unrarer")
     logger.info(whoami() + "unrarer terminated!")
     # 6. stop rar_verifier
@@ -277,7 +278,6 @@ def ginzi_main(cfg_file, cfg, dirs, subdirs, guiport, mp_loggerqueue):
 
     # multiprocessing events
     mp_events = {}
-    mp_events["unrarer"] = mp.Event()
     mp_events["verifier"] = mp.Event()
 
     # threading events

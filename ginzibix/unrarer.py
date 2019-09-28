@@ -502,16 +502,9 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
     except FileNotFoundError:
         os.mkdir(verified_dir)
 
-    pwdb.exc("db_nzb_update_unrar_status", [nzbname, 1], {})
-
-    unrar_threads_started = False
     unrar_threads = []
-    alldone = False
-    p2rarlist = []
-    thread_results = {}
-    unrar_direct_started = False
-    idle_start = {}
-    unrar_timeout = None
+    cmdlist = ["start", "stop", "exit", "all_verified"]
+    pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
 
     while not True:
 
@@ -520,6 +513,7 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
             stop_unrar_threads(unrar_threads)
             break
 
+        # if cmd sent
         if pipe.poll(timeout=0.5):
             try:
                 cmd = None
@@ -527,12 +521,33 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
             except Exception as e:
                 logger.warning(whoami() + str(e))
                 continue
-            # here comes cmd ifs ...
-            if cmd == "stop":
+            if cmd not in cmdlist:
+                pipe.send(False)
+                continue
+            if cmd == "start":
+                unrar_threads_started = False
+                unrar_threads = []
+                alldone = False
+                p2rarlist = []
+                thread_results = {}
+                unrar_direct_started = False
+                idle_start = {}
+                unrar_timeout = None
+                started = False
+                logger.debug(whoami() + "received START, starting threads")
+                pwdb.exc("db_nzb_update_unrar_status", [nzbname, 1], {})
+                started = True
+            elif cmd == "stop":
                 logger.debug(whoami() + "received STOP, stopping threads")
                 stop_unrar_threads(unrar_threads)
+                pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                started = False
+            elif cmd == "exit":
+                logger.debug(whoami() + "received EXIT, stopping threads & exiting")
+                stop_unrar_threads(unrar_threads)
+                started = False
                 break
-            if cmd == "all_verified":
+            elif cmd == "all_verified":
                 # all articles downloaded!
                 # now we now if there are rars which do not belong to par2 files
                 logger.debug(whoami() + "received ALL_VERIFIED, starting direct_unrar")
@@ -544,6 +559,9 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
                 unrar_threads_started = True
                 unrar_timeout = 15
             pipe.send(True)
+            continue
+
+        if not started:
             continue
 
         if not unrar_threads_started:
@@ -615,11 +633,14 @@ def unrarer(verified_dir, unpack_dir, nzbname, pipe, mp_loggerqueue, cfg, pw_fil
         logger.info(whoami() + "terminated!")
 
     # final works
-    allok = True
-    for ur in unrar_threads:
-        t, tkey, tresult, p2 = ur
-        if tresult != 3:
-            allok = False
+    if unrar_threads:
+        allok = True
+        for ur in unrar_threads:
+            t, tkey, tresult, p2 = ur
+            if tresult != 3:
+                allok = False
+    else:
+        allok = False
 
     if allok:
         logger.info(whoami() + "unrarer exiting with status ALLOK!")

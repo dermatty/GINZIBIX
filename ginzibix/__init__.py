@@ -123,6 +123,17 @@ def do_mpconnections(pipes, cmd, param):
         return res
 
 
+def do_unrarconnections(pipes, cmd, param):
+    with pipes["unrarer"][2]:
+        res = None
+        try:
+            pipes["unrarer"][0].send((cmd, param))
+            res = pipes["unrarer"][0].recv()
+        except Exception:
+            res = None
+        return res
+
+
 def clear_postproc_dirs(nzbname, dirs):
     # clear verified_rardir, unpackdir
     nzbdirname = re.sub(r"[.]nzb$", "", nzbname, flags=re.IGNORECASE) + "/"

@@ -15,7 +15,7 @@ from ginzibix.mplogging import whoami
 from ginzibix import par_verifier, par2lib, partial_unrar, article_decoder, passworded_rars
 from ginzibix import PWDBSender, mpp_is_alive, mpp_join, GUI_Poller, get_cut_nzbname, get_cut_msg, get_bg_color, get_status_name_and_color,\
     clear_postproc_dirs, get_server_config, get_configured_servers, get_config_for_server, get_free_server_cfg, is_port_in_use, do_mpconnections,\
-    kill_mpp
+    kill_mpp, do_unrarconnections
 
 
 empty_yenc_article = [b"=ybegin line=128 size=14 name=ginzi.txt",
@@ -40,7 +40,6 @@ class Downloader(Thread):
         self.p2list = []
         self.mp_loggerqueue = mp_loggerqueue
         self.nzbname = nzbname
-        self.event_unrareridle = mp_events["unrarer"]
         self.event_verifieridle = mp_events["verifier"]
         self.cfg = cfg
         self.pipes = pipes
@@ -49,7 +48,6 @@ class Downloader(Thread):
         self.resultqueue = resultqueue
         self.mp_work_queue = mp_work_queue
         self.renamer_result_queue = renamer_result_queue
-        self.mp_unrarqueue = mp.Queue()
         self.mp_nzbparser_outqueue = mp.Queue()
         self.mp_nzbparser_inqueue = mp.Queue()
         self.ct = ct
@@ -638,22 +636,21 @@ class Downloader(Thread):
         getnextnzb = False
         article_failed = 0
 
-        unrarer_idle_starttime = sys.maxsize
-        last_rar_downloadedtime = sys.maxsize
-        rarcounter = 0
-
+        first_rar_appeared_in_verified_dir = False
         self.tt_wait_for_completion = None
-        self.tt_wait_for_completion_unrar = None
 
+        # start unrarer (runs in idle)
+        self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                                nzbname, self.pipes["unrarer"][1], self.mp_loggerqueue,
+                                                                                self.cfg, self.pw_file, ))
+        self.mpp_unrarer.start()
+        self.mpp["unrarer"] = self.mpp_unrarer
+
+        # --------------- loop ----------------------------------
         while self.stopped_counter < stopped_max_counter:
 
-            len_p2list = self.pwdb.exc("db_p2_get_len_p2list", [self.nzbname], {})
-
-            # monitor idle times of unrarer to avoid deadlock further down
-            if unrarer_idle_starttime == sys.maxsize and self.event_unrareridle.is_set():
-                unrarer_idle_starttime = time.time()
-            elif unrarer_idle_starttime != sys.maxsize and not self.event_unrareridle.is_set():
-                unrarer_idle_starttime = sys.maxsize
+            if not first_rar_appeared_in_verified_dir:
+                first_rar_appeared_in_verified_dir = len([rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]) > 0
 
             # if terminated: ensure that all tasks are processed
             if self.event_stopped.wait(0.25):
@@ -679,47 +676,6 @@ class Downloader(Thread):
                 self.stop()
                 self.stopped_counter = stopped_max_counter       # stop immediately
                 continue
-
-            # monitor unrarer
-            if self.event_stopped.isSet() and mpp_is_alive(self.mpp, "unrarer"):
-                self.logger.info(whoami() + "unrarer re-started, but should be dead, stopping ...")
-                kill_mpp(self.mpp, "unrarer")
-            if not self.event_stopped.isSet():
-                unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
-                # if len p2list > 1: stop unrarer
-                if mpp_is_alive(self.mpp, "unrarer") and len_p2list > 1:
-                    kill_mpp(self.mpp, "unrarer")
-                    self.logger.info(whoami() + "killing unrarer due to multiple par2 files!")
-                    self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
-                if unrarstatus == 1:    # if unrarer is busy, does it hang?
-                    if not mpp_is_alive(self.mpp, "unrarer") and len_p2list < 2:
-                        self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
-                        kill_mpp(self.mpp, "unrarer")
-                        self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                                                nzbname, self.mp_loggerqueue, None, self.event_unrareridle,
-                                                                                                self.cfg, ))
-                        self.mpp_unrarer.start()
-                        self.mpp["unrarer"] = self.mpp_unrarer
-                elif unrarstatus == 2:  # finished but some artefacts remain?
-                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
-                        self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
-                        kill_mpp(self.mpp, "unrarer")
-                elif unrarstatus == -1:  # failed but still running
-                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
-                        self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
-                        kill_mpp(self.mpp, "unrarer")
-                elif unrarstatus == -2 and len_p2list < 2:  # failed bcause wrong first rar -> restart
-                    self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
-                    kill_mpp(self.mpp, "unrarer")
-                    self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                                            nzbname, self.mp_loggerqueue, None, self.event_unrareridle,
-                                                                                            self.cfg, ))
-                    self.mpp_unrarer.start()
-                    self.mpp["unrarer"] = self.mpp_unrarer
-                elif unrarstatus == 0:    # if unrarer should be state 0 but running -> kill!
-                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
-                        self.logger.debug(whoami() + "unrarer should be idle, but is not, cleaning ...")
-                        kill_mpp(self.mpp, "unrarer")
 
             # monitor decoder
             if self.event_stopped.isSet() and mpp_is_alive(self.mpp, "decoder"):
@@ -813,70 +769,8 @@ class Downloader(Thread):
                 # if unrarer is running and verifystatus is negative, stop!
                 elif mpp_is_alive(self.mpp, "unrarer") and verifystatus == -2:
                     self.logger.debug(whoami() + "unrarer running but stopping/postponing now due to broken rar file!")
-                    kill_mpp(self.mpp, "unrarer")
-                    self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                    do_unrarconnections(self.pipes, "stop", None)
                     self.pwdb.exc("db_msg_insert", [nzbname, "par repair needed, postponing unrar", "info"], {})
-
-            # check if unrarer should be started
-            if not self.event_stopped.isSet() and unrarstatus == 0 and self.filetypecounter["rar"]["counter"] > oldrarcounter\
-               and not self.pwdb.exc("db_nzb_get_ispw_checked", [nzbname], {}):
-                # testing if pw protected
-                rf = [rf0 for _, _, rf0 in os.walk(self.verifiedrar_dir) if rf0]
-                # if no rar files in verified_rardir: skip as we cannot test for password
-                if rf:
-                    rarcounter += 1
-                    last_rar_downloadedtime = time.time()
-                    oldrarcounter = self.filetypecounter["rar"]["counter"]
-                    self.logger.debug(whoami() + ": first/new verified rar file appeared, testing if pw protected")
-                    is_pwp = passworded_rars.is_rar_password_protected(self.verifiedrar_dir, self.logger)
-                    self.pwdb.exc("db_nzb_set_ispw_checked", [nzbname, True], {})
-                    if is_pwp == 0:
-                        self.logger.warning(whoami() + "cannot test rar if pw protected, something is wrong: " + str(is_pwp) + ", exiting ...")
-                        self.pwdb.exc("db_nzb_update_status", [nzbname, -2], {})  # status download failed
-                        return_reason = "download failed"
-                        self.pwdb.exc("db_msg_insert", [nzbname, "download failed due to pw test not possible", "error"], {})
-                        self.results = nzbname, ((bytescount0, self.allbytesdownloaded0, availmem0, avgmiblist, self.filetypecounter, nzbname, article_health,
-                                                  self.overall_size, self.already_downloaded_size, self.p2, self.overall_size_wparvol,
-                                                  self.allfileslist)), return_reason, self.main_dir
-                        self.stop()
-                        self.stopped_counter = stopped_max_counter
-                        continue
-                    elif is_pwp == -2:         # could not check -> check next time and continue downloading
-                        self.logger.warning(whoami() + "cannot test rar if pw protected, but continuing ...")
-                    if is_pwp == 1:
-                        # if pw protected -> postpone password test + unrar
-                        self.pwdb.exc("db_nzb_set_ispw", [nzbname, True], {})
-                        self.pwdb.exc("db_msg_insert", [nzbname, "rar archive is password protected", "warning"], {})
-                        self.logger.info(whoami() + "rar archive is pw protected, postponing unrar to postprocess ...")
-                    elif is_pwp == -1 and len_p2list < 2:
-                        # if not pw protected -> normal unrar
-                        self.pwdb.exc("db_nzb_set_ispw", [nzbname, False], {})
-                        verifystatus = self.pwdb.exc("db_nzb_get_verifystatus", [nzbname], {})
-                        if verifystatus != -2:
-                            self.logger.info(whoami() + "rar archive is not pw protected, starting unrarer ...")
-                            kill_mpp(self.mpp, "unrarer")
-                            self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
-                            self.logger.info(whoami() + "starting unrarer")
-                            self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
-                                                                                                    nzbname, self.mp_loggerqueue, None, self.event_unrareridle,
-                                                                                                    self.cfg, ))
-                            self.mpp_unrarer.start()
-                            self.mpp["unrarer"] = self.mpp_unrarer
-                        else:
-                            if mpp_is_alive(self.mpp, "unrarer"):
-                                kill_mpp(self.mpp, "unrarer")
-                                self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
-                            self.logger.debug(whoami() + "not starting unrarer due to verifier state = -2")
-                    elif is_pwp == -3:
-                        self.logger.info(whoami() + ": cannot check for pw protection as first rar not present yet")
-                        self.pwdb.exc("db_nzb_set_ispw_checked", [nzbname, False], {})
-                else:
-                    self.logger.debug(whoami() + "no rars in verified_rardir yet, cannot test for pw / start unrarer yet!")
-            elif self.filetypecounter["rar"]["counter"] > rarcounter:
-                self.logger.debug(whoami() + ": new rar downloaded")
-                rarcounter += 1
-                last_rar_downloadedtime = time.time()
-
             # if par2 available start par2verifier, else just copy rars unchecked!
             if not self.event_stopped.isSet() and not mpp_is_alive(self.mpp, "verifier"):
                 all_rars_are_verified, _ = self.pwdb.exc("db_only_verified_rars", [nzbname], {})
@@ -894,6 +788,56 @@ class Downloader(Thread):
                         self.mpp_verifier.start()
                         self.mpp["verifier"] = self.mpp_verifier
                         self.logger.info(whoami() + "verifier started!")
+
+            # check if unrarer should be started
+            if not self.event_stopped.isSet():
+                unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
+                if unrarstatus == 0 and first_rar_appeared_in_verified_dir and verifystatus in [0, 1, 2]:
+                    do_unrarconnections(self.pipes, "start", None)
+                if verifystatus == 2:
+                    do_unrarconnections(self.pipes, "all_verified", None)
+
+            # monitor unrarer
+            if self.event_stopped.isSet() and mpp_is_alive(self.mpp, "unrarer"):
+                self.logger.info(whoami() + "unrarer re-started, but should be dead, stopping ...")
+                do_unrarconnections(self.pipes, "stop", None)
+            #    # kill_mpp(self.mpp, "unrarer")
+            '''if not self.event_stopped.isSet():
+                unrarstatus = self.pwdb.exc("db_nzb_get_unrarstatus", [nzbname], {})
+                # if len p2list > 1: stop unrarer
+                if mpp_is_alive(self.mpp, "unrarer") and len_p2list > 1:
+                    kill_mpp(self.mpp, "unrarer")
+                    self.logger.info(whoami() + "killing unrarer due to multiple par2 files!")
+                    self.pwdb.exc("db_nzb_update_unrar_status", [nzbname, 0], {})
+                if unrarstatus == 1:    # if unrarer is busy, does it hang?
+                    if not mpp_is_alive(self.mpp, "unrarer") and len_p2list < 2:
+                        self.logger.info(whoami() + "unrarer should run but is dead, restarting unrarer")
+                        kill_mpp(self.mpp, "unrarer")
+                        self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                                                nzbname, self.mp_loggerqueue, None, self.event_unrareridle,
+                                                                                                self.cfg, ))
+                        self.mpp_unrarer.start()
+                        self.mpp["unrarer"] = self.mpp_unrarer
+                elif unrarstatus == 2:  # finished but some artefacts remain?
+                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
+                        self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
+                        kill_mpp(self.mpp, "unrarer")
+                elif unrarstatus == -1:  # failed but still running
+                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
+                        self.logger.debug(whoami() + "unrarer finished, but not cleaned up, cleaning ...")
+                        kill_mpp(self.mpp, "unrarer")
+                elif unrarstatus == -2 and len_p2list < 2:  # failed bcause wrong first rar -> restart
+                    self.logger.info(whoami() + "unrarer stopped due to wrong start rar, restarting ...")
+                    kill_mpp(self.mpp, "unrarer")
+                    self.mpp_unrarer = mp.Process(target=partial_unrar.partial_unrar, args=(self.verifiedrar_dir, self.unpack_dir,
+                                                                                            nzbname, self.mp_loggerqueue, None, self.event_unrareridle,
+                                                                                            self.cfg, ))
+                    self.mpp_unrarer.start()
+                    self.mpp["unrarer"] = self.mpp_unrarer
+                elif unrarstatus == 0:    # if unrarer should be state 0 but running -> kill!
+                    if mpp_is_alive(self.mpp, "unrarer") or self.mpp["unrarer"]:
+                        self.logger.debug(whoami() + "unrarer should be idle, but is not, cleaning ...")
+                        kill_mpp(self.mpp, "unrarer")'''
 
             # read resultqueue + decode via mp
             newresult, avgmiblist, infolist, files, failed = self.process_resultqueue(avgmiblist, infolist, files)
@@ -991,7 +935,7 @@ class Downloader(Thread):
                 self.tt_wait_for_completion = None
 
             # all downloaded but unrarer still running(stuck?)
-            unrarer_is_stuck = False
+            '''unrarer_is_stuck = False
             if self.event_unrareridle.is_set() and (getnextnzb or self.all_queues_are_empty()):
                 if not self.tt_wait_for_completion_unrar:
                     self.tt_wait_for_completion_unrar = time.time()
@@ -1023,7 +967,7 @@ class Downloader(Thread):
                                           self.allfileslist)), return_reason, self.main_dir
                 self.stop()
                 self.stopped_counter = stopped_max_counter
-                continue
+                continue'''
 
         # store infolist in file
         if infolist and files:
